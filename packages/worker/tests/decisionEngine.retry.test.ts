@@ -146,7 +146,8 @@ describe("decideRetry: runNodes observations", () => {
 describe("retries are not rounds", () => {
   it("retry.ts never reads or decides a fix round or a replan", () => {
     const source = fs.readFileSync(path.resolve(__dirname, "../src/orchestrator/decisionEngine/retry.ts"), "utf8");
-    const imports = source.split("\n").filter((line) => line.startsWith("import "));
+    // Split on both line endings: a Windows checkout gives this file CRLF.
+    const imports = source.split(/\r?\n/).filter((line) => line.startsWith("import "));
     expect(imports).toEqual(['import { isTransientLlmError } from "@/effects/llmCall";']);
     expect(source).not.toMatch(/\b(round|rounds|replansLeft|fixRoundsExhausted)\b\s*[:=]/);
   });

@@ -192,9 +192,9 @@ export class BudgetTracker {
    * agent-count limits gate delegation decisions, not calls, so they are
    * deliberately not part of this check.
    */
-  isLlmBudgetExhausted(): { reason?: string; exhausted: boolean } {
-    if (!this.canCallLLM()) return { exhausted: true, reason: `LLM call budget exhausted (${this.llmCalls}/${this.policy.maxLLMCallsPerTask})` };
-    if (this.isTokenBudgetExhausted()) return { exhausted: true, reason: `Token budget exhausted (${this.totalTokens}/${this.policy.maxTokenBudgetPerTask})` };
+  isLlmBudgetExhausted(): { reason?: string; exhausted: boolean; key?: string } {
+    if (!this.canCallLLM()) return { exhausted: true, key: "llm_calls", reason: `LLM call budget exhausted (${this.llmCalls}/${this.policy.maxLLMCallsPerTask})` };
+    if (this.isTokenBudgetExhausted()) return { exhausted: true, key: "tokens", reason: `Token budget exhausted (${this.totalTokens}/${this.policy.maxTokenBudgetPerTask})` };
     return { exhausted: false };
   }
 
@@ -215,8 +215,11 @@ export class BudgetTracker {
     if (this.policy.budgetMode === "enforce") {
       throw new BudgetExhaustedError(state.reason);
     }
-    if (!this.warnedReasons.has(state.reason)) {
-      this.warnedReasons.add(state.reason);
+    // Dedupe on the stable cause, not the reason text: its counters change
+    // with every call (13/12, 14/12…), which would warn once per call.
+    const key = state.key ?? state.reason;
+    if (!this.warnedReasons.has(key)) {
+      this.warnedReasons.add(key);
       onWarn?.(state.reason);
     }
   }

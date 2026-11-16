@@ -25,16 +25,13 @@ const agent = (role: string, capabilities: string[]): AgentDefinition => ({
   priority: 5,
 });
 
+// The four fixed roles. Docs are Backend's, research is the CTO's, and QA
+// carries the code-review capability the Reviewer used to own.
 const TEAM: AgentDefinition[] = [
-  agent("cto", ["architecture"]),
-  agent("designer", ["ui-ux-design"]),
-  agent("frontend", ["frontend-development"]),
-  agent("backend", ["backend-development"]),
-  agent("qa", ["browser-testing"]),
-  agent("support", ["documentation-support"]),
-  agent("devops", ["github", "shell-execution"]),
-  agent("reviewer", ["code-review"]),
-  agent("researcher", ["research"]),
+  agent("cto", ["architecture", "research"]),
+  agent("frontend", ["frontend-development", "ui-ux-design"]),
+  agent("backend", ["backend-development", "documentation-support", "code-review", "security-audit"]),
+  agent("qa", ["browser-testing", "code-review"]),
 ];
 
 const node = (key: string, kind: PlanSubtask["kind"], capability: string): PlanSubtask => ({
@@ -103,7 +100,7 @@ describe("reportSummary: one line per role", () => {
     expect(lines.join(" ")).not.toContain("@");
   });
 
-  it("docs task is reported by Support; research by the Researcher", () => {
+  it("docs task is reported by Backend; research by the CTO", () => {
     expect(
       buildRoleLines({
         plan: plan([node("doc", "code_change", "documentation-support")]),
@@ -111,7 +108,7 @@ describe("reportSummary: one line per role", () => {
         subtasks: [{ key: "doc", kind: "code_change", status: "completed" }],
         state: state({ appliedFilesBySubtask: new Map([["doc", ["README.md"]]]) }),
       })
-    ).toEqual(["Support: 1 subtask done, 1 file changed (README.md)."]);
+    ).toEqual(["Backend: 1 subtask done, 1 file changed (README.md)."]);
     expect(
       buildRoleLines({
         plan: plan([node("a", "research", "research"), node("b", "research", "research")]),
@@ -122,11 +119,11 @@ describe("reportSummary: one line per role", () => {
         ],
         state: state(),
       })
-    ).toEqual(["Researcher: 1 of 2 subtasks done."]);
+    ).toEqual(["CTO: 1 of 2 subtasks done."]);
   });
 
   it("caps the role lines and names the rest", () => {
-    const caps = ["frontend-development", "backend-development", "documentation-support", "research", "ui-ux-design"];
+    const caps = ["frontend-development", "backend-development", "browser-testing", "research"];
     const nodes = caps.map((c, i) => node(`n${i}`, "analysis", c));
     const lines = buildRoleLines({
       plan: plan(nodes),
@@ -135,7 +132,7 @@ describe("reportSummary: one line per role", () => {
       state: state(),
     });
     expect(lines).toHaveLength(MAX_ROLE_LINES);
-    expect(lines[MAX_ROLE_LINES - 1]).toBe("Also worked: Support, Researcher, Designer.");
+    expect(lines[MAX_ROLE_LINES - 1]).toBe("Also worked: QA, CTO.");
   });
 });
 
@@ -244,14 +241,14 @@ describe("finalize: the report carries the cross-role summary", () => {
     expect(messages[0].content).toBe(
       [
         "Done.",
-        "Frontend: 1 subtask done, 1 file changed (index.html).\nSupport: 1 subtask done.",
+        "Frontend: 1 subtask done, 1 file changed (index.html).\nBackend: 1 subtask done.",
         "QA: structural browser checks passed. Tested 1 check: page-loads.",
         "Verification: passed.",
       ].join("\n\n")
     );
     expect(messages[0].content).not.toContain("@");
     expect(events.find((e) => e.type === "task.summary")?.payload).toEqual({
-      roles: ["Frontend: 1 subtask done, 1 file changed (index.html).", "Support: 1 subtask done."],
+      roles: ["Frontend: 1 subtask done, 1 file changed (index.html).", "Backend: 1 subtask done."],
       qa: "QA: structural browser checks passed. Tested 1 check: page-loads.",
     });
   });

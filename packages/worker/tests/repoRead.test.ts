@@ -9,7 +9,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { REPO_TOOL_CAPS, runRepoToolLoop, toolResultMessage } from "@/api/convex/lib/chat/repoTools";
-import { globToRegExp, guardRepoPath, runRepoReadTool } from "@/tools/repoRead";
+import { guardRepoPath, runRepoReadTool } from "@/tools/repoRead";
+import { disposeAllWorkspaceIndexes } from "@/tools/workspaceIndex";
 import { processNextRepoToolCall } from "@/services/repoTools";
 
 let root: string;
@@ -36,6 +37,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  disposeAllWorkspaceIndexes();
   await fs.rm(root, { recursive: true, force: true });
   await fs.rm(outside, { recursive: true, force: true });
 });
@@ -80,13 +82,14 @@ describe("list_files / grep / read_file", () => {
     }
   });
 
-  it("list_files honours a glob", async () => {
+  it("list_files honours a glob (npm-glob semantics from the workspace index)", async () => {
     const res = await runRepoReadTool(root, "list_files", { path: "src", glob: "**/*.ts" });
     expect(res.text).toContain("src/lib/util.ts");
     expect(res.text).not.toContain("README.md");
-    expect(globToRegExp("*.md").test("docs/a.md")).toBe(true);
-    expect(globToRegExp("src/**/*.ts").test("src/a/b.ts")).toBe(true);
-    expect(globToRegExp("src/**/*.ts").test("lib/a.ts")).toBe(false);
+    // A bare pattern is root-relative, as npm glob defines it.
+    const rootGlob = await runRepoReadTool(root, "list_files", { glob: "*.md" });
+    expect(rootGlob.text).toContain("README.md");
+    expect(rootGlob.text).not.toContain("src/lib/util.ts");
   });
 
   it("grep finds matches with path:line and never searches ignored or secret files", async () => {
@@ -99,6 +102,19 @@ describe("list_files / grep / read_file", () => {
     expect(all.text).not.toContain(".git/");
     expect(all.text).not.toContain("sk-should-never-leak");
     expect(all.text).not.toContain("outside replyToChat");
+  });
+
+  it("the workspace index sees a file created after the first scan", async () => {
+    await runRepoReadTool(root, "list_files", {});
+    await fs.writeFile(path.join(root, "fresh.ts"), "export const fresh = 1;\n");
+    const deadline = Date.now() + 3_000;
+    let text = "";
+    while (Date.now() < deadline) {
+      text = (await runRepoReadTool(root, "list_files", { glob: "fresh.ts" })).text;
+      if (text.includes("fresh.ts")) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(text).toContain("fresh.ts");
   });
 
   it("grep caps matches and line length", async () => {

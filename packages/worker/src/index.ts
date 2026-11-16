@@ -25,6 +25,7 @@ import { startFharaMcpFromEnv } from "./mcpServer";
 import { convexDecisionTurnPort, ctoFirstFromEnv } from "./decisionTurn/port";
 import { processNextDecisionTurn } from "./decisionTurn/poller";
 import { claimUnlessPressured, createHostPressureMonitor, pressureCapability } from "./utils/hostPressure";
+import { disposeAllWorkspaceIndexes } from "./tools/workspaceIndex";
 
 // L2: the worker's own logs (stdout/stderr) never print a known secret.
 registerEnvSecrets();
@@ -300,6 +301,8 @@ async function main() {
     await withTimeout(subscriber?.close() ?? Promise.resolve(), 1_000);
     // Plan 009: kill every MCP child process before the worker exits.
     await withTimeout(getMcpRegistry().disposeAll(), 2_000);
+    // Plan 056: stop the native workspace index watchers.
+    disposeAllWorkspaceIndexes();
     await withTimeout(mcpServer?.close() ?? Promise.resolve(), 1_000);
     await withTimeout(api.markOffline({ workerId }), 2_000);
     process.exit(0);

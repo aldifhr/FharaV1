@@ -4,6 +4,7 @@ import type { NodeOutcome } from "@/scheduler/dagScheduler";
 import type { FallbackHandle } from "@/effects/llmCall";
 import type { PerformanceScore } from "@/api/convex/lib/agentPerformance";
 import { nativeTimeoutMs, resolveOpencodeSelection } from "@/execution/nativeProvider";
+import { codexCommand, codexGateFor, isCodexAvailable, nativeDriverFromEnv } from "@/execution/codexProvider";
 import { ensureOpencodeDetection, opencodeGateFor } from "@/execution/opencodeDetect";
 import { handlesFromResolution, type AgentResolution, type ExecutionRoute, type ModelRoutingInfo } from "@/llm/resolver";
 import { subtaskTimeoutFor } from "@/orchestrator/policy";
@@ -67,6 +68,17 @@ export function createExecutionResolver(ctx: RunContext) {
       detection: await ensureOpencodeDetection(),
       worktreeIsolation: deps.policy.worktreeIsolation,
     });
+  // Plan 057: the legacy native switch must gate on the CLI the setting
+  // selects. A plan-038 route still comes from an OpenCode model entry, so
+  // its gate stays OpenCode-specific.
+  const nativeDriver = input.nativeDriver ?? nativeDriverFromEnv();
+  const legacyNativeGate = async () =>
+    nativeDriver === "codex"
+      ? codexGateFor({
+          available: await isCodexAvailable(codexCommand()),
+          worktreeIsolation: deps.policy.worktreeIsolation,
+        })
+      : opencodeGate();
   return {
     /**
      * onStart: resolve the executor's model now, so subtask.routed records
@@ -139,7 +151,7 @@ export function createExecutionResolver(ctx: RunContext) {
           : { runtime: "api" }
         : selectionOf(ctx, agent);
       if (!route && selection.runtime === "native-provider") {
-        const gate = await opencodeGate();
+        const gate = await legacyNativeGate();
         if (!gate.available) {
           // A `runtime_unavailable` observation: the engine falls back to the API runtime, silently.
           const step = decideRetry({ kind: "runtime_unavailable", nodeKey, runtime: "native-provider", reason: gate.reason });

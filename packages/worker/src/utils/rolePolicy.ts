@@ -12,6 +12,7 @@
  */
 import {
   canWritePath,
+  LEGACY_ROLE_SUCCESSORS,
   permissionsFromTools,
   ROLES,
   ROLE_KEYS,
@@ -26,29 +27,19 @@ export type { RolePermissions } from "@/api/convex/lib/roles";
 export { canWritePath } from "@/api/convex/lib/roles";
 
 /** Free-text role names (legacy rows, LLM output) that are not a key or title. */
+/**
+ * Aliases collapse retired roles onto their canonical successor. The map is
+ * kept here for the worker's free-text routing; the shared module owns the
+ * authority for the four live `RoleKey`s.
+ */
 const ROLE_ALIASES: Readonly<Record<string, AgentRole>> = {
-  orchestrator: "cto",
-  planner: "cto",
-  architect: "cto",
-  "ui-ux": "designer",
-  ux: "designer",
-  "ui/ux": "designer",
-  "ui/ux designer": "designer",
+  ...LEGACY_ROLE_SUCCESSORS,
+  "ui/ux": "frontend",
+  "ui/ux designer": "frontend",
   "frontend-developer": "frontend",
   developer: "frontend",
   "backend-developer": "backend",
   tester: "qa",
-  documentation: "support",
-  "technical-writer": "support",
-  writer: "support",
-  "dev ops": "devops",
-  "code-review": "reviewer",
-  "code review": "reviewer",
-  research: "researcher",
-  "product-analyst": "researcher",
-  product: "researcher",
-  analyst: "researcher",
-  "product analyst": "researcher",
   security: "backend",
   "security auditor": "backend",
   "security engineer": "backend",

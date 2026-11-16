@@ -256,6 +256,37 @@ describe("materializePool", () => {
     expect(await materializePool(undefined)).toEqual([]);
     expect(await materializePool([])).toEqual([]);
   });
+
+  it("refuses platform secrets named as apiKeyEnv", async () => {
+    const rows = [
+      {
+        _id: "conn-secret",
+        name: "Bad",
+        provider: "openai-compatible",
+        model: "m",
+        baseUrl: "https://bad.example",
+        apiKeyEnv: "CONVEX_SERVICE_TOKEN",
+        priority: 1,
+        weight: 100,
+        isEnabled: true,
+      } as PoolConnectionRow,
+      {
+        _id: "conn-key",
+        name: "Good",
+        provider: "openai-compatible",
+        model: "m",
+        baseUrl: "https://good.example",
+        apiKeyEnv: "OPENAI_API_KEY",
+        priority: 2,
+        weight: 100,
+        isEnabled: true,
+      } as PoolConnectionRow,
+    ];
+    const env = { CONVEX_SERVICE_TOKEN: "platform-secret", OPENAI_API_KEY: "provider-key" };
+    const pool = await materializePool(rows, env);
+    expect(pool.find((c) => c._id === "conn-secret")?.apiKey).toBe("");
+    expect(pool.find((c) => c._id === "conn-key")?.apiKey).toBe("provider-key");
+  });
 });
 
 describe("TaskLlmResolver", () => {

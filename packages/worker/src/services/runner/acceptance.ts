@@ -5,7 +5,7 @@ import {
   evaluateGates,
   type GateResult,
 } from "@/api/convex/lib/subtaskContract";
-import { resolveSandboxPath } from "@/tools/sandbox";
+import { resolveSandboxPathAsync } from "@/tools/sandbox";
 import type { PlanSubtask } from "@/types";
 import type { RunContext } from "./types";
 
@@ -33,7 +33,7 @@ function reviewFor(ctx: RunContext, subtask: PlanSubtask): { verdict: string; re
 
 async function existsOnDisk(workspacePath: string, target: string): Promise<boolean | undefined> {
   try {
-    await fs.access(resolveSandboxPath(workspacePath, target));
+    await fs.access(await resolveSandboxPathAsync(workspacePath, target));
     return true;
   } catch (error) {
     const code = (error as NodeJS.ErrnoException | undefined)?.code;

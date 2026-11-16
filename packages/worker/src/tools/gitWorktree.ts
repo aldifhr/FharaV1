@@ -85,32 +85,34 @@ export async function describeCommit(worktreePath: string, baseBranch: string): 
   let ahead: number | undefined;
   let behind: number | undefined;
   let comparedTo: string | undefined;
+  const countNumstat = (output: string) => {
+    // -z keeps paths out of the parse: records end in NUL, fields in TAB.
+    for (const record of output.split("\0")) {
+      const [add, del] = record.split("\t");
+      if (add === undefined || del === undefined) continue;
+      filesChanged += 1;
+      // Binary files report "-": counted as a file, not as lines.
+      const added = Number(add);
+      const deleted = Number(del);
+      if (Number.isFinite(added)) additions += added;
+      if (Number.isFinite(deleted)) deletions += deleted;
+    }
+  };
   try {
     await git(["rev-parse", "--verify", "--quiet", `${baseBranch}^{commit}`]);
     comparedTo = baseBranch;
-    const numstat = await git(["diff", "--numstat", `${baseBranch}...HEAD`]);
-    for (const line of numstat.split("\n").filter(Boolean)) {
-      const [add, del] = line.split("\t");
-      filesChanged += 1;
-      // Binary files report "-": counted as a file, not as lines.
-      if (/^\d+$/.test(add)) additions += Number(add);
-      if (/^\d+$/.test(del)) deletions += Number(del);
-    }
+    countNumstat(await git(["diff", "--numstat", "-z", `${baseBranch}...HEAD`]));
     const counts = await git(["rev-list", "--left-right", "--count", `${baseBranch}...HEAD`]);
-    const [left, right] = counts.split(/\s+/).map(Number);
+    const parts = counts.split(/\s+/);
+    const left = Number(parts[0]);
+    const right = Number(parts[1]);
     if (Number.isFinite(left) && Number.isFinite(right)) {
       behind = left;
       ahead = right;
     }
   } catch {
     // No local base branch: fall back to HEAD's own diff stat.
-    const numstat = await git(["show", "--numstat", "--format=", "HEAD"]);
-    for (const line of numstat.split("\n").filter(Boolean)) {
-      const [add, del] = line.split("\t");
-      filesChanged += 1;
-      if (/^\d+$/.test(add)) additions += Number(add);
-      if (/^\d+$/.test(del)) deletions += Number(del);
-    }
+    countNumstat(await git(["show", "--numstat", "-z", "--format=", "HEAD"]));
   }
   return { sha, message, filesChanged, additions, deletions, ahead, behind, comparedTo };
 }

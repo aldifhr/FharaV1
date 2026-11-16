@@ -66,6 +66,20 @@ describe("Phase 5 pre-call budget gate — call count", () => {
     expect(onWarn.mock.calls[0][0]).toContain("LLM call budget exhausted (12/12)");
   });
 
+  it("warns once per cause even as the counter grows past the limit", () => {
+    const onWarn = vi.fn();
+    const tracker = new BudgetTracker(
+      policy({ maxLLMCallsPerTask: 12, maxTokenBudgetPerTask: 1_000_000, budgetMode: "warn" })
+    );
+    for (let i = 0; i < 12; i++) call(tracker);
+    for (let i = 0; i < 3; i++) {
+      expect(() => tracker.assertLlmCallAllowed(onWarn)).not.toThrow();
+      call(tracker);
+    }
+    expect(onWarn).toHaveBeenCalledTimes(1);
+    expect(onWarn.mock.calls[0][0]).toContain("LLM call budget exhausted (12/12)");
+  });
+
   it("default policy mode is warn", () => {
     expect(loadPolicy().budgetMode).toBe("warn");
   });

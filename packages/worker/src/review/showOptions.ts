@@ -15,7 +15,7 @@ import * as path from "node:path";
 import { wenv } from "@fhara/config/worker";
 import type { Id } from "@/api/convex/_generated/dataModel";
 import type { WorkerApi } from "@/workerApi";
-import { resolveSandboxPath } from "@/tools/sandbox";
+import { resolveSandboxPathAsync } from "@/tools/sandbox";
 import { OPTIONS_REVIEW_LIMITS, isPurpose, type OptionsReviewPurpose } from "@/api/convex/lib/optionsReview";
 import { MOCKUP_ASSET_MAX, formatFindings, prepareHtmlOption, type AssetResolver } from "./htmlPreview";
 import { captureRoute, renderHtmlOption } from "./render";
@@ -204,7 +204,7 @@ export async function runShowOptions(args: Record<string, unknown>, ctx: ShowOpt
       else prepared.push({ ...base, kind: "markdown", markdown });
     } else if (kind === "image") {
       try {
-        const file = resolveSandboxPath(ctx.workspaceRoot, String(raw.path ?? ""));
+        const file = await resolveSandboxPathAsync(ctx.workspaceRoot, String(raw.path ?? ""));
         const type = IMAGE_TYPES[path.extname(file).toLowerCase()];
         if (!type) throw new Error("must be a PNG, JPEG, GIF or WebP file");
         if (!existsSync(file)) throw new Error("file not found");

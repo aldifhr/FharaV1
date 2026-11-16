@@ -18,14 +18,14 @@ const ROLE_CAPABILITIES: Array<{ pattern: RegExp; capabilities: string[] }> = [
   },
   {
     pattern: /\b(designer|design|wireframe|ui-ux|figma)\b/i,
-    capabilities: [...ROLES.designer.registryCapabilities],
+    capabilities: [...ROLES.frontend.registryCapabilities],
   },
   {
     pattern: /\b(frontend|front-end|ui|ux|react|web)\b/i,
     capabilities: [...ROLES.frontend.registryCapabilities],
   },
   {
-    pattern: /\b(backend|back-end|api|server|database|db)\b/i,
+    pattern: /\b(backend|back-end|api|server|database|db|python|django|fastapi|golang|java|kotlin|rust|ruby|php|laravel|dotnet|node|postgres|mysql)\b/i,
     capabilities: [...ROLES.backend.registryCapabilities],
   },
   {
@@ -34,11 +34,11 @@ const ROLE_CAPABILITIES: Array<{ pattern: RegExp; capabilities: string[] }> = [
   },
   {
     pattern: /\b(reviewer|code-?review)\b/i,
-    capabilities: [...ROLES.reviewer.registryCapabilities],
+    capabilities: [...ROLES.qa.registryCapabilities],
   },
   {
     pattern: /\b(support|documentation|docs|technical-writer|writer)\b/i,
-    capabilities: [...ROLES.support.registryCapabilities],
+    capabilities: [...ROLES.cto.registryCapabilities],
   },
   {
     pattern: /\b(security|audit|pentest|appsec)\b/i,
@@ -46,7 +46,7 @@ const ROLE_CAPABILITIES: Array<{ pattern: RegExp; capabilities: string[] }> = [
   },
   {
     pattern: /\b(research|analyst|investigator)\b/i,
-    capabilities: [...ROLES.researcher.registryCapabilities],
+    capabilities: [...ROLES.cto.registryCapabilities],
   },
   {
     pattern: /\b(github|git|pr|pull request|issue|repo)\b/i,

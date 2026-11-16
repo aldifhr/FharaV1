@@ -4,19 +4,19 @@
  * Table shape and `decideToolAccess` (default deny for an unknown role or
  * operation) are copied from opencode-agent-orchestration-kit
  * `opencode/scripts/runtime-permission-policy.mjs` (Apache-2.0; see
- * THIRD_PARTY_NOTICES.md). Modified by Fhara: the agent ids are Fhara's
- * nine fixed roles, the values mirror `ROLES[k].permissions`
+ * THIRD_PARTY_NOTICES.md). Modified by Fhara: the agent ids are Fhara's four
+ * fixed roles, the values mirror `ROLES[k].permissions`
  * (apps/api/convex/lib/roles.ts) with no "ask" (OpenCode runs unattended),
  * and `delegate` is a plain decision because Fhara never lets OpenCode
  * spawn sub-agents.
- *
- * It is a second, independent statement of the role limits: CTO, Designer,
- * Reviewer, Support and Researcher get no shell through OpenCode, and only
- * the Researcher gets the network, even if a role row's permissions drift.
- * Support writes since O2, but only inside ROLE_WRITE_SCOPE (Markdown and
- * docs/), never code, even if its role row drifts to `write: true`.
  */
-import { SUPPORT_WRITE_PATHS, type RoleKey } from "@/api/convex/lib/roles";
+import type { RoleKey } from "@/api/convex/lib/roles";
+
+/**
+ * It is a second, independent statement of the role limits: the CTO gets no
+ * shell or network through OpenCode; Frontend and Backend write, and QA runs
+ * verification commands. Retired roles are refused by default.
+ */
 
 export type PolicyDecision = "allow" | "deny";
 
@@ -43,24 +43,17 @@ const common = {
 /** `write: "allow"` still means "inside the subtask's allowedPaths / the role's write globs". */
 export const ROLE_OPERATION_POLICY: Readonly<Record<RoleKey, Readonly<Record<PolicyOperation, PolicyDecision>>>> = Object.freeze({
   cto: Object.freeze({ ...common, write: "deny", shell: "deny", network: "deny" }),
-  designer: Object.freeze({ ...common, write: "deny", shell: "deny", network: "deny" }),
   frontend: Object.freeze({ ...common, write: "allow", shell: "allow", network: "deny" }),
   backend: Object.freeze({ ...common, write: "allow", shell: "allow", network: "deny" }),
   qa: Object.freeze({ ...common, write: "deny", shell: "allow", network: "deny" }),
-  reviewer: Object.freeze({ ...common, write: "deny", shell: "deny", network: "deny" }),
-  devops: Object.freeze({ ...common, write: "allow", shell: "allow", network: "deny" }),
-  support: Object.freeze({ ...common, write: "allow", shell: "deny", network: "deny" }),
-  researcher: Object.freeze({ ...common, write: "deny", shell: "deny", network: "allow" }),
 });
 
 /**
- * Hard write ceilings for roles whose `write: "allow"` above is path-limited
- * by the table itself, not only by the role row. A drifted row (`write: true`
- * or wider globs) is clamped back to these globs.
+ * No live role is path-limited by the table itself: Frontend and Backend
+ * write code, QA is read-only, and the CTO is read-only. Retired roles have
+ * no policy row and are refused by `decideToolAccess`.
  */
-export const ROLE_WRITE_SCOPE: Readonly<Partial<Record<RoleKey, readonly string[]>>> = Object.freeze({
-  support: SUPPORT_WRITE_PATHS,
-});
+export const ROLE_WRITE_SCOPE: Readonly<Partial<Record<RoleKey, readonly string[]>>> = Object.freeze({});
 
 /** Default deny: an unknown role or operation is never allowed. */
 export function decideToolAccess(input: { roleKey?: string | null; operation?: string }): PolicyDecision {

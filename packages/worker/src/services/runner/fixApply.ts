@@ -47,10 +47,10 @@ export async function applyOrRequestFixApproval(
   // L2: a fix that stages a secret always asks, in every mode.
   const secrets = input.approvalResolved ? [] : scanStagedChanges(fixChanges);
   const secretNote = secretWarning(secrets);
-  if (input.approvalMode !== "ask" && !secretNote) {
-    const applied = await applyStaged(fixChanges, "orchestrator");
-    return "stop" in applied ? "failed" : "applied";
-  }
+  // A legacy approvalMode "auto" still needs a recorded approval row: the
+  // tryAutoApprove path below records one when the task's permission mode
+  // allows it, otherwise it pauses for a human. Never apply a fix on a bare
+  // mode flag.
   // Nothing to apply: let the stage re-run (bounded by its own loop).
   if (fixChanges.length === 0) return "applied";
 

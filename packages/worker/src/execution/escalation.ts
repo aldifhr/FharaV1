@@ -17,7 +17,7 @@
 import * as fs from "node:fs/promises";
 import { parseEscalation, type Escalation } from "@/api/convex/lib/subtaskContract";
 import { isPathWithinOwnership } from "@/utils/ownershipPaths";
-import { resolveSandboxPath } from "@/tools/sandbox";
+import { resolveSandboxPathAsync } from "@/tools/sandbox";
 import type { PlanSubtask } from "@/types";
 
 export const ESCALATED_ERROR_PREFIX = "Escalated (";
@@ -178,7 +178,7 @@ export function contentReader(
     const change = staged(filePath);
     if (change && change.changeType !== "deleted" && typeof change.newContent === "string") return change.newContent;
     try {
-      return await fs.readFile(resolveSandboxPath(workspacePath, filePath), "utf8");
+      return await fs.readFile(await resolveSandboxPathAsync(workspacePath, filePath), "utf8");
     } catch {
       return null;
     }

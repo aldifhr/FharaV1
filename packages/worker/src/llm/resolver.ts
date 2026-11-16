@@ -13,6 +13,7 @@ import type { LlmSelectionMode } from "@/api/convex/lib/llmSelection";
 import { matchesModelPattern, orderPoolPairs } from "@/api/convex/lib/llmOrder";
 import { isOpencodeConnection, withoutOpencode } from "@/api/convex/lib/opencodeProvider";
 import { registerSecretValues } from "@/utils/redact";
+import { isSafeApiKeyEnv } from "@/api/convex/lib/apiKeyEnv";
 
 export { matchesModelPattern };
 
@@ -171,7 +172,9 @@ export async function materializePool(
       // them until the migration rotates the credential into ciphertext.
       apiKey = row.apiKey.trim();
     } else if (row.apiKeyEnv) {
-      apiKey = env[row.apiKeyEnv] ?? "";
+      // Same rule as the backend: a connection may only name a provider-key
+      // env var, never a platform secret that would be sent to its baseUrl.
+      apiKey = isSafeApiKeyEnv(row.apiKeyEnv) ? env[row.apiKeyEnv] ?? "" : "";
     }
     // L2: a provider key is a known secret from now on (masked everywhere).
     if (apiKey) registerSecretValues([apiKey]);

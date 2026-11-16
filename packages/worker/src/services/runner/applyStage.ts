@@ -350,10 +350,14 @@ export async function brokerGate(
       return { stop: (await requestApplyApproval(ctx, prepared, "broker")).status };
     }
   }
-  if (broker.decision === "ask" && input.approvalMode !== "auto" && noTarget) {
+  // A broker "ask" always needs a recorded approval row. The legacy
+  // approvalMode "auto" must not skip the gate: tryAutoApprove records an
+  // approved row when the task's permission mode allows it, otherwise the
+  // run pauses for a human approval. Never apply on a bare "ask".
+  if (broker.decision === "ask" && noTarget) {
     return { stop: (await requestApplyApproval(ctx, prepared, "broker")).status };
   }
-  if (broker.decision === "ask" && input.approvalMode !== "auto") {
+  if (broker.decision === "ask") {
     // Plan 020: the task's permission mode may approve this batch itself.
     // The row is recorded (decidedBy "auto") and the run continues with no
     // needs_approval pause and no resume cycle.

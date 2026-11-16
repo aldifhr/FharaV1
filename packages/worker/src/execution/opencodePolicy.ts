@@ -238,9 +238,13 @@ export function buildOpencodePolicy(input: BuildOpencodePolicyInput): OpencodePo
     question: "deny",
     doom_loop: "deny",
     read: readRules(),
-    // A table-scoped role (Support) is limited to its own globs even when the
-    // subtask's ownership is wider; the staging gate still applies ownership.
-    edit: editRules(input.roleKey && ROLE_WRITE_SCOPE[input.roleKey as RoleKey] ? { ...input, permissions, allowedPaths: undefined } : { ...input, permissions }),
+    // A table-scoped role is limited to its own globs even when the subtask's
+    // ownership is wider; the staging gate still applies ownership.
+    edit: editRules(
+      input.roleKey && ROLE_WRITE_SCOPE[input.roleKey as RoleKey]
+        ? { ...input, permissions, allowedPaths: undefined }
+        : { ...input, permissions }
+    ),
     bash: bashRules(permissions),
     webfetch: web,
     websearch: web,

@@ -98,9 +98,17 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
   const { project, agents, approvalMode, llmProviders } = context;
   // Plan 035: the app-wide OpenCode runtime + model. Absent when the setting
   // was never written, so the worker keeps the legacy per-agent behaviour.
-  const opencodeCtx = context as { opencodeRuntime?: "api" | "opencode"; opencodeModel?: string };
+  const opencodeCtx = context as {
+    opencodeRuntime?: "api" | "opencode";
+    opencodeModel?: string;
+    nativeDriver?: "opencode" | "codex";
+  };
   const opencodeSettings = opencodeCtx.opencodeRuntime
-    ? { runtime: opencodeCtx.opencodeRuntime, model: opencodeCtx.opencodeModel ?? "" }
+    ? {
+        runtime: opencodeCtx.opencodeRuntime,
+        model: opencodeCtx.opencodeModel ?? "",
+        ...(opencodeCtx.nativeDriver ? { nativeDriver: opencodeCtx.nativeDriver } : {}),
+      }
     : null;
   if (agents.length === 0) {
     await deps.api.completeTask({
@@ -447,6 +455,7 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
           ? {
               opencodeRuntime: opencodeSettings.runtime,
               opencodeModel: opencodeSettings.model,
+              ...(opencodeSettings.nativeDriver ? { nativeDriver: opencodeSettings.nativeDriver } : {}),
             }
           : {}),
         onTokenUsage: recordUsage,

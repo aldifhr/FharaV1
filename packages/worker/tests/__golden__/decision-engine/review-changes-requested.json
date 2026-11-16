@@ -86,9 +86,9 @@
   "messages": [
     "system: Planned 2 subtasks",
     "system: Sent to Frontend: impl",
-    "system: Sent to Reviewer: review",
+    "system: Sent to QA: review",
     "system: Sent to Frontend: Address review findings (iteration 1)",
-    "system: Sent to Reviewer: review",
+    "system: Sent to QA: review",
     "-: Done.\n\nReview: approved (1 file reviewed, no blocking findings).\n\nVerification: passed."
   ],
   "delegations": [],

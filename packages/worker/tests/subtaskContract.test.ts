@@ -431,14 +431,22 @@ describe("model tier precedence (plan 022)", () => {
   });
 });
 
-describe("reviewer is read-only (plan 022)", () => {
-  const ctx: ToolContext = { workspaceRoot: "/tmp/ws", actor: "test", agentRole: "reviewer", audit: async () => undefined } as ToolContext;
-  it("the broker denies write_file and run_command for the reviewer role", async () => {
-    const write = await tool_call({ ctx, supportedTools: ["write_file", "run_command", "read_file"], name: "write_file", args: { path: "a.ts", content: "x" } });
-    expect(write.ok).toBe(false);
-    expect(write.reason).toBe("denied:reviewer:write_file:read-only-role");
-    const run = await tool_call({ ctx, supportedTools: ["write_file", "run_command", "read_file"], name: "run_command", args: { command: "npm run test" } });
-    expect(run.ok).toBe(false);
-    expect(run.reason).toBe("denied:reviewer:run_command:read-only-role");
+describe("a read-only role may not write files (plan 022)", () => {
+  const ctxFor = (agentRole: string) =>
+    ({ workspaceRoot: "/tmp/ws", actor: "test", agentRole, audit: async () => undefined }) as ToolContext;
+  it("the broker denies write_file for QA and for the CTO", async () => {
+    for (const role of ["qa", "cto"]) {
+      const write = await tool_call({ ctx: ctxFor(role), supportedTools: ["write_file", "run_command", "read_file"], name: "write_file", args: { path: "a.ts", content: "x" } });
+      expect(write.ok, role).toBe(false);
+      expect(write.reason).toBe(`denied:${role}:write_file:read-only-role`);
+    }
+  });
+  it("a shell-less role may not run commands; QA may run its verification", async () => {
+    const cto = await tool_call({ ctx: ctxFor("cto"), supportedTools: ["run_command"], name: "run_command", args: { command: "npm run test" } });
+    expect(cto.ok).toBe(false);
+    expect(cto.reason).toBe("denied:cto:run_command:read-only-role");
+    // QA's shell is "verify": the broker does not refuse the tool outright.
+    const qa = await tool_call({ ctx: ctxFor("qa"), supportedTools: ["run_command"], name: "run_command", args: { command: "npm run test" } });
+    expect(qa.reason).not.toBe("denied:qa:run_command:read-only-role");
   });
 });

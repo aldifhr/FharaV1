@@ -17,8 +17,8 @@ import { existsSync, promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ROLES, ROLE_KEYS } from "@/api/convex/lib/roles";
-import { buildOpencodePolicy, mergedPolicyViolation, opencodePermissionBlock, rulesetPolicyViolation, flattenPermissionBlock } from "@/execution/opencodePolicy";
+import { ROLES, ROLE_KEYS, canWritePath } from "@/api/convex/lib/roles";
+import { buildOpencodePolicy, mergedPolicyViolation, opencodePermissionBlock, rulesetPolicyViolation, flattenPermissionBlock, evaluateOpencodeRule } from "@/execution/opencodePolicy";
 import { decideToolAccess, ROLE_OPERATION_POLICY } from "@/execution/opencodePermissions";
 import { nativeArgv, OPENCODE_KEY_ENV, opencodeRunAgentName, opencodeSafetyEnv, runNativeProvider, verifyLoadedPolicy } from "@/execution/nativeProvider";
 
@@ -50,50 +50,77 @@ describe("role × operation table (OAK shape)", () => {
     }
   });
 
-  it("CTO, Designer, Reviewer, Support and Researcher get no shell via OpenCode", () => {
-    for (const key of ["cto", "designer", "reviewer", "support", "researcher"] as const) {
-      expect(decideToolAccess({ roleKey: key, operation: "shell" })).toBe("deny");
-      // Even if a role row drifted to allow a shell, the table wins.
-      const p = buildOpencodePolicy({ permissions: { ...ROLES[key].permissions, shell: "allowlist", write: true }, mutating: true, roleKey: key });
-      expect(p.bash["*"]).toBe("deny");
-      expect(Object.values(p.bash).every((v) => v === "deny")).toBe(true);
-      expect(p.edit["*"]).toBe("deny");
-    }
+  it("the CTO gets no shell via OpenCode", () => {
+    const key = "cto";
+    expect(decideToolAccess({ roleKey: key, operation: "shell" })).toBe("deny");
+    // Even if a role row drifted to allow a shell, the table wins.
+    const p = buildOpencodePolicy({ permissions: { ...ROLES[key].permissions, shell: "allowlist", write: true }, mutating: true, roleKey: key });
+    expect(p.bash["*"]).toBe("deny");
+    expect(Object.values(p.bash).every((v) => v === "deny")).toBe(true);
+    expect(p.edit["*"]).toBe("deny");
   });
 
-  it("CTO, Designer, Reviewer and Researcher stay read-only via OpenCode", () => {
-    for (const key of ["cto", "designer", "reviewer", "researcher"] as const) {
-      expect(decideToolAccess({ roleKey: key, operation: "write" })).toBe("deny");
-      const p = buildOpencodePolicy({ permissions: { ...ROLES[key].permissions, write: true }, mutating: true, roleKey: key });
-      expect(Object.entries(p.edit).filter(([, v]) => v === "allow")).toEqual([]);
-    }
+  it("the CTO stays read-only via OpenCode", () => {
+    const key = "cto";
+    expect(decideToolAccess({ roleKey: key, operation: "write" })).toBe("deny");
+    const p = buildOpencodePolicy({ permissions: { ...ROLES[key].permissions, write: true }, mutating: true, roleKey: key });
+    expect(Object.entries(p.edit).filter(([, v]) => v === "allow")).toEqual([]);
   });
 
-  it("Support (O2) writes only *.md and docs/**, never code, even if its row drifts", () => {
-    expect(ROLES.support.permissions.write).toEqual(["**/*.md", "docs/**"]);
-    expect(ROLES.support.permissions.shell).toBe("none");
-    expect(decideToolAccess({ roleKey: "support", operation: "write" })).toBe("allow");
-    expect(decideToolAccess({ roleKey: "support", operation: "network" })).toBe("deny");
+  it("a path-scoped write permission still cannot escape its globs", () => {
+    const docsOnly = {
+      read: true as const,
+      write: ["*.md", "docs/*"] as readonly string[],
+      shell: "none" as const,
+      web: false,
+      push: false as const,
+      options: false,
+    };
     const allowedEdits = (p: ReturnType<typeof buildOpencodePolicy>) =>
       Object.entries(p.edit)
         .filter(([, v]) => v === "allow")
         .map(([glob]) => glob)
         .sort();
     const variants = [
-      { permissions: ROLES.support.permissions },
-      { permissions: { ...ROLES.support.permissions, write: true } },
-      { permissions: { ...ROLES.support.permissions, write: ["**/*.md", "docs/**", "src/**"] } },
-      { permissions: ROLES.support.permissions, allowedPaths: ["src", "packages/worker"] },
+      { permissions: docsOnly },
+      { permissions: { ...docsOnly, write: ["*.md", "docs/*", "src/*"] as readonly string[] }, allowedPaths: ["docs"] },
+      { permissions: docsOnly, allowedPaths: ["docs"] },
     ];
     for (const variant of variants) {
-      const p = buildOpencodePolicy({ ...variant, mutating: true, roleKey: "support" });
+      const p = buildOpencodePolicy({ ...variant, mutating: true });
+      // The default stays deny, no variant re-allows everything, and the
+      // sensitive paths are denied last so no allow above them survives.
       expect(p.edit["*"]).toBe("deny");
-      expect(allowedEdits(p)).toEqual(["*.md", "docs/*"]);
+      for (const glob of allowedEdits(p)) expect(glob, JSON.stringify(variant)).not.toBe("*");
+      expect(evaluateOpencodeRule(p.edit, ".env")).toBe("deny");
+      expect(evaluateOpencodeRule(p.edit, ".git/config")).toBe("deny");
       expect(Object.values(p.bash).every((v) => v === "deny")).toBe(true);
       expect(p.webfetch).toBe("deny");
     }
-    // A non-mutating Support run writes nothing.
-    const readOnly = buildOpencodePolicy({ permissions: ROLES.support.permissions, mutating: false, roleKey: "support" });
+
+    // No ownership scope: the role's own globs are the rule map.
+    const roleScoped = buildOpencodePolicy({ permissions: docsOnly, mutating: true });
+    expect(allowedEdits(roleScoped)).toEqual(["*.md", "docs/*"]);
+    expect(evaluateOpencodeRule(roleScoped.edit, "src/app.ts")).toBe("deny");
+
+    // With an ownership scope the map narrows to it (OpenCode cannot
+    // intersect two glob sets), so `src/*` from the role never appears.
+    const scoped = buildOpencodePolicy({
+      permissions: { ...docsOnly, write: ["*.md", "docs/*", "src/*"] as readonly string[] },
+      allowedPaths: ["docs"],
+      mutating: true,
+    });
+    expect(allowedEdits(scoped)).toEqual(["docs", "docs/*"]);
+    expect(evaluateOpencodeRule(scoped.edit, "docs/guide.md")).toBe("allow");
+    expect(evaluateOpencodeRule(scoped.edit, "src/app.ts")).toBe("deny");
+
+    // OpenCode's `*` spans `/`, the role globs do not: a nested file inside
+    // the ownership scope passes the rule map and the staging gate reverts it.
+    expect(evaluateOpencodeRule(scoped.edit, "docs/sub/guide.ts")).toBe("allow");
+    expect(canWritePath(docsOnly, "docs/sub/guide.ts")).toBe(false);
+    expect(canWritePath(docsOnly, "docs/guide.md")).toBe(true);
+
+    const readOnly = buildOpencodePolicy({ permissions: docsOnly, mutating: false });
     expect(allowedEdits(readOnly)).toEqual([]);
   });
 
@@ -135,8 +162,8 @@ describe("mergedPolicyViolation", () => {
     expect(Object.keys(block)[0]).toBe("*");
     expect(block["*"]).toBe("deny");
     expect(block.codesearch).toBe(policy.webfetch);
-    const researcher = opencodePermissionBlock(buildOpencodePolicy({ permissions: ROLES.researcher.permissions, mutating: false, roleKey: "researcher" }));
-    expect(researcher.codesearch).toBe("allow");
+    const cto = opencodePermissionBlock(buildOpencodePolicy({ permissions: ROLES.cto.permissions, mutating: false, roleKey: "cto" }));
+    expect(cto.codesearch).toBe("deny");
   });
 });
 

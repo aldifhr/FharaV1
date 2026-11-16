@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { WorkerApi } from "@/workerApi";
 import { runRepoReadTool } from "@/tools/repoRead";
+import { runChatLlm, type ChatLlmArgs } from "@/tools/chatLlm";
 import { capToolOutput, type RepoToolResult } from "@/api/convex/lib/chat/repoTools";
 
 /**
@@ -32,7 +33,9 @@ export async function processNextRepoToolCall(deps: RepoToolDeps): Promise<boole
   if (!claim) return false;
   let result: RepoToolResult;
   const args = parseArgs(claim.args);
-  if (!claim.workspacePath) {
+  if (claim.tool === "opencode_chat") {
+    result = await runChatLlm((args ?? {}) as ChatLlmArgs);
+  } else if (!claim.workspacePath) {
     result = { ok: false, text: "This project has no repository folder configured." };
   } else if (!args) {
     result = { ok: false, text: "Tool arguments must be a JSON object." };

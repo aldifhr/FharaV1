@@ -90,7 +90,15 @@ export function changesCode(subtask: Pick<PlanSubtask, "kind" | "capability" | "
   return !(paths.length > 0 && paths.every((path) => canWritePath(DOCS_ONLY, path)));
 }
 
-const DOCS_ONLY = ROLES.support.permissions;
+/** Docs-only write ceiling retained for gate logic after Support was retired. */
+const DOCS_ONLY = {
+  read: true,
+  write: ["**/*.md", "docs/**"],
+  shell: "none",
+  web: false,
+  push: false,
+  options: false,
+} as const;
 
 /**
  * Drops review/qa nodes from a plan that changes no code (and keeps a plan

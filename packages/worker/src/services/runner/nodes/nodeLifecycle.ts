@@ -25,6 +25,7 @@ import type { RunContext } from "../types";
 import { budgetHaltFeedback } from "./executionGuard";
 import { unroutableOutcome, type ExecutionResolver } from "./executionResolver";
 import { createNodeObserver, logHeld, logRouted } from "./nodeObserver";
+import { nativeDriverFromEnv } from "@/execution/codexProvider";
 
 /**
  * Node lifecycle of the DAG nodes runner: start, execute, settle and
@@ -326,6 +327,7 @@ export async function runNode(
     // never written; the env default is the last resort.
     runtime: opencodeSelection.runtime,
     nativeModel: opencodeSelection.model,
+    nativeDriver: input.nativeDriver ?? nativeDriverFromEnv(),
     qaMode: deps.policy.qaMode,
     // Agent commands wait for approval in-process: lease and heartbeat stay, the node shows
     // "waiting for approval", stop or the approval timeout end the wait as a denial, and a
@@ -369,6 +371,7 @@ export async function runNode(
         holdClock: runInfo?.holdClock,
       }),
     nativeProviderCommand: wenvRaw("ORCHESTRATOR_NATIVE_PROVIDER_COMMAND"),
+    codexCommand: wenvRaw("ORCHESTRATOR_CODEX_COMMAND"),
     taskContext: input.sharedContext,
     onUserInputsRendered: env.ackInputs,
     priorOutputs: state.priorOutputs,

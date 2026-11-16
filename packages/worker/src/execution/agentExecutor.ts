@@ -42,12 +42,9 @@ import {
   formatSiblingsSection,
   type SiblingSubtask,
 } from "./agentContext";
-import {
-  runNativeProvider,
-  buildNativePrompt,
-  isNativeProviderAvailable,
-  type SpawnImpl,
-} from "./nativeProvider";
+import { buildNativePrompt, type SpawnImpl } from "./nativeProvider";
+import type { NativeProviderDriver } from "./codexProvider";
+import { nativeDriverAvailability, runNativeDriver, type NativeRunRequest } from "./nativeRun";
 import type { SharedTaskContext } from "@/types";
 import { extractFileHint, parseDelegation, parseReview, sanitizeForChat, type DraftFile } from "@/utils/json";
 import { classifyToolCalls, parseToolCallMarkup, stripToolCallMarkup } from "@/utils/toolCallMarkup";
@@ -212,8 +209,12 @@ export interface SubtaskExecutionInput {
    * workspace; full-access per the recorded decision).
    */
   runtime?: "api" | "native-provider";
+  /** Plan 057: which CLI the native runtime spawns (default opencode). */
+  nativeDriver?: NativeProviderDriver;
   /** Optional CLI binary override for the native-provider runtime. */
   nativeProviderCommand?: string;
+  /** Optional Codex CLI override for the codex driver. */
+  codexCommand?: string;
   /**
    * Agent's OpenCode model (`provider/model`) for the native runtime.
    * Unset: OpenCode is pointed at this subtask's resolved Fhara LLM.
@@ -427,7 +428,7 @@ export function optionsToolAvailable(input: Pick<SubtaskExecutionInput, "showOpt
 
 /** design_lookup goes with the Designer (and any agent with the ui-ux-design capability). */
 function designLookupAvailable(agent: SubtaskExecutionInput["agent"]): boolean {
-  return resolveRoleKey(agent.role ?? "") === "designer" || (agent.capabilities ?? []).includes("ui-ux-design");
+  return resolveRoleKey(agent.role ?? "") === "frontend" || (agent.capabilities ?? []).includes("ui-ux-design");
 }
 
 /**
@@ -848,13 +849,9 @@ async function executeSubtaskScoped(rawInput: SubtaskExecutionInput): Promise<Su
       subtask.kind !== "qa" &&
       subtask.kind !== "review"
     ) {
-      const available = await isNativeProviderAvailable(input.nativeProviderCommand);
-      if (!available) {
-        await input.onEvent(
-          "native.runtime.unavailable",
-          { provider: input.nativeProviderCommand ?? "native-provider" },
-          "warn"
-        );
+      const native = await nativeDriverAvailability(input);
+      if (!native.available) {
+        await input.onEvent("native.runtime.unavailable", { provider: native.provider, driver: native.driver }, "warn");
       } else {
         return await executeNativeProvider(input);
       }
@@ -951,35 +948,31 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
   // makes anyway is undone (soft) and its files still pass the gate below.
   const preRunHead = await readGitHead(workspacePath, signal);
 
-  // OpenCode uses the agent's own OpenCode model when set; otherwise the
-  // same LLM the rest of Fhara resolved for this agent (first handle of
-  // the resolver chain, else the task/global config).
-  const handle = input.llmHandles?.[0];
-  // O1 (jockey rule): a bound provider whose key is missing or unreadable
-  // fails the run. It never falls through to the task/global config, which
-  // would run (and bill) another account.
-  const keyProblem = input.nativeModel?.trim() ? null : boundKeyProblem(handle);
-  if (keyProblem) {
-    await onEvent("native.credential.missing", { capability: subtask.capability, connection: handle?.connectionName, reason: keyProblem }, "error");
-    return { status: "failed", error: keyProblem };
+  const driver = input.nativeDriver ?? "opencode";
+  let llm: NativeRunRequest["llm"];
+  let policy: NativeRunRequest["policy"];
+  if (driver !== "codex") {
+    // OpenCode runs on the agent's own model or this agent's resolved Fhara
+    // LLM. O1: a bound key that is missing fails the run, and the per-run
+    // permissions are deny-by-default (the staging gate is the second line).
+    const handle = input.llmHandles?.[0];
+    const keyProblem = input.nativeModel?.trim() ? null : boundKeyProblem(handle);
+    if (keyProblem) {
+      await onEvent("native.credential.missing", { capability: subtask.capability, connection: handle?.connectionName, reason: keyProblem }, "error");
+      return { status: "failed", error: keyProblem };
+    }
+    llm = handle?.config ?? input.llmConfig ?? getGlobalLLMConfig();
+    policy = buildOpencodePolicy({ permissions: permissionsForAgent(agent), allowedPaths: subtask.allowedPaths, mutating: subtask.kind === "code_change" || subtask.kind === "shell", roleKey: resolveRoleKey(agent.role ?? "") });
   }
-  const llm = handle?.config ?? input.llmConfig ?? getGlobalLLMConfig();
-  // O1: per-run, deny-by-default OpenCode permissions from the role and
-  // the subtask's ownership scope. The staging gate below stays the
-  // second line.
-  const policy = buildOpencodePolicy({
-    permissions: permissionsForAgent(agent),
-    allowedPaths: subtask.allowedPaths,
-    mutating: subtask.kind === "code_change" || subtask.kind === "shell",
-    roleKey: resolveRoleKey(agent.role ?? ""),
-  });
-  const result = await runNativeProvider({
-    policy,
+  const result = await runNativeDriver({
+    driver,
     workspacePath,
     prompt,
-    command: input.nativeProviderCommand,
-    model: input.nativeModel,
+    opencodeCommand: input.nativeProviderCommand,
+    codexCommand: input.codexCommand,
+    model: driver === "codex" ? undefined : input.nativeModel,
     llm,
+    policy,
     timeoutMs: input.nativeTimeoutMs,
     spawnImpl: input.nativeSpawnImpl,
     signal,
@@ -2406,6 +2399,9 @@ async function executeShell(
     : command;
   const messages = baseMessages(input, shellUserContent(instruction, task));
   const ask = async (conversation: LLMMessage[]): Promise<string> => {
+    // Both the first call and the repair round are billable LLM calls (the
+    // other executor paths gate immediately before each one).
+    input.assertBudgetForCall?.();
     const { result: response, servedBy } = await runLlmCallWithFallback(handles, conversation, {
       health,
       signal,

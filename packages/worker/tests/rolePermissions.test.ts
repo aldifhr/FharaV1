@@ -1,9 +1,8 @@
 /**
  * Plan 040 (P1): role permissions are enforced by the executor, not only by
- * the prompt. Designer / Researcher / CTO / Reviewer / QA never stage a
- * file change; Support writes Markdown and docs/** only (O2); QA runs verification commands only; DevOps writes
- * only CI / container / infra paths; destructive commands never run
- * without an approval channel.
+ * the prompt. CTO and QA never stage a file change; Frontend and Backend
+ * write; QA runs verification commands only; destructive commands never run
+ * without an approval channel. Retired roles resolve to their successors.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs/promises";
@@ -82,38 +81,34 @@ describe("role permission table", () => {
     }
   });
 
-  it("only Frontend and Backend write anywhere; DevOps and Support are path-scoped; the rest are read-only", () => {
+  it("only Frontend and Backend write; CTO and QA are read-only", () => {
     const writers = ROLE_KEYS.filter((key) => ROLES[key].permissions.write === true);
     expect(writers.sort()).toEqual(["backend", "frontend"]);
-    expect(Array.isArray(ROLES.devops.permissions.write)).toBe(true);
-    expect(Array.isArray(ROLES.support.permissions.write)).toBe(true);
-    expect(ROLES.support.defaultTools).toContain("write_file");
-    for (const key of ["cto", "designer", "qa", "reviewer", "researcher"] as const) {
+    for (const key of ["cto", "qa"] as const) {
       expect(ROLES[key].permissions.write).toBe(false);
       expect(ROLES[key].defaultTools).not.toContain("write_file");
     }
   });
 
-  it("web only for the Researcher; QA shell is verify-only", () => {
-    expect(ROLE_KEYS.filter((key) => ROLES[key].permissions.web)).toEqual(["researcher"]);
+  it("no live role gets web access; QA shell is verify-only", () => {
+    expect(ROLE_KEYS.filter((key) => ROLES[key].permissions.web)).toEqual([]);
     expect(ROLES.qa.permissions.shell).toBe("verify");
-    expect(ROLES.researcher.defaultTools).toContain("web_reach");
   });
 
-  it("DevOps may write only .github/**, Dockerfile*, docker-compose*, infra/**", () => {
-    const devops = ROLES.devops.permissions;
-    for (const ok of [".github/workflows/ci.yml", "Dockerfile", "Dockerfile.worker", "apps/web/Dockerfile", "docker-compose.yml", "docker-compose.prod.yaml", "infra/terraform/main.tf"]) {
-      expect(canWritePath(devops, ok), ok).toBe(true);
+  it("Backend writes CI/infra files as ordinary code", () => {
+    const backend = ROLES.backend.permissions;
+    for (const ok of [".github/workflows/ci.yml", "Dockerfile", "apps/web/Dockerfile", "docker-compose.yml", "infra/terraform/main.tf", "README.md"]) {
+      expect(canWritePath(backend, ok), ok).toBe(true);
     }
-    for (const no of ["apps/web/app/page.tsx", "package.json", "src/infra/x.ts", ".githubx/y", "infra/../src/a.ts", "README.md"]) {
-      expect(canWritePath(devops, no), no).toBe(false);
-    }
+    // A writer role trusts the plan's ownership gate; canWritePath only
+    // rejects malformed paths such as escapes above the workspace root.
+    expect(canWritePath(backend, "../outside.ts")).toBe(false);
   });
 
   it("resolves titles and aliases; a custom role keeps what its tools allowed", () => {
-    expect(permissionsForAgent(agent("UI/UX Designer")).write).toBe(false);
+    expect(permissionsForAgent(agent("UI/UX Designer")).write).toBe(true);
     expect(permissionsForAgent(agent("QA Engineer")).shell).toBe("verify");
-    expect(permissionsForAgent(agent("technical-writer")).write).toEqual(ROLES.support.permissions.write);
+    expect(permissionsForAgent(agent("technical-writer")).write).toBe(true);
     expect(permissionsForAgent(agent("Frontend Developer")).write).toBe(true);
     expect(permissionsForAgent(agent("data-wrangler", { supportedTools: ["read_file", "write_file"] })).write).toBe(true);
     expect(permissionsForAgent(agent("data-wrangler", { supportedTools: ["read_file"] })).write).toBe(false);
@@ -127,14 +122,14 @@ describe("role permission table", () => {
     expect(isVerifyCommand("git", ["pull", "--rebase"])).toBe(false);
     expect(isVerifyCommand("git", ["fetch"])).toBe(false);
     expect(shellDenial("qa", ROLES.qa.permissions, "git", ["pull"])).toMatch(/only run tests/);
-    expect(shellDenial("designer", ROLES.designer.permissions, "npm", ["run", "test"])).toMatch(/may not run commands/);
-    expect(shellDenial("devops", ROLES.devops.permissions, "git", ["pull"])).toBeNull();
-    expect(writeDenial("devops", ROLES.devops.permissions, "src/a.ts")).toMatch(/may only write/);
+    expect(shellDenial("cto", ROLES.cto.permissions, "npm", ["run", "test"])).toMatch(/may not run commands/);
+    expect(shellDenial("backend", ROLES.backend.permissions, "git", ["pull"])).toBeNull();
+    expect(writeDenial("backend", ROLES.backend.permissions, "src/a.ts")).toBeNull();
   });
 });
 
 describe("executor: read-only roles never stage a file change", () => {
-  for (const role of ["designer", "researcher", "cto", "qa", "reviewer"]) {
+  for (const role of ["cto", "qa"]) {
     it(`${role}: code_change refused before any LLM call`, async () => {
       const { provider, calls } = counting(WRITE_REPLY);
       const saved: FileDiff[] = [];
@@ -149,10 +144,10 @@ describe("executor: read-only roles never stage a file change", () => {
   }
 
   it("the native (OpenCode) runtime is refused too for a read-only role", () => {
-    expect(roleRefusal({ agent: agent("designer"), subtask: subtask("code_change") })).toMatch(/read-only/);
-    expect(roleRefusal({ agent: agent("support"), subtask: subtask("shell") })).toMatch(/may not run commands/);
+    expect(roleRefusal({ agent: agent("cto"), subtask: subtask("code_change") })).toMatch(/read-only/);
+    expect(roleRefusal({ agent: agent("cto"), subtask: subtask("shell") })).toMatch(/may not run commands/);
     expect(roleRefusal({ agent: agent("qa"), subtask: subtask("shell") })).toBeNull();
-    expect(roleRefusal({ agent: agent("designer"), subtask: subtask("analysis") })).toBeNull();
+    expect(roleRefusal({ agent: agent("cto"), subtask: subtask("analysis") })).toBeNull();
   });
 
   it("frontend still writes", async () => {
@@ -172,41 +167,29 @@ describe("executor: read-only roles never stage a file change", () => {
   });
 });
 
-describe("executor: DevOps writes only CI / infra paths", () => {
-  it("refuses an application file", async () => {
+describe("executor: path-limited writes", () => {
+  it("refuses a write outside the subtask's allowed paths", async () => {
     const { provider } = counting(WRITE_REPLY);
     const saved: FileDiff[] = [];
-    const result = await executeSubtask(input(agent("devops"), subtask("code_change", { capability: "github" }), provider, saved));
+    const result = await executeSubtask(input(agent("backend"), subtask("code_change", {
+      capability: "backend-development",
+      allowedPaths: [".github"],
+    }), provider, saved));
     expect(result.status).toBe("failed");
-    expect(result.status === "failed" ? result.error : "").toMatch(/may only write/);
+    expect(result.status === "failed" ? result.error : "").toMatch(/ownership|allowed path/i);
     expect(saved).toHaveLength(0);
   });
 
-  it("stages a workflow file", async () => {
+  it("stages a file inside the allowed paths", async () => {
     const { provider } = counting(JSON.stringify({ files: [{ filePath: ".github/workflows/ci.yml", newContent: "name: ci\n" }] }));
     const saved: FileDiff[] = [];
-    const result = await executeSubtask(input(agent("devops"), subtask("code_change", { capability: "github", description: "Add CI workflow" }), provider, saved));
+    const result = await executeSubtask(input(agent("backend"), subtask("code_change", {
+      capability: "backend-development",
+      description: "Add CI workflow",
+      allowedPaths: [".github"],
+    }), provider, saved));
     expect(result.status).toBe("completed");
     expect(saved.map((c) => c.filePath)).toEqual([".github/workflows/ci.yml"]);
-  });
-});
-
-describe("executor: Support writes Markdown and docs/** only (O2)", () => {
-  it("refuses a source file", async () => {
-    const { provider } = counting(JSON.stringify({ files: [{ filePath: "src/index.ts", newContent: "x\n" }] }));
-    const saved: FileDiff[] = [];
-    const result = await executeSubtask(input(agent("support"), subtask("code_change", { capability: "documentation-support", description: "Edit src/index.ts" }), provider, saved));
-    expect(result.status).toBe("failed");
-    expect(result.status === "failed" ? result.error : "").toMatch(/may only write/);
-    expect(saved).toHaveLength(0);
-  });
-
-  it("stages README.md and docs/x.md", async () => {
-    const { provider } = counting(JSON.stringify({ files: [{ filePath: "README.md", newContent: "# Hi\n" }, { filePath: "docs/x.md", newContent: "# X\n" }] }));
-    const saved: FileDiff[] = [];
-    const result = await executeSubtask(input(agent("support"), subtask("code_change", { capability: "documentation-support", description: "Update README.md and docs/x.md" }), provider, saved));
-    expect(result.status).toBe("completed");
-    expect(saved.map((c) => c.filePath).sort()).toEqual(["README.md", "docs/x.md"]);
   });
 });
 
@@ -224,9 +207,9 @@ describe("executor: shell permissions", () => {
     expect(result.status).toBe("completed");
   });
 
-  it("Designer shell node refused before any LLM call", async () => {
+  it("CTO shell node refused before any LLM call", async () => {
     const { provider, calls } = counting('{"command":"node","args":["--version"]}');
-    const result = await executeSubtask(input(agent("designer"), subtask("shell"), provider));
+    const result = await executeSubtask(input(agent("cto"), subtask("shell"), provider));
     expect(result.status).toBe("failed");
     expect(calls()).toBe(0);
   });
@@ -234,15 +217,15 @@ describe("executor: shell permissions", () => {
 
 describe("governance broker follows the role policy", () => {
   const ctx = (role: string) => ({ workspacePath: "/tmp/none", agentRole: role, audit: async () => undefined }) as never;
-  it("designer / support may not write_file; qa may not write_file; devops may", async () => {
-    for (const role of ["designer", "qa", "researcher", "reviewer", "cto"]) {
+  it("read-only roles may not write_file", async () => {
+    for (const role of ["qa", "cto"]) {
       const result = await tool_call({ ctx: ctx(role), supportedTools: ["write_file"], name: "write_file", args: { path: "a.txt", content: "x" } });
       expect(result.ok, role).toBe(false);
       expect((result as { reason?: string }).reason ?? "").toMatch(/read-only-role/);
     }
   });
-  it("designer may not run_command", async () => {
-    const result = await tool_call({ ctx: ctx("designer"), supportedTools: ["run_command"], name: "run_command", args: { command: "git status" } });
+  it("the CTO may not run_command", async () => {
+    const result = await tool_call({ ctx: ctx("cto"), supportedTools: ["run_command"], name: "run_command", args: { command: "git status" } });
     expect((result as { reason?: string }).reason ?? "").toMatch(/read-only-role/);
   });
 });

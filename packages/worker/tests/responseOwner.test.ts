@@ -28,15 +28,10 @@ const agent = (role: string, capabilities: string[], priority = 5): AgentDefinit
 });
 
 const TEAM: AgentDefinition[] = [
-  agent("cto", ["architecture"], 9),
-  agent("designer", ["ui-ux-design"]),
-  agent("frontend", ["frontend-development"]),
-  agent("backend", ["backend-development"]),
-  agent("qa", ["browser-testing"]),
-  agent("support", ["documentation-support"]),
-  agent("devops", ["github", "shell-execution"]),
-  agent("reviewer", ["code-review", "security-audit"]),
-  agent("researcher", ["research"]),
+  agent("cto", ["architecture", "research"], 9),
+  agent("frontend", ["frontend-development", "ui-ux-design"]),
+  agent("backend", ["backend-development", "code-review", "security-audit", "documentation-support"]),
+  agent("qa", ["browser-testing", "code-review"]),
 ];
 
 let order = 0;
@@ -96,18 +91,18 @@ describe("Response Owner rule", () => {
     expect(pickResponseOwner(p, TEAM)).toBe("frontend");
   });
 
-  it("docs plan: Support", () => {
+  it("docs plan: Backend", () => {
     const p = plan([node("readme", "code_change", "documentation-support", { allowedPaths: ["README.md"] })]);
-    expect(pickResponseOwner(p, TEAM)).toBe("support");
+    expect(pickResponseOwner(p, TEAM)).toBe("backend");
   });
 
-  it("research plan: Researcher", () => {
+  it("research plan: CTO", () => {
     const p = plan([node("a1", "research", "research"), node("a2", "research", "research"), node("synth", "analysis", "research")]);
-    expect(pickResponseOwner(p, TEAM)).toBe("researcher");
+    expect(pickResponseOwner(p, TEAM)).toBe("cto");
   });
 
   it("gate-only plan ('Review PR #12'): the gate's role", () => {
-    expect(pickResponseOwner(plan([node("review", "review", "code-review")]), TEAM)).toBe("reviewer");
+    expect(pickResponseOwner(plan([node("review", "review", "code-review")]), TEAM)).toBe("backend");
   });
 
   it("the CTO decision node is a gate: the CTO is never the RO of a flagged code plan", () => {
@@ -144,7 +139,7 @@ describe("QA and Reviewer only for code changes", () => {
     );
     expect(p.subtasks.map((s) => s.key)).toEqual(["readme"]);
     expect(p.gatesSkipped).toBe(true);
-    expect(p.responseOwner).toBe("support");
+    expect(p.responseOwner).toBe("backend");
     expect(notes.join(" ")).toContain("QA and review skipped: no code changes");
     expect(planSystemLine(p, 1)).toBe("Planned 1 subtask · QA and review skipped: no code changes");
   });
@@ -227,7 +222,7 @@ describe("final report author = Response Owner", () => {
     expect(messages[0].content).toContain("QA: structural browser checks passed.");
   });
 
-  it("a research plan is reported by the Researcher", async () => {
+  it("a research plan is reported by the CTO", async () => {
     const messages: Array<{ content: string; agentId?: string }> = [];
     await finalize({
       deps: finalizeDeps(messages) as any,
@@ -240,7 +235,7 @@ describe("final report author = Response Owner", () => {
       subtasks: [{ key: "r", kind: "research", status: "completed" }] as any,
       state: emptyState(),
     });
-    expect(messages[0].agentId).toBe("agent-researcher");
+    expect(messages[0].agentId).toBe("agent-cto");
   });
 
   it("persistPlan stores the Response Owner on the task and posts the plan System line", async () => {
@@ -261,23 +256,23 @@ describe("final report author = Response Owner", () => {
   });
 });
 
-describe("Support writes Markdown and docs/** only", () => {
-  const support = ROLES.support.permissions;
+describe("path-limited docs writes", () => {
+  const docsOnly = { ...ROLES.backend.permissions, write: ["**/*.md", "docs/**"] };
   it("README.md, nested Markdown and docs/x.md are allowed; src/ is not", () => {
     for (const ok of ["README.md", "CHANGELOG.md", "apps/web/README.md", "docs/x.md", "docs/guide/setup.md"]) {
-      expect(canWritePath(support, ok), ok).toBe(true);
+      expect(canWritePath(docsOnly, ok), ok).toBe(true);
     }
     for (const no of ["src/index.ts", "src/README.ts", "package.json", "apps/api/convex/schema.ts", "docs/../src/a.ts"]) {
-      expect(canWritePath(support, no), no).toBe(false);
+      expect(canWritePath(docsOnly, no), no).toBe(false);
     }
-    expect(writeDenial("support", support, "src/index.ts")).toMatch(/may only write/);
-    expect(writeDenial("support", support, "README.md")).toBeNull();
+    expect(writeDenial("backend", docsOnly, "src/index.ts")).toMatch(/may only write/);
+    expect(writeDenial("backend", docsOnly, "README.md")).toBeNull();
   });
 
-  it("the governance broker refuses Support writes outside docs", async () => {
-    const ctx = { workspacePath: "/tmp/none", agentRole: "support", audit: async () => undefined } as never;
+  it("the governance broker refuses writes outside the subtask scope", async () => {
+    const ctx = { workspacePath: "/tmp/none", agentRole: "cto", audit: async () => undefined } as never;
     const denied = await tool_call({ ctx, supportedTools: ["write_file"], name: "write_file", args: { path: "src/a.ts", content: "x" } });
     expect(denied.ok).toBe(false);
-    expect((denied as { reason?: string }).reason ?? "").toMatch(/path-not-allowed-for-role/);
+    expect((denied as { reason?: string }).reason ?? "").toMatch(/read-only-role|path-not-allowed/);
   });
 });

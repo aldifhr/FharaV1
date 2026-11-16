@@ -6,7 +6,7 @@
  *   run time), helper nodes are dropped with a visible adjustment, and a
  *   code_change on a read-only role becomes an analysis.
  * - One owner rule for fixes: the agent that wrote the code.
- * - Support has no `general` catch-all; security audits go to the Reviewer.
+ * - No role has a `general` catch-all; security audits go to Backend.
  */
 import { describe, expect, it } from "vitest";
 import { routeCapability, unroutedReason } from "@/orchestrator/capabilities";
@@ -34,7 +34,7 @@ function fixed(role: keyof typeof ROLES, id = role): AgentDefinition {
   };
 }
 
-const team = (["cto", "designer", "frontend", "backend", "qa", "support", "devops", "reviewer", "researcher"] as const).map((role) => fixed(role));
+const team = (["cto", "frontend", "backend", "qa"] as const).map((role) => fixed(role));
 const byRole = (role: string) => team.find((agent) => agent.role === role)!;
 
 function resolverAnswering(content: string): TaskLlmResolver {
@@ -61,22 +61,22 @@ describe("capability routing: no fallback owner", () => {
   });
 
   it("even the opt-in fallback never picks the CTO", () => {
-    const pick = routeCapability("quantum-gardening", [byRole("cto"), byRole("support")], { allowFallback: true });
-    expect(pick?.role).toBe("support");
+    const pick = routeCapability("quantum-gardening", [byRole("cto"), byRole("backend")], { allowFallback: true });
+    expect(pick?.role).toBe("backend");
     expect(routeCapability("quantum-gardening", [byRole("cto")], { allowFallback: true })).toBeNull();
   });
 
   it("a code-writing capability goes only to a role that may write", () => {
-    const designerClaimingFrontend = { ...byRole("designer"), _id: "d2", capabilities: ["frontend-development"] };
-    expect(routeCapability("frontend-development", [designerClaimingFrontend, byRole("cto")])).toBeNull();
-    expect(unroutedReason("frontend-development", [designerClaimingFrontend])).toMatch(/may not write files/);
+    const readOnlyClaimingFrontend = { ...byRole("cto"), _id: "d2", capabilities: ["frontend-development"] };
+    expect(routeCapability("frontend-development", [readOnlyClaimingFrontend, byRole("cto")])).toBeNull();
+    expect(unroutedReason("frontend-development", [readOnlyClaimingFrontend])).toMatch(/may not write files/);
     expect(routeCapability("frontend-development", team)?.role).toBe("frontend");
   });
 
-  it("D2/D3: no Support catch-all; security-audit is the Reviewer's; conversation is Support's (O1)", () => {
-    expect(ROLES.support.capabilities).not.toContain("general");
+  it("D2/D3: no general catch-all; security-audit is Backend's; conversation is Backend's (O1)", () => {
+    for (const role of Object.values(ROLES)) expect(role.capabilities).not.toContain("general");
     expect(routeCapability("general", team)).toBeNull();
-    expect(routeCapability("security-audit", team)?.role).toBe("reviewer");
+    expect(routeCapability("security-audit", team)?.role).toBe("backend");
     expect(ROLES.cto.capabilities).not.toContain("project-coordination");
     expect(classifyCommand("hi").suggestedCapabilities).toEqual(["documentation-support"]);
   });
@@ -90,20 +90,20 @@ describe("capability routing: no fallback owner", () => {
 });
 
 describe("planner: nodes are never dropped silently", () => {
-  it("conversation reply goes to the topic owner (Support by default), not the CTO (O1)", () => {
+  it("conversation reply goes to the topic owner (Backend by default), not the CTO (O1)", () => {
     const plan = heuristicPlan({ command: "hello", classification: classifyCommand("hello"), agents: team, policy });
     expect(plan.subtasks[0].capability).toBe("documentation-support");
-    expect(routeCapability(plan.subtasks[0].capability, team)?.role).toBe("support");
+    expect(routeCapability(plan.subtasks[0].capability, team)?.role).toBe("backend");
   });
 
-  it("unroutable work stays (blocked), unroutable helpers drop visibly, a Designer code_change becomes analysis", async () => {
+  it("unroutable work stays (blocked), unroutable helpers drop visibly, a CTO code_change becomes analysis", async () => {
     const llmPlan = JSON.stringify({
       goal: "Build pricing page",
       strategy: "dag",
       requiresApproval: true,
       maxConcurrency: 1,
       subtasks: [
-        { key: "design", title: "Design pricing", description: "pricing layout spec", kind: "code_change", capability: "ui-ux-design", dependencies: [], order: 0 },
+        { key: "design", title: "Design pricing", description: "pricing layout spec", kind: "code_change", capability: "research", dependencies: [], order: 0 },
         { key: "impl", title: "Implement pricing", description: "edit app/pricing/page.tsx", kind: "code_change", capability: "frontend-development", dependencies: ["design"], order: 1 },
         { key: "ml", title: "Train model", description: "edit ml/train.py", kind: "code_change", capability: "ml-engineering", dependencies: [], order: 2 },
         { key: "astro", title: "Horoscope", description: "read the stars", kind: "analysis", capability: "astrology", dependencies: [], order: 3 },
@@ -155,8 +155,8 @@ describe("one fix-owner rule: the agent that wrote the code", () => {
   it("orchestrator critical findings → the actual implementer, not the first Frontend", () => {
     const evaluation = evaluateDelegation({
       result: {
-        agentId: "reviewer",
-        agentName: "Reviewer",
+        agentId: "qa",
+        agentName: "QA",
         capability: "security-audit",
         success: true,
         summary: "found an authz hole",

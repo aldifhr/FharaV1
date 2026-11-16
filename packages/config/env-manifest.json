@@ -1413,6 +1413,45 @@
       "parse": "nullish"
     },
     {
+      "name": "ORCHESTRATOR_NATIVE_DRIVER",
+      "type": "enum",
+      "group": "exec",
+      "runtimes": [
+        "worker",
+        "scripts"
+      ],
+      "doc": "Fallback provider CLI for the native runtime when the app-wide setting (Settings, LLM & Models) was never written: opencode or codex.",
+      "default": "opencode",
+      "options": [
+        "opencode",
+        "codex"
+      ]
+    },
+    {
+      "name": "ORCHESTRATOR_CODEX_COMMAND",
+      "type": "string",
+      "group": "exec",
+      "runtimes": [
+        "worker",
+        "scripts"
+      ],
+      "doc": "Codex CLI binary on this worker (machine-local; the driver choice is the app-wide setting).",
+      "default": "codex",
+      "parse": "nullish"
+    },
+    {
+      "name": "ORCHESTRATOR_CODEX_MODEL",
+      "type": "string",
+      "group": "exec",
+      "runtimes": [
+        "worker",
+        "scripts"
+      ],
+      "doc": "Optional Codex model id; unset uses the CLI's own configured model.",
+      "default": "",
+      "parse": "nullish"
+    },
+    {
       "name": "ORCHESTRATOR_NATIVE_TIMEOUT_MS",
       "type": "int",
       "group": "exec",

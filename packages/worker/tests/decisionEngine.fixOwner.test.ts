@@ -30,7 +30,7 @@ function fixed(role: keyof typeof ROLES, id: string = role): AgentDefinition {
   };
 }
 
-const team = (["frontend", "backend", "qa", "reviewer", "designer"] as const).map((role) => fixed(role));
+const team = (["frontend", "backend", "qa", "cto"] as const).map((role) => fixed(role));
 const byRole = (role: string) => team.find((agent) => agent.role === role)!;
 
 const sub = (key: string, capability: string, order: number, extra: Partial<PlanSubtask> = {}): PlanSubtask => ({
@@ -91,7 +91,7 @@ describe("decideFixOwner: when the loop stops", () => {
   });
 
   it("blocks as unowned when the only owner is a role that may not write", () => {
-    expect(decide({ nodes: [UI], agents: [byRole("reviewer"), byRole("qa")] })).toEqual({ kind: "block", reason: "unowned" });
+    expect(decide({ nodes: [UI], agents: [byRole("qa"), byRole("qa")] })).toEqual({ kind: "block", reason: "unowned" });
   });
 });
 

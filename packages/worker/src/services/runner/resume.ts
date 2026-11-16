@@ -148,9 +148,17 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
   let llmResolver: TaskLlmResolver;
   let llmConfig: GlobalLLMConfig;
   // Plan 035: the app-wide OpenCode runtime + model (absent = not configured).
-  const opencodeCtx = context as { opencodeRuntime?: "api" | "opencode"; opencodeModel?: string };
+  const opencodeCtx = context as {
+    opencodeRuntime?: "api" | "opencode";
+    opencodeModel?: string;
+    nativeDriver?: "opencode" | "codex";
+  };
   const opencodeSettings = opencodeCtx.opencodeRuntime
-    ? { runtime: opencodeCtx.opencodeRuntime, model: opencodeCtx.opencodeModel ?? "" }
+    ? {
+        runtime: opencodeCtx.opencodeRuntime,
+        model: opencodeCtx.opencodeModel ?? "",
+        ...(opencodeCtx.nativeDriver ? { nativeDriver: opencodeCtx.nativeDriver } : {}),
+      }
     : null;
   try {
     llmResolver = await buildTaskLlmResolver(
@@ -246,7 +254,11 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
       llmTaskGate,
       // Plan 035: the app-wide OpenCode runtime + model.
       ...(opencodeSettings
-        ? { opencodeRuntime: opencodeSettings.runtime, opencodeModel: opencodeSettings.model }
+        ? {
+            opencodeRuntime: opencodeSettings.runtime,
+            opencodeModel: opencodeSettings.model,
+            ...(opencodeSettings.nativeDriver ? { nativeDriver: opencodeSettings.nativeDriver } : {}),
+          }
         : {}),
       onTokenUsage: recordUsage,
       qaBaseUrl: resolveQaBaseUrl(context.project),

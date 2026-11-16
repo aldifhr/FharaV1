@@ -51,7 +51,7 @@ export function planningPromptParts(input: PlanningPromptInput): PlanningPromptP
       ? [`Durable shared instructions for this project (must follow): ${input.sharedInstructions}`]
       : []),
     ...(input.projectInstructions ? [input.projectInstructions] : []),
-    "The team's roles: CTO (architecture decisions, only when flagged), Designer, Frontend, Backend, QA, Support, DevOps, Reviewer, Researcher.",
+    "The team's roles: CTO (architecture and research, read-only), Frontend (UI, design and client code), Backend (API, data, docs, CI/infra), QA (verification and code review, read-only).",
     "Analyze the user task, identify which agents are strictly relevant, and produce an execution plan as STRICT JSON.",
     "Do NOT force all agents into every task. Only assign agents whose capabilities match the requirements.",
     "For simple or single-discipline tasks, use strategy 'single' with 1 subtask and empty dependencies [].",
@@ -59,16 +59,15 @@ export function planningPromptParts(input: PlanningPromptInput): PlanningPromptP
     "Dependent subtasks must declare dependencies on the earlier subtask keys they wait for.",
     "Role collaboration patterns:",
     "- When design, visual layout, or pricing directions are needed:",
-    "  Designer (ui-ux-design) drafts layout options / proposals (Option A vs Option B) as an analysis subtask. The Designer never writes files; Frontend implements.",
-    "- Reviewer (code-review, security-audit): independent code review of implementation diffs and security audits. Read-only.",
+    "  Frontend (ui-ux-design) drafts layout options / proposals (Option A vs Option B) as an analysis subtask and then implements the chosen one. Design decisions belong to Frontend; no separate design role exists.",
+    "- QA (code-review, security-audit) also runs independent code review of implementation diffs and security audits. Read-only.",
     "- CTO (architecture): decides architecture-level questions only, through the architecture flag below. Never give the CTO implementation, review, QA or coordination subtasks. Read-only.",
     "- Technical-debt findings must include evidence, root cause, impact, and a durable remediation owner. The implementer agent coordinates cross-agent fixes; do not hide debt behind a local patch or add a second orchestration path.",
-    "- Frontend (frontend-development): UI components, tokens, styling, client implementation, and Next.js app code including src/lib types and utils (lib/resume is frontend unless it contains Convex/api routes).",
-    "- Backend (backend-development): Convex/API routes, database schema, server logic. A plain Next.js lib/ file with TypeScript types is frontend, not backend.",
-    "- DevOps (github, shell-execution): repositories, issues/PRs, CI, infra commands. May edit only .github/**, Dockerfile*, docker-compose*, infra/**.",
+    "- Frontend (frontend-development, ui-ux-design): UI components, tokens, styling, client implementation, and browser app code including src/lib types and utils. A plain lib/ file with TypeScript types is frontend unless it holds server routes or data access.",
+    "- Backend (backend-development): server-side work in any language — API routes, services, data access, database schema, auth and background jobs. Convex is one backend stack, not the definition; use it only when the repo already uses it or the request names it. Node/TypeScript, Python, Go, Java, Rust, PHP, Ruby, .NET and SQL all belong here.",
+    "- Backend also owns the work that used to have its own role, scoped by allowedPaths: CI and infra files (.github/**, Dockerfile*, docker-compose*, infra/**, deploy configs), and documentation (Markdown such as README.md, docs/**, release notes, changelog).",
     "- QA (browser-testing): perform only the verification explicitly requested. Structural QA checks HTML, browser reachability, console, and network errors. Responsive viewport and screenshot-baseline checks are opt-in only; never add them when the user says not to.",
-    "- Support (documentation-support): documentation guidance, customer communication, release notes. Support may write only Markdown files (*.md, e.g. README.md) and docs/**, never code; a docs-file change for Support is a code_change node scoped to those paths.",
-    "- Researcher (research): technical research, evidence gathering, fact vs assumption separation. Read-only.",
+    "- CTO (research, architecture): technical research, evidence gathering, fact vs assumption separation, alongside architecture decisions. Read-only.",
     "Agents available (only use capabilities listed here):",
     input.capabilityList,
     "",
@@ -76,7 +75,7 @@ export function planningPromptParts(input: PlanningPromptInput): PlanningPromptP
     `- 1 to ${policy.maxSubtasks} subtasks.`,
     "- Each subtask: key (lowercase slug), title, description, kind, capability, dependencies (keys), order, requirementIds.",
     "- Each subtask also carries a CONTRACT: objective (ONE concrete outcome), constraints (what must not change), deliverable (what it hands back), and acceptance: a list of gates {id, criterion, check, target?}.",
-    "  check is one of: typecheck, test, file_exists (target = workspace path that must exist), command (target = a package script such as lint or build), review (reviewer verdict; target \"output\" = the subtask's own answer is non-empty, \"output:sources\" = it cites files/URLs), manual (a person checks it; optional).",
+    "  check is one of: typecheck, test, file_exists (target = workspace path that must exist), command (target = a package script such as lint or build), review (QA verdict; target \"output\" = the subtask's own answer is non-empty, \"output:sources\" = it cites files/URLs), manual (a person checks it; optional).",
     "  Every code_change needs at least one gate (usually typecheck + test). Research gates: the answer is non-empty and cites sources. Omit acceptance only when the defaults for the kind fit.",
     "- The scope of a subtask is its allowedPaths. Executors stop and escalate (instead of expanding scope) on a schema change, a new dependency, a security-sensitive choice, a file outside scope, or an ambiguous requirement — so list schema files and package.json explicitly in allowedPaths when the change needs them.",
     "- code_change subtasks must declare allowedPaths: the tightest workspace-relative file/directory scope they may modify (e.g. [\"apps/web\"]). Omit only when the scope is genuinely unknown; the executor refuses files outside the declared scope.",
@@ -91,14 +90,14 @@ export function planningPromptParts(input: PlanningPromptInput): PlanningPromptP
     // hints layer does, instead of mandating a review for every change.
     ...(policy.reviewMode === "always"
       ? [
-          "- Add a review node served by the Reviewer agent for every code change. (policy reviewMode=always).",
+          "- Add a review node served by the QA agent for every code change. (policy reviewMode=always).",
         ]
       : policy.reviewMode === "never"
         ? [
             "- Do NOT add a review node: policy reviewMode=never forbids it. The plan carries no review subtask.",
           ]
         : [
-            "- Add a review node served by the Reviewer agent only for risky changes: auth, security, payments, migrations, concurrency, multi-domain, or multi-capability work. Simple single-capability changes get no review node. (policy reviewMode=auto: risk signal, not a mandate.)",
+            "- Add a review node served by the QA agent only for risky changes: auth, security, payments, migrations, concurrency, multi-domain, or multi-capability work. Simple single-capability changes get no review node. (policy reviewMode=auto: risk signal, not a mandate.)",
           ]),
     ...(policy.qaMode === "always"
       ? [
@@ -169,7 +168,7 @@ export function planningPromptParts(input: PlanningPromptInput): PlanningPromptP
           "- requiresApproval is false.",
           ...(classification.investigation
             ? [
-                "- This is a vague bug hunt with no symptom: plan exactly ONE research subtask with capability code-review (the Reviewer) that reads the code and reports concrete bugs as findings with file:line evidence, or says none were found and what was checked. No browser QA.",
+                "- This is a vague bug hunt with no symptom: plan exactly ONE research subtask with capability code-review (QA) that reads the code and reports concrete bugs as findings with file:line evidence, or says none were found and what was checked. No browser QA.",
               ]
             : []),
         ]
@@ -223,7 +222,7 @@ export const PLAN_NODE_INSTRUCTIONS = {
   archDecision:
     "Architecture decision (CTO). Decide only the architecture question below for this plan: the approach, the constraints the implementing roles must follow, and the main risk, in 2-3 plain sentences. Do not plan, implement or review the work. End with exactly one line: \"Decision: go\" (the plan may proceed), \"Decision: revise\" (the plan must change; say how), or \"Decision: stop\" (the work must not be done; say why).",
   review:
-    "Reviewer must inspect the completed implementation diff and either approve it or request revision. Check code quality, security, regression risk, performance, contract compatibility, project conventions, duplication, scalability, maintainability, and whether architectural changes are justified. Do NOT run verification commands (tsc, lint, test, build) — those are executed by the runtime verification loop, not by the reviewer (read-only). For every finding, identify the root cause, define the smallest durable fix, and direct the implementer agent to coordinate the remediation when it spans agents or subsystems.",
+    "The QA reviewer must inspect the completed implementation diff and either approve it or request revision. Check code quality, security, regression risk, performance, contract compatibility, project conventions, duplication, scalability, maintainability, and whether architectural changes are justified. Do NOT run verification commands (tsc, lint, test, build) — those are executed by the runtime verification loop, not by the reviewer (read-only). For every finding, identify the root cause, define the smallest durable fix, and direct the implementer agent to coordinate the remediation when it spans agents or subsystems.",
   qaVisual:
     "Run the app after changes are applied and verify responsive visuals, console errors and network failures.",
   qaStructural:
@@ -233,7 +232,7 @@ export const PLAN_NODE_INSTRUCTIONS = {
   auditFrontend:
     "Read-only audit of frontend (components, pages, styles, a11y, state). Report findings with file refs. No code changes.",
   auditBackend:
-    "Read-only audit of backend (API routes, Convex/DB, auth, validation, errors). Report findings with file refs. No code changes.",
+    "Read-only audit of backend (API routes, services, data access, auth, validation, errors, in any server language). Report findings with file refs. No code changes.",
   auditSecurity:
     "Read-only security audit (auth, secrets, injection, CORS, deps). Report findings with severity + file refs. No code changes.",
   auditConsolidate:

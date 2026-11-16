@@ -34,6 +34,7 @@ import type { WebReachConfig } from "@/execution/webReachTools";
 import type { SchedulerResult } from "@/scheduler/dagScheduler";
 import type { RecordedStep } from "@/api/convex/lib/restartContinuation";
 import type { CtoFirstConfig, DecisionTurnPort } from "@/decisionTurn/port";
+import type { NativeProviderDriver } from "@/execution/codexProvider";
 
 /**
  * Runtime dependencies the runner needs. One sink per concern: every
@@ -176,6 +177,11 @@ export interface ExecutePlanInput {
    */
   opencodeRuntime?: "api" | "opencode";
   opencodeModel?: string;
+  /**
+   * Plan 057: the provider CLI behind the native runtime, from the app-wide
+   * setting. Undefined = the worker's env fallback (ORCHESTRATOR_NATIVE_DRIVER).
+   */
+  nativeDriver?: NativeProviderDriver;
   /** Per-agent LLM resolver (Phase 2); executors resolve their own agent's chain from it. */
   llmResolver?: TaskLlmResolver;
   /** Per-task QA base URL (project qaUrl > devUrl > env fallback), threaded to the QA executor. */

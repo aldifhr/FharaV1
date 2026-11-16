@@ -149,6 +149,15 @@ import backend internals.
 
 - Every path goes through `resolveSandboxPath(workspaceRoot, requested)`. It
   rejects absolute paths and `..` escapes. Do not resolve paths by hand.
+- `list_files` and `grep` enumerate through `tools/workspaceIndex.ts`, a lazy
+  per-workspace `@ff-labs/fff-node` index (the finder FharaV2/T3Code uses).
+  It replaces the hand-written walk and glob parser; fff already ignores
+  gitignored paths, `.env`, `.git`, `node_modules`, and symlinks, and every
+  returned entry is still filtered through the governed path rules. If the
+  native library is missing on a machine, those two tools fail with a clear
+  message; `read_file` is unaffected. Indexes are disposed on shutdown.
+  Unified diffs come from `diff` and porcelain output is parsed NUL-delimited
+  (`-z`), never by regex.
 - `runCommand` allows exact argv pairs only (`npm run test`, `git status`,
   `git diff --stat`, …). Do not add prefix matching; `npm run test; rm -rf /`
   would pass one.
@@ -196,6 +205,14 @@ Subtasks run on one of two runtimes (`execution/nativeProvider.ts`,
 - `api` (default): the agent's LLM drives Fhara's own host tools.
 - OpenCode (`native-provider`): `opencode run --format json --auto [-m model]
   <message> -f prompt.md` runs in the task worktree with OpenCode's own tools.
+- Codex (`native-provider` + `ORCHESTRATOR_NATIVE_DRIVER=codex`):
+  `codex exec --json --skip-git-repo-check --color never -s danger-full-access
+  [-m model] -` runs with Codex's own tools; the prompt arrives on stdin
+  (`execution/codexProvider.ts`). It uses the operator's local
+  `codex login` session, so it is a trusted-machine runtime and gets no
+  scoped home (Codex reads `~/.codex`). `ORCHESTRATOR_CODEX_MODEL` overrides
+  the CLI's model; without it Codex uses its own config. Events and usage
+  are mapped onto `native.tool` / `native.run.finished` like OpenCode's.
 
 Selection (plan 035): the app-wide setting (Settings → LLM & Models) wins.
 It reaches the worker through the run context (`opencodeRuntime`,
@@ -273,7 +290,10 @@ was reported yet, or the last report is older than 10 min
 | `WORKER_LLM_MAX_CONCURRENCY` | from policy | Worker-wide LLM gate (set once) |
 | `ORCHESTRATOR_EXECUTION_RUNTIME` | `api` | Global runtime default: `api` or `opencode` (alias `native-provider`); legacy `ORCHESTRATOR_RUNTIME` still read. A per-agent `executionRuntime` overrides it |
 | `ORCHESTRATOR_NATIVE_PROVIDER_COMMAND` | `opencode` | OpenCode CLI binary |
-| `ORCHESTRATOR_NATIVE_TIMEOUT_MS` | `600000` | Wall-clock limit per OpenCode run; the process tree is killed on expiry |
+| `ORCHESTRATOR_NATIVE_DRIVER` | `opencode` | Native driver: `opencode` or `codex` (plan 057) |
+| `ORCHESTRATOR_CODEX_COMMAND` | `codex` | Codex CLI binary for the codex driver |
+| `ORCHESTRATOR_CODEX_MODEL` | — | Codex model id; unset uses the CLI's own config |
+| `ORCHESTRATOR_NATIVE_TIMEOUT_MS` | `600000` | Wall-clock limit per native run; the process tree is killed on expiry |
 | `WORKER_OPENCODE_CATALOG_POLL_MS` | `30000` | How often the worker checks whether the OpenCode model catalog needs a refresh |
 
 The worker loads the root `.env` (`../../.env` from `packages/worker`).

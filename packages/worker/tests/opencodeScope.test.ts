@@ -38,12 +38,11 @@ describe("buildOpencodePolicy", () => {
     }
   });
 
-  it("web only for the Researcher", () => {
+  it("no current role gets web access", () => {
     for (const key of Object.keys(ROLES) as (keyof typeof ROLES)[]) {
       const p = buildOpencodePolicy({ permissions: ROLES[key].permissions, mutating: false });
-      const expected = key === "researcher" ? "allow" : "deny";
-      expect(p.webfetch, key).toBe(expected);
-      expect(p.websearch, key).toBe(expected);
+      expect(p.webfetch, key).toBe("deny");
+      expect(p.websearch, key).toBe("deny");
     }
   });
 
@@ -58,18 +57,18 @@ describe("buildOpencodePolicy", () => {
   it("read-only kinds and read-only roles get no edits; shell none → no bash", () => {
     const fe = buildOpencodePolicy({ permissions: ROLES.frontend.permissions, mutating: false });
     expect(evaluateOpencodeRule(fe.edit, "src/a.ts")).toBe("deny");
-    const reviewer = buildOpencodePolicy({ permissions: ROLES.reviewer.permissions, mutating: true });
-    expect(evaluateOpencodeRule(reviewer.edit, "src/a.ts")).toBe("deny");
-    expect(evaluateOpencodeRule(reviewer.bash, "ls")).toBe("deny");
+    const cto = buildOpencodePolicy({ permissions: ROLES.cto.permissions, mutating: true });
+    expect(evaluateOpencodeRule(cto.edit, "src/a.ts")).toBe("deny");
+    expect(evaluateOpencodeRule(cto.bash, "ls")).toBe("deny");
     const qa = buildOpencodePolicy({ permissions: ROLES.qa.permissions, mutating: false });
     expect(evaluateOpencodeRule(qa.bash, "npm run test")).toBe("allow");
     expect(evaluateOpencodeRule(qa.bash, "rm -rf src")).toBe("deny");
   });
 
-  it("DevOps edits only its CI/infra globs", () => {
-    const p = buildOpencodePolicy({ permissions: ROLES.devops.permissions, mutating: true });
+  it("Backend can edit CI/infra paths as ordinary code", () => {
+    const p = buildOpencodePolicy({ permissions: ROLES.backend.permissions, mutating: true });
     expect(evaluateOpencodeRule(p.edit, ".github/workflows/ci.yml")).toBe("allow");
-    expect(evaluateOpencodeRule(p.edit, "src/a.ts")).toBe("deny");
+    expect(evaluateOpencodeRule(p.edit, "src/a.ts")).toBe("allow");
   });
 });
 

@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { REPO_TOOL_CAPS, capToolOutput, normalizeRepoToolArgs, type RepoToolResult } from "@/api/convex/lib/chat/repoTools";
 import { maskStringSecrets, validateFilePath } from "@/governance/tools";
 import { resolveSandboxPathAsync } from "./sandbox";
+import { listIndexedFiles } from "./workspaceIndex";
 
 /**
  * Read-only repo tools for grounded chat replies (list_files, grep,
@@ -68,88 +69,56 @@ export async function guardRepoPath(
   return { absolute, relative };
 }
 
-/** Minimal glob → RegExp: `**` any depth, `*` within a segment, `?` one char. */
-export function globToRegExp(glob: string): RegExp {
-  let out = "";
-  const g = glob.replace(/\\/g, "/");
-  for (let i = 0; i < g.length; i += 1) {
-    const c = g[i];
-    if (c === "*") {
-      if (g[i + 1] === "*") {
-        i += 1;
-        if (g[i + 1] === "/") {
-          i += 1;
-          out += "(?:.*/)?";
-        } else {
-          out += ".*";
-        }
-      } else {
-        out += "[^/]*";
-      }
-    } else if (c === "?") {
-      out += "[^/]";
-    } else if ("\\^$+.()|{}[]".includes(c)) {
-      out += `\\${c}`;
-    } else {
-      out += c;
-    }
-  }
-  // A bare pattern like "*.ts" matches at any depth.
-  const anchored = g.includes("/") ? `^${out}$` : `(?:^|/)${out}$`;
-  return new RegExp(anchored);
-}
-
 interface WalkEntry {
   relative: string;
   absolute: string;
   size: number;
 }
 
-/** Files under `startAbs` (or the file itself), skipping ignored dirs and secrets. */
-async function walkFiles(
+/**
+ * The governed view of one indexed entry: the same exclusions a walk used to
+ * enforce, applied to whatever the index returned. Defense in depth — fff
+ * already ignores gitignored paths, `.env`, `.git`, `node_modules` and
+ * symlinks.
+ */
+function isGovernedRelative(relative: string): boolean {
+  if (!relative) return false;
+  if (!validateFilePath(relative).ok) return false;
+  const segments = relative.split("/").filter(Boolean);
+  if (segments.some((segment) => SKIP_DIRS.has(segment))) return false;
+  return !SECRET_NAME.test(segments[segments.length - 1] ?? "");
+}
+
+/** Fold the requested subpath and glob into one npm-glob pattern. */
+function indexPattern(relative: string, glob: string): string {
+  const base = relative.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (glob) return base ? `${base}/${glob}` : glob;
+  return base ? `${base}/**` : "**";
+}
+
+/**
+ * Governed files under the requested path, from the workspace index. A
+ * request that names a file returns just that file; a directory (or the root)
+ * returns its governed descendants matching the optional glob.
+ */
+async function indexedFiles(
   workspaceRoot: string,
   startAbs: string,
-  limit: number,
-  filter?: RegExp
+  startRelative: string,
+  glob: string,
+  limit: number
 ): Promise<{ files: WalkEntry[]; truncated: boolean }> {
-  const root = path.resolve(workspaceRoot);
-  const files: WalkEntry[] = [];
-  let truncated = false;
   const stat = await fs.stat(startAbs).catch(() => null);
-  if (!stat) throw new RepoPathError(`Not found: ${path.relative(root, startAbs) || "."}`);
+  if (!stat) throw new RepoPathError(`Not found: ${startRelative || "."}`);
   if (stat.isFile()) {
-    return { files: [{ relative: path.relative(root, startAbs).replace(/\\/g, "/"), absolute: startAbs, size: stat.size }], truncated };
+    if (!isGovernedRelative(startRelative)) throw new RepoPathError(`Path not allowed: ${startRelative}`);
+    return { files: [{ relative: startRelative, absolute: startAbs, size: stat.size }], truncated: false };
   }
-  const stack = [startAbs];
-  while (stack.length > 0) {
-    const dir = stack.pop()!;
-    let entries;
-    try {
-      entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    entries.sort((a, b) => b.name.localeCompare(a.name));
-    for (const entry of entries) {
-      const absolute = path.join(dir, entry.name);
-      if (entry.isSymbolicLink()) continue; // never follow links out of the repo
-      if (entry.isDirectory()) {
-        if (!SKIP_DIRS.has(entry.name)) stack.push(absolute);
-        continue;
-      }
-      if (!entry.isFile() || SECRET_NAME.test(entry.name)) continue;
-      const relative = path.relative(root, absolute).replace(/\\/g, "/");
-      if (!validateFilePath(relative).ok) continue;
-      if (filter && !filter.test(relative)) continue;
-      if (files.length >= limit) {
-        truncated = true;
-        return { files, truncated };
-      }
-      const size = (await fs.stat(absolute).catch(() => null))?.size ?? 0;
-      files.push({ relative, absolute, size });
-    }
-  }
-  return { files, truncated };
+  const { files, totalMatched } = await listIndexedFiles(workspaceRoot, indexPattern(startRelative, glob), limit);
+  return {
+    files: files.filter((file) => isGovernedRelative(file.relative)).slice(0, limit),
+    truncated: totalMatched > limit,
+  };
 }
 
 function str(value: unknown): string {
@@ -170,11 +139,12 @@ function looksBinary(buffer: Buffer): boolean {
 async function listFiles(workspaceRoot: string, args: Record<string, unknown>): Promise<RepoToolResult> {
   const { absolute, relative } = await guardRepoPath(workspaceRoot, str(args.path));
   const glob = str(args.glob).slice(0, REPO_TOOL_CAPS.patternMaxChars);
-  const { files, truncated } = await walkFiles(
+  const { files, truncated } = await indexedFiles(
     workspaceRoot,
     absolute,
-    REPO_TOOL_CAPS.listMaxEntries,
-    glob ? globToRegExp(glob) : undefined
+    relative,
+    glob,
+    REPO_TOOL_CAPS.listMaxEntries
   );
   files.sort((a, b) => a.relative.localeCompare(b.relative));
   const lines = files.map((f) => `${f.relative} (${f.size} bytes)`);
@@ -201,11 +171,12 @@ async function grep(workspaceRoot: string, args: Record<string, unknown>): Promi
   const regex = compilePattern(pattern, args.ignoreCase === true);
   const { absolute, relative } = await guardRepoPath(workspaceRoot, str(args.path));
   const glob = str(args.glob).slice(0, REPO_TOOL_CAPS.patternMaxChars);
-  const { files, truncated: filesTruncated } = await walkFiles(
+  const { files, truncated: filesTruncated } = await indexedFiles(
     workspaceRoot,
     absolute,
-    REPO_TOOL_CAPS.grepMaxFilesScanned,
-    glob ? globToRegExp(glob) : undefined
+    relative,
+    glob,
+    REPO_TOOL_CAPS.grepMaxFilesScanned
   );
   files.sort((a, b) => a.relative.localeCompare(b.relative));
   const matches: string[] = [];

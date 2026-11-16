@@ -12,8 +12,8 @@ import { ROLES, ROLE_KEYS } from "@/api/convex/lib/roles";
 
 const dev: AgentDefinition = { _id: "d1", name: "Dev", role: "frontend", capabilities: ["frontend-development", "backend-development"], isEnabled: true } as any;
 const qa: AgentDefinition = { _id: "q1", name: "QA", role: "qa", capabilities: ["browser-testing"], isEnabled: true } as any;
-const rev: AgentDefinition = { _id: "r1", name: "Rev", role: "reviewer", capabilities: ["code-review"], isEnabled: true } as any;
-const res: AgentDefinition = { _id: "s1", name: "Res", role: "researcher", capabilities: ["research"], isEnabled: true } as any;
+const rev: AgentDefinition = { _id: "r1", name: "QA 2", role: "qa", capabilities: ["code-review"], isEnabled: true } as any;
+const be: AgentDefinition = { _id: "s1", name: "BE", role: "backend", capabilities: ["backend-development", "research"], isEnabled: true } as any;
 const cto: AgentDefinition = { _id: "c1", name: "CTO", role: "cto", capabilities: ["architecture"], isEnabled: true } as any;
 const sec: AgentDefinition = { _id: "sec", name: "Sec", role: "security", capabilities: ["security-audit"], isEnabled: true } as any;
 const disabled: AgentDefinition = { _id: "x1", name: "Off", role: "frontend", capabilities: ["frontend-development"], isEnabled: false } as any;
@@ -24,15 +24,15 @@ describe("roles: normalization + lookup", () => {
     expect(normalizeRole("CTO")).toBe("cto");
     expect(normalizeRole("architect")).toBe("cto");
   });
-  it("every org role (spec §2) has capabilities and tools", () => {
-    for (const role of ["cto", "frontend", "backend", "devops", "qa", "reviewer", "researcher", "designer", "support"] as const) {
+  it("every current role has capabilities and tools", () => {
+    for (const role of ROLE_KEYS) {
       expect(ROLE_DEFINITIONS[role].defaultCapabilities.length).toBeGreaterThan(0);
       expect(ROLE_DEFINITIONS[role].defaultTools.length).toBeGreaterThan(0);
     }
   });
-  it("researcher/reviewer cannot write by default; frontend/backend can", () => {
-    expect(defaultToolsForRole("researcher")).not.toContain("write_file");
-    expect(defaultToolsForRole("reviewer")).not.toContain("write_file");
+  it("cto/qa cannot write by default; frontend/backend can", () => {
+    expect(defaultToolsForRole("cto")).not.toContain("write_file");
+    expect(defaultToolsForRole("qa")).not.toContain("write_file");
     expect(defaultToolsForRole("frontend")).toContain("write_file");
     expect(defaultToolsForRole("backend")).toContain("write_file");
   });
@@ -48,13 +48,14 @@ describe("roles: normalization + lookup", () => {
       expect(ROLE_DEFINITIONS[key].defaultCapabilities).toEqual([...ROLES[key].capabilities]);
     }
   });
-  it("keeps the free-text aliases (titles, legacy roles)", () => {
+  it("keeps the free-text aliases (titles, retired roles)", () => {
     expect(normalizeRole("Frontend Developer")).toBe("frontend");
-    expect(normalizeRole("UI/UX")).toBe("designer");
-    expect(normalizeRole("product analyst")).toBe("researcher");
+    expect(normalizeRole("UI/UX")).toBe("frontend");
+    expect(normalizeRole("product analyst")).toBe("cto");
     expect(normalizeRole("Security Engineer")).toBe("backend");
-    expect(normalizeRole("technical-writer")).toBe("support");
-    expect(normalizeRole("DevOps Engineer")).toBe("devops");
+    expect(normalizeRole("technical-writer")).toBe("backend");
+    expect(normalizeRole("DevOps Engineer")).toBe("backend");
+    expect(normalizeRole("Reviewer")).toBe("qa");
     expect(normalizeRole("")).toBeNull();
   });
   it("plan 040: an unknown role is unrouted (null), never frontend", () => {
@@ -75,7 +76,7 @@ describe("roles: capability-based selection", () => {
   });
   it("implement authentication → Developer + QA (2 agents, complex)", () => {
     const picked = selectAgentsForTask({
-      agents: [dev, qa, rev, res],
+      agents: [dev, qa, rev, be],
       requiredCapabilities: ["backend-development", "browser-testing"],
       taskComplexity: "complex",
     });
@@ -83,16 +84,16 @@ describe("roles: capability-based selection", () => {
     expect(picked.map((a) => a._id)).toContain("d1");
     expect(picked.map((a) => a._id)).toContain("q1");
   });
-  it("audit code quality → Reviewer only", () => {
+  it("audit code quality → QA only", () => {
     const picked = selectAgentsForTask({ agents: [dev, rev], requiredCapabilities: ["code-review"] });
     expect(picked.map((a) => a._id)).toEqual(["r1"]);
   });
-  it("research framework → Researcher only", () => {
-    const picked = selectAgentsForTask({ agents: [dev, res], requiredCapabilities: ["research"] });
+  it("research framework → Backend (retired Researcher capability)", () => {
+    const picked = selectAgentsForTask({ agents: [dev, be], requiredCapabilities: ["research"] });
     expect(picked.map((a) => a._id)).toEqual(["s1"]);
   });
   it("security audit → backend (mapped, not a separate role)", () => {
-    const picked = selectAgentsForTask({ agents: [dev, sec, res], requiredCapabilities: ["security-audit"] });
+    const picked = selectAgentsForTask({ agents: [dev, sec, be], requiredCapabilities: ["security-audit"] });
     // sec agent role normalizes to backend; capability matching still finds it
     expect(picked.map((a) => a._id)).toContain("sec");
   });
@@ -102,7 +103,7 @@ describe("roles: capability-based selection", () => {
   });
   it("canSelect enforces capability ownership", () => {
     expect(canSelect("frontend", ["frontend-development"])).toBe(true);
-    expect(canSelect("researcher", ["frontend-development"])).toBe(false);
+    expect(canSelect("qa", ["frontend-development"])).toBe(false);
   });
   it("complex backend+review picks both", () => {
     const be: AgentDefinition = { _id: "be", name: "BE", role: "backend", capabilities: ["backend-development"], isEnabled: true } as any;

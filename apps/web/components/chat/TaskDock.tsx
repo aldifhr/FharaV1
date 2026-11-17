@@ -1,15 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
+import { useQuery } from "convex/react";
+import { ChevronDown, ChevronUp, GripVertical, LoaderCircle } from "lucide-react";
+import { api } from "@/api/convex/_generated/api";
 import { holdNoticeText } from "@/api/convex/lib/providerHold";
 import { roleLabel } from "@/lib/agentRoles";
+import { dueDateLabel, formatTokens, isOverdue } from "@/lib/runFormat";
 import { taskStatusLabel } from "@/lib/taskStatus";
 import { taskRef, type DockTaskRow } from "@/lib/taskDock";
 
 type DockTask = DockTaskRow & {
   pausedBy?: string;
   assignedAgentIds?: string[];
+  dueAt?: number;
   hold?: { kind: "offline" | "rate_limit" | "quota" | "auth" | "repo"; reason: string; resumeAt: number };
 };
 
@@ -23,15 +27,26 @@ export default function TaskDock({
   tasks,
   agents,
   onOpenTask,
+  projectId,
 }: {
   /** Already filtered and ordered (lib/taskDock `dockTasks`). */
   tasks: DockTask[];
   agents: Array<{ _id: string; role: string }>;
   onOpenTask: (taskId: string) => void;
+  /** Plan 064: the per-task context badge reads the project's one totals query. */
+  projectId?: string;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const anyHeld = tasks.some((t) => t.hold);
+  // One subscription for the whole dock: rows look their task up locally.
+  const contextTotals = useQuery(
+    api.contextSnapshots.contextTotals,
+    projectId ? { projectId: projectId as any } : "skip"
+  );
+  const contextByTask = new Map(
+    (contextTotals?.tasks ?? []).map((t) => [String(t.taskId), t.promptTokens] as const)
+  );
   useEffect(() => {
     if (!anyHeld) return;
     const timer = setInterval(() => setNow(Date.now()), 30_000);
@@ -80,6 +95,24 @@ export default function TaskDock({
                 <GripVertical size={13} aria-hidden="true" className="shrink-0 text-ink-3" />
                 <span className="shrink-0 font-mono text-[12.5px] font-medium text-ink">{taskRef(task._id)}</span>
                 <span className="min-w-0 flex-1 truncate text-ink-2">{task.title}</span>
+                {/* Plan 063: a stated deadline, warn-toned once it passes. */}
+                {task.dueAt && (
+                  <span
+                    className={`shrink-0 text-[12px] ${isOverdue(task.dueAt, false, now) ? "text-danger" : "text-ink-3"}`}
+                    title="Due date"
+                  >
+                    due {dueDateLabel(task.dueAt)}
+                  </span>
+                )}
+                {/* Plan 064: context this task fed the LLM, when any. */}
+                {(contextByTask.get(task._id) ?? 0) > 0 && (
+                  <span
+                    className="flex shrink-0 items-center gap-1 text-[12px] text-ink-3"
+                    title="Prompt tokens sent to the LLM for this task"
+                  >
+                    <LoaderCircle size={12} aria-hidden="true" />~{formatTokens(contextByTask.get(task._id))}
+                  </span>
+                )}
                 {task.hold && task.status === "paused" && task.pausedBy === "held" ? (
                   <span className="max-w-[45%] shrink-0 truncate text-[12.5px] text-ink-3" data-testid="chat-hold-line">
                     {holdNoticeText(task.hold, now)}

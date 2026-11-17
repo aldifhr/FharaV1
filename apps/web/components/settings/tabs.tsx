@@ -401,14 +401,14 @@ export function ProvidersTab({ onOpenModels }: { onOpenModels: () => void }) {
   );
 }
 
-// ── Threads ─────────────────────────────────────────────────────────────
+// ── Tasks (the former "Threads" tab; direct threads were removed 2026-11-12) ─────────────────────────────────────────────────────────────
 
 export function ThreadsTab() {
   const [enterToSend, setEnterToSend] = useUiPref("enterToSend");
   const [liveOutput, setLiveOutput] = useUiPref("liveOutput");
   return (
     <>
-      <Section title="Composer and thread view" description="Saved on this device.">
+      <Section title="Composer and task view" description="Saved on this device.">
         <Row label="Enter sends" description="Off: Enter adds a new line and Ctrl/Cmd+Enter sends.">
           <Toggle label="Enter sends" checked={enterToSend} onChange={setEnterToSend} />
         </Row>
@@ -416,7 +416,7 @@ export function ThreadsTab() {
           <Toggle label="Live model output" checked={liveOutput} onChange={setLiveOutput} />
         </Row>
       </Section>
-      <Section title="Timeouts" description="When a thread that stopped making progress is ended.">
+      <Section title="Timeouts" description="When a task or chat reply that stopped making progress is ended.">
         <KnobNumber
           knob="CHAT_REPLY_STALE_MS"
           label="Chat reply timeout"

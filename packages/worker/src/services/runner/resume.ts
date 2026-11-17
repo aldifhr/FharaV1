@@ -151,7 +151,7 @@ async function resumeTaskScoped(taskId: string, deps: RunnerDeps): Promise<void>
   const opencodeCtx = context as {
     opencodeRuntime?: "api" | "opencode";
     opencodeModel?: string;
-    nativeDriver?: "opencode" | "codex";
+    nativeDriver?: "opencode" | "codex" | "acp";
   };
   const opencodeSettings = opencodeCtx.opencodeRuntime
     ? {

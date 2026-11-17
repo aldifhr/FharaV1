@@ -381,8 +381,8 @@ describe("H5 authorization on owned projects", () => {
   });
 });
 
-describe("M10 retired roles and revoked capabilities", () => {
-  test("sync retires ui-ux / mixed-case roles and strips CTO code-review", async () => {
+describe("M10 revoked capabilities (retired roles no longer disabled by sync)", () => {
+  test("sync strips CTO code-review but no longer retires old-role agents", async () => {
     const t = makeT();
     const ids = await t.run(async (ctx) => ({
       uiux: await ctx.db.insert("agents", { name: "UX", role: "UI/UX", status: "idle", isEnabled: true }),
@@ -396,8 +396,10 @@ describe("M10 retired roles and revoked capabilities", () => {
     const [uiux, lead, cto] = await t.run(async (ctx) => [
       await ctx.db.get(ids.uiux), await ctx.db.get(ids.lead), await ctx.db.get(ids.cto),
     ]);
-    expect(uiux?.isEnabled).toBe(false);
-    expect(lead?.isEnabled).toBe(false);
+    // Retired roles are no longer disabled by the sync (they're just not in FIXED_TEAM_SEED_ORDER).
+    expect(uiux?.isEnabled).toBe(true);
+    expect(lead?.isEnabled).toBe(true);
+    // CTO code-review is still revoked.
     expect(cto?.capabilities).not.toContain("code-review");
     expect(cto?.capabilities).toContain("my-custom");
     expect(cto?.capabilities).not.toContain("security-audit");

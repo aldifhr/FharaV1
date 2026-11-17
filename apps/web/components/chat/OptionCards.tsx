@@ -30,10 +30,10 @@ function LayoutPreview({ rows }: { rows: LayoutRow[] }) {
 function OptionPreview({ style }: { style: ChatOption["preview"] }) {
   const nav = (
     <div className="flex items-center gap-1.5">
-      <span className="h-2 w-2 rounded-full bg-[#8f90a8] dark:bg-neutral-500" />
+      <span className="h-2 w-2 rounded-full bg-ink-3" />
       <span className="ml-auto h-1.5 w-5 rounded bg-line" />
       <span className="h-1.5 w-5 rounded bg-line" />
-      <span className="h-1.5 w-4 rounded-full bg-[#8f90a8] dark:bg-neutral-500" />
+      <span className="h-1.5 w-4 rounded-full bg-ink-3" />
     </div>
   );
   const bar = (w = "w-full") => <div className={`h-1.5 rounded bg-line ${w}`} />;
@@ -72,7 +72,7 @@ function OptionPreview({ style }: { style: ChatOption["preview"] }) {
     return (
       <div className="space-y-1.5 p-3">
         {nav}
-        <div className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-md bg-[#15131c] p-3 dark:bg-black">
+        <div className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-md bg-inset p-3">
           <div className="h-2.5 w-3/5 rounded bg-white/90" />
           <div className="h-1.5 w-2/5 rounded bg-white/50" />
           <div className="mt-0.5 h-3 w-10 rounded-full bg-ink" />
@@ -173,10 +173,13 @@ export default function OptionCards({
       </div>
       {pickedId !== undefined && (
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-          <span className="text-[12px] text-ink-3">You picked {pickedId}</span>
+          <span className="inline-flex items-center gap-1 rounded-lg border border-brand/30 bg-brand-soft px-2.5 py-1 text-[12px] font-medium text-brand">
+            <Check size={11} aria-hidden="true" />
+            You picked {pickedId}
+          </span>
           {ctoAgrees && (
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1 text-[12px] font-medium text-ink-2 dark:bg-transparent">
-              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-100 text-[9px] font-bold text-indigo-700 dark:bg-indigo-950">C</span>
+              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-brand-soft text-[9px] font-bold text-brand">C</span>
               CTO agrees
             </span>
           )}

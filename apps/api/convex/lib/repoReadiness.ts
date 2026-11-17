@@ -16,8 +16,10 @@
 export const NOT_GIT_MESSAGE = "This project folder isn't a git repository. Initialize git to run tasks.";
 export const NO_COMMITS_MESSAGE = "This repository has no commits yet. Create an initial commit to run tasks.";
 
-/** The worktree directory inside the project (old name kept on purpose, see taskBranch.ts). */
-export const WORKTREES_DIR = ".moagent-worktrees";
+/** The legacy worktree directory inside the project (pre-rename; recognized until cleanup). */
+export const LEGACY_WORKTREES_DIR = ".moagent-worktrees";
+/** The Fhara state directory a project's `worktreesPath` may opt back into. */
+export const FHARA_PROJECT_DIR = ".fhara";
 
 export type RepoReadiness =
   | { state: "ready" }
@@ -84,9 +86,15 @@ export interface PathLike {
   isAbsolute(p: string): boolean;
 }
 
-/** Where task worktrees live: the project's worktreesPath (relative to the root), else `<root>/.moagent-worktrees`. */
-export function worktreesBaseFor(repoRoot: string, worktreesPath: string | undefined, p: PathLike): string {
-  return worktreesPath && worktreesPath.trim() ? p.resolve(repoRoot, worktreesPath.trim()) : p.join(repoRoot, WORKTREES_DIR);
+/**
+ * Where task worktrees live (plan 065): `~/.fhara/worktrees` by default —
+ * the project folder stays clean — or the project's `worktreesPath`
+ * (repoRoot-relative) when one is configured. The legacy base
+ * `<repoRoot>/.moagent-worktrees` is no longer created; existing worktrees
+ * there keep being recognized and removed by their task's cleanup.
+ */
+export function worktreesBaseFor(repoRoot: string, worktreesPath: string | undefined, p: PathLike, homeDir: string): string {
+  return worktreesPath && worktreesPath.trim() ? p.resolve(repoRoot, worktreesPath.trim()) : p.join(homeDir, ".fhara", "worktrees");
 }
 
 /** A directory name Windows and POSIX both accept (no `<>:"|?*`, slashes, control chars, trailing dot/space). */

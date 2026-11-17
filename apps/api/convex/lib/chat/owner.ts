@@ -1,13 +1,15 @@
 /**
  * Who answers a project chat message nobody was @mentioned in. System
- * routes, deterministically (no LLM chooser); there is no CTO default:
+ * routes, deterministically (no LLM chooser):
  *
  * 1. routeQuestion (dispatch.ts): a short status question → a System status
- *    line (no LLM); else the agent who answered the previous turn; else a
- *    greeting / short how-to → Support, planning → CTO, or the role that owns
- *    the topic.
+ *    line (no LLM); else the agent who answered the previous turn (a CTO
+ *    deflection reply is skipped, plan 062); else a greeting / short how-to →
+ *    Support, planning → CTO, or the role that owns the topic.
  * 2. The request names files of one code role ("ultimate.html" → Frontend).
- * 3. Support, else the conversational fallback.
+ * 3. A question no topic domain owns → the CTO, the conversational owner: it
+ *    answers or hands off (plan 062). The Support/General fallback chain only
+ *    applies on a team without a CTO.
  *
  * Pure; unit-tested in owner.test.ts.
  */
@@ -59,6 +61,10 @@ export function resolveChatOwner<T extends Member>(input: {
   const byFiles = codeRoleForRequest(input.text);
   const fileOwner = byFiles ? team.find((a) => normalizeRoleKey(a.role) === byFiles) : undefined;
   if (fileOwner) return { kind: "agent", agent: fileOwner, domain: null, via: "files" };
+  // Plan 062: a question no topic domain owns is the CTO's — it answers or
+  // hands off. Without a CTO on the team, the old conversational fallback.
+  const cto = team.find((a) => CTO_ROLE.test(a.role.trim()));
+  if (cto) return { kind: "agent", agent: cto, domain: "architecture", via: "route" };
   const fallback = fallbackOwner(team);
   return fallback ? { kind: "agent", agent: fallback, domain: null, via: "fallback" } : null;
 }

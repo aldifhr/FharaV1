@@ -15,9 +15,17 @@ permissions:
 
 jobs:
   check:
-    name: typecheck + test
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    name: typecheck + test (${{ matrix.os }})
+    # macOS is in the matrix because the worker and the provider packages carry
+    # darwin branches (process groups, editor bundles, managed-policy plist,
+    # ACP darwin targets) that no Linux runner can execute. macos-latest is
+    # arm64; there is no Intel image in this matrix.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     env:
       # No secrets in CI: no Convex deployment, no LLM keys. Live-LLM / e2e
       # suites are gated on these and stay skipped.

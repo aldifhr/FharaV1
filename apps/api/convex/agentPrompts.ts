@@ -10,7 +10,6 @@ import { internalMutation, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { assertAgentAccess, assertRegistryWriteAccess } from "./lib/authz";
 import { recordAudit } from "./lib/recordAudit";
-import { isRetiredRole } from "./lib/roles";
 import { isUneditedSeed, roleTemplateFor } from "./lib/prompts/roleTemplate";
 import { syncFixedTeam } from "./agents";
 
@@ -46,7 +45,6 @@ export const applyRoleTemplates = internalMutation({
     const reset: string[] = [];
     const customised: string[] = [];
     for (const agent of await ctx.db.query("agents").collect()) {
-      if (isRetiredRole(agent.role)) continue;
       const template = roleTemplateFor(agent.role);
       if (!template || agent.systemPrompt === template) continue;
       if (!args.force && !isUneditedSeed(agent.role, agent.systemPrompt)) {

@@ -10,7 +10,6 @@ import path from "node:path";
 
 import {
   MAX_LINES,
-  brandUses,
   compareMeasures,
   countLines,
   isUiSource,
@@ -85,12 +84,16 @@ test("raw hex colours are caught, issue numbers are not", () => {
   assert.equal(uiRuleCounts(`<p>Fixes PR #123 and #456</p>`).hex, 0);
 });
 
-test("the retired brand colour is caught, ink is not (dashboard F1)", () => {
-  assert.equal(brandUses(`<button className="bg-brand text-white hover:bg-brand-hover focus-visible:ring-brand/40" />`), 3);
-  assert.equal(brandUses(`<span className="bg-brand-soft text-brand-ink accent-[var(--shell-brand)]" />`), 3);
-  assert.equal(brandUses(`<button className="bg-ink text-canvas hover:bg-ink/85 focus-visible:ring-ink/30" />`), 0);
-  assert.equal(brandUses(`const label = "brand new"; // was bg-brand`), 0);
-  assert.equal(measureFile(UI_FILE, `const s = "bg-brand";`).brand, 1);
+test("the accent tokens are allowed, other palette tints are not (plan 067)", () => {
+  // The purple accent replaced the retired brand ban: its token classes are
+  // theme tokens now, so they count as nothing.
+  assert.equal(uiRuleCounts(`<button className="bg-brand text-brand-ink hover:bg-brand-hover" />`).tint, 0);
+  assert.equal(uiRuleCounts(`<span className="bg-brand-soft text-brand focus-visible:ring-brand/40" />`).tint, 0);
+  assert.equal(uiRuleCounts(`<span className="accent-[var(--shell-brand)]" />`).tint, 0);
+  // A palette tint next to an accent token is still a violation.
+  assert.equal(uiRuleCounts(`<span className="bg-brand text-emerald-600" />`).tint, 1);
+  assert.equal(measureFile(UI_FILE, `const s = "bg-violet-500";`).tint, 1);
+  assert.equal(measureFile(UI_FILE, `const s = "bg-brand";`).tint, undefined);
 });
 
 test("suppressions need a reason", () => {

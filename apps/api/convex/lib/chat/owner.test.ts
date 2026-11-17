@@ -42,10 +42,11 @@ describe("chat owner: deterministic, no LLM chooser", () => {
     expect(who(owner("sampai mana?"))).toBe("status");
   });
 
-  it("no domain and no previous responder → Support; never the CTO by default", () => {
-    expect(who(owner("menurutmu nama produk ini bagus?"))).toBe("Support");
-    const noSupport = team.filter((a) => a.role !== "support" && a.role !== "researcher");
-    expect(who(owner("menurutmu nama produk ini bagus?", { team: noSupport }))).not.toBe("CTO");
+  it("no domain and no previous responder → the CTO, the conversational owner (plan 062)", () => {
+    expect(who(owner("menurutmu nama produk ini bagus?"))).toBe("CTO");
+    // A team without a CTO keeps the old conversational fallback.
+    const noCto = team.filter((a) => a.role !== "cto");
+    expect(who(owner("menurutmu nama produk ini bagus?", { team: noCto }))).toBe("Support");
   });
 
   it("priority: previous responder > domain > Support", () => {
@@ -58,9 +59,9 @@ describe("chat owner: deterministic, no LLM chooser", () => {
     expect(owner("kenapa query lambat?", { history: afterQa })).toMatchObject({ agent: { name: "QA" }, via: "previous" });
     expect(owner("baca semua", { history: afterQa })).toMatchObject({ agent: { name: "QA" }, via: "previous" });
     expect(owner("halo", { history: afterQa })).toMatchObject({ agent: { name: "QA" }, via: "previous" });
-    // No previous responder: the domain, then Support.
+    // No previous responder: the domain, then the CTO (plan 062).
     expect(owner("kenapa query lambat?")).toMatchObject({ agent: { name: "Backend" }, via: "route" });
-    expect(owner("baca semua")).toMatchObject({ agent: { name: "Support" }, via: "fallback" });
+    expect(owner("baca semua")).toMatchObject({ agent: { name: "CTO" }, via: "route" });
   });
 
   it("a previous responder no longer on the team is skipped", () => {
@@ -68,7 +69,7 @@ describe("chat owner: deterministic, no LLM chooser", () => {
       { authorType: "user", content: "audit semua file" },
       { authorType: "agent", agentId: "gone", content: "..." },
     ];
-    expect(owner("baca semua", { history })).toMatchObject({ agent: { name: "Support" }, via: "fallback" });
+    expect(owner("baca semua", { history })).toMatchObject({ agent: { name: "CTO" }, via: "route" });
   });
 
   it("an option pick goes back to the agent that offered the options", () => {
@@ -88,6 +89,14 @@ describe("chat owner: deterministic, no LLM chooser", () => {
     expect(fallbackOwner(team)?.name).toBe("Support");
     expect(fallbackOwner([team[0], team[3]])?.name).toBe("Backend");
     expect(fallbackOwner([])).toBeNull();
+  });
+
+  it("a CTO deflection does not keep the thread; the CTO takes the next question (plan 062)", () => {
+    const history = [
+      { authorType: "user", content: "sebutkan 3 file penting di project ini" },
+      { authorType: "agent", agentId: "qa", content: "Pertanyaan itu ditujukan kepada CTO, dan saya bukan CTO — saya QA engineer di tim." },
+    ];
+    expect(owner("sebutkan juga strukturnya", { history })).toMatchObject({ agent: { name: "CTO" }, via: "route" });
   });
 });
 

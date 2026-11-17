@@ -99,6 +99,9 @@ describe("ORCHESTRATOR_WORKTREE_ISOLATION=auto: the worker-side probe", () => {
   test("porcelain: the task worktrees directory does not count as a change", () => {
     expect(hasUncommittedChanges("")).toBe(false);
     expect(hasUncommittedChanges("?? .moagent-worktrees/\n")).toBe(false);
+    // Plan 065: the new default lives outside the repo, and a project's
+    // worktreesPath may point at .fhara — both stay out of the status.
+    expect(hasUncommittedChanges("?? .fhara/\n")).toBe(false);
     expect(hasUncommittedChanges(" M src/a.ts\n")).toBe(true);
     expect(hasUncommittedChanges("?? notes.md\n")).toBe(true);
   });

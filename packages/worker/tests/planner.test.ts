@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { classifyCommand } from "@/orchestrator/classifier";
-import { buildPlanningPrompt, createPlan, ensureRequiredSubtasks, heuristicPlan, wantsVisualQa } from "@/orchestrator/planner";
+import { buildPlanningPrompt, createPlan, ensureRequiredSubtasks, heuristicPlan, parsePlanDue, wantsVisualQa } from "@/orchestrator/planner";
 import type { AgentDefinition, ExecutionPlan } from "@/orchestrator/types";
 import { loadPolicy } from "@/orchestrator/policy";
 import { listWorkspaceLayout } from "@/utils/workspaceLayout";
@@ -36,6 +36,23 @@ const qa: AgentDefinition = {
 };
 
 describe("planner", () => {
+  it("parsePlanDue: ISO dates survive, junk and past dates are dropped (plan 063)", () => {
+    const now = Date.parse("2026-11-17T10:00:00");
+    const day = Date.parse("2026-11-20T12:00:00");
+    // A bare date is noon local, so the calendar day is stable everywhere.
+    expect(parsePlanDue("2026-11-20", now)).toBe(Date.parse("2026-11-20T12:00:00"));
+    expect(parsePlanDue("2026-11-20T17:30", now)).toBe(Date.parse("2026-11-20T17:30:00"));
+    expect(parsePlanDue(" 2026-11-20 ", now)).toBe(day);
+    expect(parsePlanDue(Date.parse("2026-11-20T12:00:00"), now)).toBe(Date.parse("2026-11-20T12:00:00"));
+    // Junk, prose and the past (beyond a day of slack) never become a due date.
+    expect(parsePlanDue("next Friday", now)).toBeUndefined();
+    expect(parsePlanDue("2026-13-45", now)).toBeUndefined();
+    expect(parsePlanDue("", now)).toBeUndefined();
+    expect(parsePlanDue(null, now)).toBeUndefined();
+    expect(parsePlanDue("2026-11-01", now)).toBeUndefined();
+    expect(parsePlanDue(1, now)).toBeUndefined();
+  });
+
   it("falls back to a deterministic plan when no LLM planner is available", async () => {
     const command = "fix the login button";
     const result = await createPlan({

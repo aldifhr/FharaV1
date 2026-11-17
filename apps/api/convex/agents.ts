@@ -5,16 +5,13 @@ import { assertAgentAccess, assertProjectAccess, assertRegistryWriteAccess } fro
 import {
   FIXED_TEAM_SEED_ORDER,
   REVOKED_DEFAULT_CAPABILITIES,
-  ADDED_DEFAULT_TOOLS,
-  REVOKED_DEFAULT_TOOLS,
   ROLES,
-  isRetiredRole,
   normalizeRoleKey,
 } from "./lib/roles";
 import { defaultAvatarParams } from "./lib/avatar";
 import { changedFields, recordAudit, setFields } from "./lib/recordAudit";
 import { AGENT_SEED_PROMPTS, GENERIC_AGENT_PROMPT, LEGACY_UI_UX_PROMPT } from "./lib/prompts/agents";
-import { isUneditedSeed } from "./lib/prompts/roleTemplate";
+import { isUneditedSeed, roleTemplateFor } from "./lib/prompts/roleTemplate";
 import { applyAgentSkills, applyBuiltinSkills, seedBuiltinSkills } from "./skills";
 import { effectiveTeamIds } from "./lib/projectTeam";
 import { deleteConversationCascade } from "./lib/conversationCascade";
@@ -180,9 +177,12 @@ export const getRegistryView = query({
  * after creation it stays editable via agents.update.
  */
 export function defaultSystemPromptForRole(role: string): string {
-  const key = role.trim().toLowerCase();
-  const seed = FIXED_AGENTS.find((agent) => agent.role === key);
-  if (seed) return seed.systemPrompt;
+  // Resolve through the shared role template (keys, titles and legacy
+  // aliases) so a manual role such as Designer gets its own persona even
+  // though it has no fixed-team row.
+  const template = roleTemplateFor(role);
+  if (template) return template;
+  const key = normalizeRoleKey(role);
   if (key === "ui-ux") return LEGACY_UI_UX_PROMPT;
   return GENERIC_AGENT_PROMPT;
 }
@@ -216,7 +216,7 @@ export const create = mutation({
     avatarParams: v.optional(v.any()),
     // Library skills prefilled from a template (order = prompt order).
     skillIds: v.optional(v.array(v.id("skills"))),
-    executionRuntime: v.optional(v.union(v.literal("api"), v.literal("opencode"))),
+    executionRuntime: v.optional(v.union(v.literal("api"), v.literal("opencode"), v.literal("acp"))),
     opencodeModel: v.optional(v.string()),
     skillLoading: v.optional(v.union(v.literal("inline"), v.literal("on_demand"))),
   },
@@ -311,7 +311,7 @@ export const update = mutation({
     ),
     // Execution runtime: a value sets it, null clears it (global default),
     // omit leaves it as-is. Same contract for the OpenCode model.
-    executionRuntime: v.optional(v.union(v.literal("api"), v.literal("opencode"), v.null())),
+    executionRuntime: v.optional(v.union(v.literal("api"), v.literal("opencode"), v.literal("acp"), v.null())),
     opencodeModel: v.optional(v.union(v.string(), v.null())),
     // Skill v2: "inline" (default) | "on_demand"; null resets to inline.
     skillLoading: v.optional(v.union(v.literal("inline"), v.literal("on_demand"), v.null())),
@@ -496,7 +496,6 @@ export const getDetail = query({
       projectId: row.projectId,
       enabled: row.enabled,
       allowedTools: row.allowedTools ?? null,
-      customInstructions: row.customInstructions ?? null,
     }));
 
     const allOpenTasks = (
@@ -581,45 +580,29 @@ export const FIXED_AGENTS = FIXED_TEAM_SEED_ORDER.map((key) => {
 });
 
 /**
- * Plan 040: the row's tools after adding this role's newly added defaults
- * and removing its revoked ones, or null when nothing changes. A row with
- * no stored tools list keeps relying on the role defaults.
+ * Plan 040: the row's tools after syncing role defaults. With the retired
+ * roles removed, there are no added/revoked tool migrations left — this
+ * always returns null (no change). Kept as a stub for future migrations.
  */
-export function syncedTools(current: readonly string[] | undefined, role: string): string[] | null {
-  if (!current) return null;
-  const revoked = new Set(REVOKED_DEFAULT_TOOLS[role] ?? []);
-  const next = Array.from(new Set([...current, ...(ADDED_DEFAULT_TOOLS[role] ?? [])])).filter(
-    (tool) => !revoked.has(tool)
-  );
-  const same = next.length === current.length && next.every((tool, index) => tool === current[index]);
-  return same ? null : next;
+export function syncedTools(_current: readonly string[] | undefined, _role: string): string[] | null {
+  return null;
 }
 
 /**
- * Sync the fixed team: seed missing roles, union new default capabilities
- * into existing rows, and retire removed roles exactly once.
+ * Sync the fixed team: seed missing roles and union new default capabilities
+ * into existing rows.
  *
  * - Prompts/descriptions are filled when empty; a prompt that is still an
  *   unedited seed follows the current role template (lib/prompts/roles/);
  *   edits made in the UI are never overwritten.
- * - Retired agents are disabled once and stamped with `retiredAt`; a later
- *   manual re-enable sticks.
  */
 export async function syncFixedTeam(ctx: MutationCtx, projectId?: Id<"projects">) {
   const existingAgents = await ctx.db.query("agents").collect();
 
-  const retiredIds = new Set<string>();
-  for (const agent of existingAgents) {
-    if (!isRetiredRole(agent.role)) continue;
-    if (agent.retiredAt) continue;
-    retiredIds.add(String(agent._id));
-    await ctx.db.patch(agent._id, { isEnabled: false, status: "idle", retiredAt: Date.now() });
-  }
-
   const createdAgentIds: Id<"agents">[] = [];
   for (const def of FIXED_AGENTS) {
     const match = existingAgents.find(
-      (a) => normalizeRoleKey(a.role) === def.role && !isRetiredRole(a.role)
+      (a) => normalizeRoleKey(a.role) === def.role
     );
     if (!match) {
       const id = await ctx.db.insert("agents", {
@@ -689,16 +672,12 @@ export async function syncFixedTeam(ctx: MutationCtx, projectId?: Id<"projects">
   if (projectId) {
     const project = await ctx.db.get(projectId);
     if (project) {
-      const retiredAll = new Set(
-        existingAgents.filter((a) => isRetiredRole(a.role)).map((a) => String(a._id))
-      );
-      const kept = (project.agentIds ?? []).filter((id) => !retiredAll.has(String(id)));
-      const combined = Array.from(new Set([...kept, ...createdAgentIds]));
+      const combined = Array.from(new Set([...(project.agentIds ?? []), ...createdAgentIds]));
       await ctx.db.patch(project._id, { agentIds: combined });
     }
   }
 
-  return { total: FIXED_AGENTS.length, agentIds: createdAgentIds, retired: retiredIds.size };
+  return { total: FIXED_AGENTS.length, agentIds: createdAgentIds };
 }
 
 export const ensureFixedTeam = mutation({

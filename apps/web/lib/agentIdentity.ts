@@ -27,21 +27,19 @@ function normalizeRole(role: string | null | undefined): string {
 /**
  * Ids of the fixed-team agents: for each fixed role, the oldest agent with
  * that role (what the backend's fixed-team sync matches on). Every other
- * agent — a second "Reviewer 2", or a custom role — is custom and removable.
+ * agent — a second "QA 2", or a custom role — is custom and removable.
  */
 export function fixedAgentIds(
   agents: readonly AgentRow[] | null | undefined,
   fixedRoles: readonly string[],
-  retiredRoles: readonly string[] = []
 ): Set<string> {
   const fixed = new Set(fixedRoles.map(normalizeRole));
-  const retired = new Set(retiredRoles.map(normalizeRole));
   const ordered = [...(agents ?? [])].sort((a, b) => (a._creationTime ?? 0) - (b._creationTime ?? 0));
   const seen = new Set<string>();
   const ids = new Set<string>();
   for (const agent of ordered) {
     const role = normalizeRole(agent.role);
-    if (!fixed.has(role) || retired.has(role) || seen.has(role)) continue;
+    if (!fixed.has(role) || seen.has(role)) continue;
     seen.add(role);
     ids.add(agent._id);
   }

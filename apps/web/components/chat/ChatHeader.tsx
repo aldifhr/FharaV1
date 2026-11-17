@@ -1,6 +1,8 @@
 "use client";
 
-import { Bell, Check, Copy, GitBranch, Menu, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
+import { Bell, Check, Copy, GitBranch, LoaderCircle, Menu, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
+import { useQuery } from "convex/react";
+import { api } from "@/api/convex/_generated/api";
 import { useState } from "react";
 import InitialAvatar from "../InitialAvatar";
 import OpenInMenu from "./OpenInMenu";
@@ -9,6 +11,8 @@ import { PageHeader, type PageHeaderStatus } from "../ui/page-header";
 import { iconButtonClass, popoverClass, usePopover } from "../shell/usePopover";
 import { agentName, roleLabel } from "@/lib/agentRoles";
 import { teamStatusLabel, type StatusMap } from "@/lib/teamStatus";
+import { taskRef } from "@/lib/taskDock";
+import { formatTokens } from "@/lib/runFormat";
 import type { AgentRef as Agent } from "@/lib/types";
 
 export type ChatTab = "chat" | "tasks" | "files";
@@ -95,6 +99,7 @@ export default function ChatHeader({
   const pinPop = usePopover();
   const bellPop = usePopover();
   const morePop = usePopover();
+  const ctxPop = usePopover();
   const [copied, setCopied] = useState(false);
   const [acting, setActing] = useState<string | null>(null);
   const [confirmReject, setConfirmReject] = useState<string | null>(null);
@@ -102,6 +107,12 @@ export default function ChatHeader({
   const stacked = agents.slice(0, 5);
   const pinCount = pins?.length ?? 0;
   const agentRole = (id?: string) => roleLabel(agents.find((a) => a._id === id)?.role);
+  // Plan 064: total context (prompt tokens over the project's snapshots) for
+  // the header icon; the popover breaks it down per task + chat.
+  const contextTotals = useQuery(
+    api.contextSnapshots.contextTotals,
+    project?._id ? { projectId: project._id as any } : "skip"
+  );
 
   const act = async (approvalId: string, run: (id: string) => Promise<unknown>) => {
     setActing(approvalId);
@@ -187,6 +198,64 @@ export default function ChatHeader({
               <span className="truncate">{branch.name}</span>
             </button>
           )}
+
+          <div className="relative" ref={ctxPop.ref}>
+            <button
+              type="button"
+              onClick={ctxPop.toggle}
+              aria-expanded={ctxPop.open}
+              aria-label={`Context used in this project: ~${formatTokens(contextTotals?.promptTokens ?? 0)} prompt tokens`}
+              title="Context used in this project"
+              className={iconButtonClass}
+            >
+              <LoaderCircle size={15} />
+              {(contextTotals?.promptTokens ?? 0) > 0 && (
+                <span className="text-[13px] tabular-nums">~{formatTokens(contextTotals?.promptTokens)}</span>
+              )}
+            </button>
+            {ctxPop.open && (
+              <div className={`${popoverClass} right-0 w-[min(24rem,calc(100vw-1.5rem))]`}>
+                <p className="px-3.5 py-2 text-[13px] font-semibold">Context used in this project</p>
+                <div className="shell-scroll max-h-80 overflow-y-auto">
+                  {!contextTotals && <p className="px-3.5 pb-3 text-[13px] text-ink-3">Loading…</p>}
+                  {contextTotals && contextTotals.calls === 0 && (
+                    <p className="px-3.5 pb-3 text-[13px] text-ink-3">No LLM calls recorded yet, so no context used.</p>
+                  )}
+                  {contextTotals?.tasks.map((t) => (
+                    <button
+                      key={String(t.taskId)}
+                      type="button"
+                      onClick={() => {
+                        ctxPop.setOpen(false);
+                        onOpenTask(String(t.taskId));
+                      }}
+                      className="flex w-full items-center gap-2 border-t border-line px-3.5 py-2.5 text-left hover:bg-hover"
+                    >
+                      <span className="shrink-0 font-mono text-[12.5px] font-medium text-ink">{taskRef(String(t.taskId))}</span>
+                      <span className="text-[13px] tabular-nums text-ink">~{formatTokens(t.promptTokens)}</span>
+                      <span className="ml-auto text-[12px] text-ink-3">
+                        {t.calls} {t.calls === 1 ? "call" : "calls"}
+                      </span>
+                    </button>
+                  ))}
+                  {contextTotals && contextTotals.chat.calls > 0 && (
+                    <div className="flex items-center gap-2 border-t border-line px-3.5 py-2.5">
+                      <span className="text-[12.5px] text-ink-2">Chat</span>
+                      <span className="text-[13px] tabular-nums text-ink">~{formatTokens(contextTotals.chat.promptTokens)}</span>
+                      <span className="ml-auto text-[12px] text-ink-3">
+                        {contextTotals.chat.calls} {contextTotals.chat.calls === 1 ? "call" : "calls"}
+                      </span>
+                    </div>
+                  )}
+                  {contextTotals?.capped && (
+                    <p className="border-t border-line px-3.5 py-2 text-[12px] text-ink-3">
+                      Totals cover the most recent 2,000 calls only.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="relative" ref={pinPop.ref}>
             <button

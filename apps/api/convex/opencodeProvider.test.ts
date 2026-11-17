@@ -161,3 +161,47 @@ describe("detection and Test through the worker catalog", () => {
     expect(status).toMatchObject({ installed: false, error: '"opencode" was not found on PATH' });
   });
 });
+
+describe("plan 066: the sibling CLI rows (codex, claude-code)", () => {
+  test("setEnabled creates one row per CLI with its own name; status reports it", async () => {
+    const t = convexTest(schema, modules);
+    await expect(
+      t.mutation(api.opencodeProvider.setEnabled, { token: TOKEN, enabled: true, cli: "nope" })
+    ).rejects.toThrow();
+    const codex = await t.mutation(api.opencodeProvider.setEnabled, { token: TOKEN, enabled: true, cli: "codex" });
+    const claude = await t.mutation(api.opencodeProvider.setEnabled, { token: TOKEN, enabled: true, cli: "claude-code" });
+    const again = await t.mutation(api.opencodeProvider.setEnabled, { token: TOKEN, enabled: false, cli: "codex" });
+    expect(again.providerId).toBe(codex.providerId);
+    expect(claude.providerId).not.toBe(codex.providerId);
+    const rows = await t.run((ctx) => ctx.db.query("llmProviders").collect());
+    expect(rows.find((r) => r.provider === "codex")).toMatchObject({ name: "Codex", presetId: "codex", baseUrl: "" });
+    expect(rows.find((r) => r.provider === "claude-code")).toMatchObject({ name: "Claude Code" });
+    expect(await t.query(api.opencodeProvider.cliRow, { cli: "codex" })).toMatchObject({
+      configured: true,
+      enabled: false,
+      providerId: codex.providerId,
+    });
+    expect(await t.query(api.opencodeProvider.status, { cli: "codex" })).toMatchObject({
+      configured: true,
+      enabled: false,
+      installed: null,
+      test: null,
+    });
+  });
+
+  test("codex/claude-code models take bare ids, and no CLI row reaches the chat pool", async () => {
+    const t = convexTest(schema, modules);
+    const codex = await t.mutation(api.opencodeProvider.setEnabled, { token: TOKEN, enabled: true, cli: "codex" });
+    await t.mutation(api.llmModels.create, { token: TOKEN, providerId: codex.providerId as any, modelId: "faray" });
+    // OpenCode's provider/model rule does not apply to the other CLIs.
+    const opencode = await t.mutation(api.opencodeProvider.setEnabled, { token: TOKEN, enabled: true });
+    await expect(
+      t.mutation(api.llmModels.create, { token: TOKEN, providerId: opencode.providerId as any, modelId: "faray" })
+    ).rejects.toThrow(/provider\/model/);
+    const pool = await t.query(internal.llmProviders.getForProject, {});
+    expect(pool.some((p) => p.provider === "codex" || p.provider === "claude-code")).toBe(false);
+    const runContextTaskId = await seedTask(t);
+    const context = await t.query(internal.orchestration.getRunContext, { taskId: runContextTaskId });
+    expect(context?.llmProviders.some((p) => p.provider === "codex")).toBe(false);
+  });
+});

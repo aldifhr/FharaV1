@@ -7,9 +7,8 @@
  * and the worker.
  *
  * The fixed team is the user-approved roster: CTO, Frontend, Backend, QA.
- * Designer, Support, DevOps, Reviewer and Researcher were removed at the
- * user's request; agents stored with those roles are retired by the fixed-
- * team sync and displayed as retired.
+ * Designer is a live role available for manual agent creation but is not
+ * seeded into the fixed team.
  */
 
 /** Current roles, in display order. Every role menu reads this list. */
@@ -18,6 +17,7 @@ export const ROLE_KEYS = [
   "frontend",
   "backend",
   "qa",
+  "designer",
 ] as const;
 
 export type RoleKey = (typeof ROLE_KEYS)[number];
@@ -37,8 +37,8 @@ export type RoleKey = (typeof ROLE_KEYS)[number];
  * - `options`: the `show_options` tool (lib/optionsReview.ts): ask the
  *   user to pick between options (html mockups, images, markdown
  *   trade-offs). Read-only for the repository; the subtask waits for the
- *   answer. Currently off for all four roles; turn it on per role here when
- *   its prompt and planner rules are ready.
+ *   answer. Off for the fixed-team roles; Designer turns it on for mockup
+ *   choices. Turn it on per role here when its prompt and planner rules are ready.
  *
  * Destructive or push-like commands always ask for approval for every role
  * (lib/commandRules.ts); nothing here relaxes that.
@@ -53,26 +53,13 @@ export interface RolePermissions {
 }
 
 /**
- * Docs-only write scope retained for legacy stored agents (Support) and for
- * plan gate logic: Markdown files anywhere and the docs/ tree, never source.
+ * Canonical successor for legacy role aliases. Stored agents and chat
+ * messages may still carry old role names; this maps them to the current
+ * role so the rest of the system never needs to know about the old roles.
  */
-export const SUPPORT_WRITE_PATHS: readonly string[] = ["**/*.md", "docs/**"];
-
-/** Legacy DevOps write scope, retained for old stored agents. */
-export const DEVOPS_WRITE_PATHS: readonly string[] = [
-  ".github/**",
-  "Dockerfile*",
-  "**/Dockerfile*",
-  "docker-compose*",
-  "**/docker-compose*",
-  "infra/**",
-];
-
-/** Canonical successor of every retired role key, for stored agents and aliases. */
 export const LEGACY_ROLE_SUCCESSORS: Readonly<Record<string, RoleKey>> = {
-  designer: "frontend",
-  "ui-ux": "frontend",
-  ux: "frontend",
+  "ui-ux": "designer",
+  ux: "designer",
   support: "backend",
   documentation: "backend",
   "technical-writer": "backend",
@@ -146,9 +133,8 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     description: "Technical architecture, technical decisions, risk evaluation.",
     registryDescription: "Technical architecture, technical decisions, risk evaluation.",
     workerDescription: "Technical architecture decisions, only when the planner flags one (new dependency, schema, auth boundary, API contract, infra split).",
-    // Plan 040 (D3): security-audit was moved to the Reviewer and has since
-    // been folded back into Backend. O1: project-coordination is revoked —
-    // the planner is system code, so the CTO only decides architecture.
+    // security-audit and project-coordination are not CTO capabilities:
+    // security-audit lives in Backend, project-coordination is system code.
     capabilities: ["architecture", "research"],
     registryCapabilities: ["architecture", "research"],
     defaultTools: ["read_file"],
@@ -219,6 +205,25 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     color: "bg-orange-500/10 text-orange-700 ring-orange-500/20 dark:bg-orange-500/20 dark:text-orange-300",
   },
 
+  designer: {
+    key: "designer",
+    label: "Designer",
+    title: "UI/UX Designer",
+    category: "Design",
+    description: "UI/UX design specifications, layout, interaction states, accessibility, visual mockups.",
+    registryDescription: "UI/UX design specifications, layout, interaction states, accessibility.",
+    workerDescription: "Design specifications and visual mockups; hands implementation to Frontend. Read-only.",
+    capabilities: ["ui-ux-design"],
+    registryCapabilities: ["ui-ux-design"],
+    defaultTools: ["read_file"],
+    permissions: { read: true, write: false, shell: "none", web: false, push: false, options: true },
+    priority: 6,
+    maxConcurrency: 2,
+    hint: "Produce implementation-ready design specs: layout, component hierarchy, tokens, states, responsive and accessibility notes. When more than one direction is plausible, mock 2-4 static HTML variants and ask the user to pick with show_options. Never edit project files or run commands; hand implementation to Frontend. Report only your own subtask.",
+    chatSummary: "UI/UX design: layout, information hierarchy, interaction patterns, design systems, accessibility and visual mockups.",
+    defaultPromptKey: "designer",
+    color: "bg-fuchsia-500/10 text-fuchsia-700 ring-fuchsia-500/20 dark:bg-fuchsia-500/20 dark:text-fuchsia-300",
+  },
 
 
 
@@ -227,24 +232,13 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
 /**
  * Order the fixed-team sync seeds agents in (and appends them to a
  * project's `agentIds`). Kept as it was so existing rosters keep their order.
+ * Designer is deliberately NOT seeded: it is a role a user adds manually
+ * (fixedTeamSync.test).
  */
 export const FIXED_TEAM_SEED_ORDER: readonly RoleKey[] = ["cto", "frontend", "backend", "qa"];
 
 /** The fixed team as the sidebar and Team list show it, top to bottom. */
 export const FIXED_TEAM_DISPLAY_ORDER: readonly RoleKey[] = ["cto", "frontend", "backend", "qa"];
-
-/** Roles removed from the fixed team (matched on the normalized role key). */
-export const RETIRED_ROLE_KEYS = [
-  "lead",
-  "growth",
-  "product-analyst",
-  "ui-ux",
-  "designer",
-  "support",
-  "devops",
-  "reviewer",
-  "researcher",
-] as const;
 
 /** "product-analyst" → "Product Analyst": the label for a key with no role row. */
 function titleCaseRoleKey(key: string): string {
@@ -256,13 +250,6 @@ function titleCaseRoleKey(key: string): string {
 }
 
 /**
- * Labels of the roles that no longer exist ("Reviewer", "Support", …). Stored
- * messages and replies that copy a speaker prefix can still name them, so the
- * echo stripper keeps recognising them even though ROLE_KEYS no longer does.
- */
-export const RETIRED_ROLE_LABELS: readonly string[] = RETIRED_ROLE_KEYS.map(titleCaseRoleKey);
-
-/**
  * Capabilities a fixed role used to ship with and must no longer carry.
  * The sync otherwise only ever UNIONS defaults into existing rows, so a CTO
  * row seeded with `code-review` kept routing reviews to the CTO forever.
@@ -270,32 +257,6 @@ export const RETIRED_ROLE_LABELS: readonly string[] = RETIRED_ROLE_KEYS.map(titl
  */
 export const REVOKED_DEFAULT_CAPABILITIES: Readonly<Record<string, readonly string[]>> = {
   cto: ["code-review", "security-audit", "project-coordination"],
-  support: ["general"],
-  designer: ["ui-ux-design"],
-  devops: ["github", "shell-execution"],
-  researcher: ["research"],
-  reviewer: ["code-review", "security-audit"],
-};
-
-/**
- * Default tools added to EXISTING fixed-team rows by the sync (plan 040).
- * Only these are unioned in, never the whole default list, so a tool a
- * user removed from a row by hand stays removed.
- */
-export const ADDED_DEFAULT_TOOLS: Readonly<Record<string, readonly string[]>> = {
-  researcher: ["web_reach"],
-  devops: ["write_file"],
-  support: ["write_file"],
-};
-
-/**
- * Default tools a fixed role used to ship with and must no longer carry
- * (plan 040: Designer is read-only; Support writes docs only since O2). The
- * executor enforces the role's `permissions` either way; this keeps the
- * stored rows honest.
- */
-export const REVOKED_DEFAULT_TOOLS: Readonly<Record<string, readonly string[]>> = {
-  designer: ["write_file"],
 };
 
 /** Permissions for a fixed role key (null for an unknown/custom role). */
@@ -374,10 +335,6 @@ export function isCodeWritingRole(role: string | undefined, supportedTools?: rea
 /** "Product Analyst", "product_analyst", "UI/UX" → "product-analyst", "ui-ux". */
 export function normalizeRoleKey(role: string | undefined): string {
   return (role ?? "").trim().toLowerCase().replace(/[\s_\/]+/g, "-");
-}
-
-export function isRetiredRole(role: string | undefined): boolean {
-  return (RETIRED_ROLE_KEYS as readonly string[]).includes(normalizeRoleKey(role));
 }
 
 export function isRoleKey(value: string): value is RoleKey {

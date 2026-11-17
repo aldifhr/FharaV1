@@ -14,7 +14,7 @@
  * over the width picked here.
  */
 import { wenv } from "@fhara/config/worker";
-import { checkRepoReadiness, WORKTREES_DIR, type RepoReadiness } from "@/api/convex/lib/repoReadiness";
+import { checkRepoReadiness, FHARA_PROJECT_DIR, LEGACY_WORKTREES_DIR, type RepoReadiness } from "@/api/convex/lib/repoReadiness";
 import { backendLocality, type BackendLocality } from "@/api/convex/lib/backendLocality";
 import type { ExecutionPolicy } from "@/orchestrator/policy";
 import { untrustedGitSync } from "@/vendor/threadbear/safeGit";
@@ -65,12 +65,22 @@ export function policyForResume(policy: ExecutionPolicy, hasWorktree: boolean): 
   return policy.worktreeIsolationAuto ? policyForIsolation(policy, hasWorktree) : policy;
 }
 
-/** Porcelain status lines, minus the task worktrees directory itself. */
+/** Porcelain status lines, minus the (legacy in-repo) worktrees directories. */
 export function hasUncommittedChanges(porcelain: string): boolean {
   return porcelain
     .split(/\r?\n/)
     .map((line) => line.slice(3).replace(/^"|"$/g, ""))
-    .some((file) => file.trim() !== "" && !file.startsWith(`${WORKTREES_DIR}/`) && file !== WORKTREES_DIR);
+    .some((file) => {
+      const clean = file.trim();
+      if (clean === "") return false;
+      // Plan 065: worktrees default outside the repo now; these two are the
+      // legacy in-repo base (until its cleanup finishes) and the project's
+      // optional worktreesPath target.
+      for (const dir of [LEGACY_WORKTREES_DIR, FHARA_PROJECT_DIR]) {
+        if (clean === dir || clean.startsWith(`${dir}/`)) return false;
+      }
+      return true;
+    });
 }
 
 /** Worker-side probe: the backend from the worker's Convex URL, then git in the project folder (read-only listing git). */

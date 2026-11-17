@@ -96,10 +96,10 @@ describe("aggregateWorkload", () => {
         ],
       })
     );
-    expect(r.idleRoles).toEqual(["CTO", "QA"]);
-    expect(r.summary).toBe("Frontend did 75% of subtasks; CTO and QA did none in 30 days.");
-    // Every fixed role is a row, idle ones with zeros.
-    expect(r.rows.map((x) => x.key)).toEqual(["cto", "frontend", "backend", "qa"]);
+    expect(r.idleRoles).toEqual(["CTO", "QA", "Designer"]);
+    expect(r.summary).toBe("Frontend did 75% of subtasks; CTO, QA and Designer did none in 30 days.");
+    // Every live role is a row, idle ones with zeros (Designer is manual, not seeded).
+    expect(r.rows.map((x) => x.key)).toEqual(["cto", "frontend", "backend", "qa", "designer"]);
     expect(r.rows.find((x) => x.key === "cto")).toMatchObject({ subtasks: 0, tokens: 0, subtaskShare: 0 });
   });
 
@@ -108,7 +108,7 @@ describe("aggregateWorkload", () => {
     const tie = aggregateWorkload(input({ subtasks: [sub({ key: "a", role: "frontend" }), sub({ key: "b", role: "backend" })] }));
     expect(tie.summary).toMatch(/^Frontend and Backend each did 50% of subtasks; /);
     const all = aggregateWorkload(input()).rows.map((row) => ({ ...row, subtasks: 1 }));
-    expect(workloadSummary(all, [], 90)).toBe("CTO, Frontend, Backend and QA each did 25% of subtasks; every role had work in 90 days.");
+    expect(workloadSummary(all, [], 90)).toBe("CTO, Frontend, Backend, QA and Designer each did 20% of subtasks; every role had work in 90 days.");
   });
 
   test("window filter drops rows older than sinceDays across every source", () => {
@@ -172,10 +172,9 @@ describe("aggregateWorkload", () => {
     expect(roleBucket("Backend Developer").key).toBe("backend");
     expect(r.unrecognizedRoleSubtasks).toBe(1);
     expect(r.rows.find((x) => x.key === "data-wizard")).toMatchObject({ subtasks: 1, recognized: false });
-    // A legacy name shows as its successor: ui-ux was the Designer, whose work
-    // Frontend does now.
-    expect(roleBucket("ui-ux")).toMatchObject({ key: "frontend", recognized: true });
-    expect(r.rows.find((x) => x.key === "frontend")!.subtasks).toBe(1);
+    // A legacy ui-ux name shows as its live successor, Designer.
+    expect(roleBucket("ui-ux")).toMatchObject({ key: "designer", recognized: true });
+    expect(r.rows.find((x) => x.key === "designer")!.subtasks).toBe(1);
     expect(formatWorkloadTable(r)).toContain("Data Wizard*");
   });
 });

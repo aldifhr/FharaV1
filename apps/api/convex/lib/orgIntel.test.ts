@@ -36,12 +36,12 @@ describe("buildOrgChart", () => {
     expect(chart.rootKey).toBe("c");
     expect(chart.nodes[0]).toMatchObject({ key: "c", parent: null, label: "CTO", model: "gpt-x", skills: 2, tools: ["read_file"], registryName: "CTO" });
     const children = chart.nodes.filter((n) => n.parent === "c");
-    expect(children.map((n) => n.roleKey)).toEqual(["frontend", "backend", "qa", "data-scientist"]);
+    expect(children.map((n) => n.roleKey)).toEqual(["frontend", "backend", "qa", "designer", "data-scientist"]);
     expect(chart.nodes.find((n) => n.roleKey === "frontend")).toMatchObject({ agentId: "f", enabled: false });
     expect(chart.nodes.find((n) => n.roleKey === "qa")).toMatchObject({ agentId: null, key: "role:qa", registryEnabled: false });
     expect(chart.nodes.find((n) => n.roleKey === "data-scientist")).toMatchObject({ fixed: false, agentId: "x" });
     expect(chart.nodes.some((n) => n.agentId === "g")).toBe(false);
-    expect(chart.counts).toEqual({ agents: 4, enabled: 3, vacant: 1, custom: 1 });
+    expect(chart.counts).toEqual({ agents: 4, enabled: 3, vacant: 2, custom: 1 });
   });
 
   test("no CTO agent → a vacant CTO root", () => {

@@ -58,9 +58,9 @@ export type ChatRoute<T extends TeamMember> =
  * Roles each domain may go to, in preference order (lib/roles.ts keys).
  *
  * A retired role name stays first so a user's custom agent with that role is
- * still picked; the role that does the work now follows it, which is what the
- * four-role fixed team has (Support → Backend, Reviewer → QA, DevOps →
- * Backend, Researcher → CTO, Designer → Frontend).
+ * still picked; the role that does the work now follows it. Designer is live
+ * as a manual role, so it leads its own domain with Frontend as fallback
+ * (Support → Backend, Reviewer → QA, DevOps → Backend, Researcher → CTO).
  */
 export const DOMAIN_ROLES: Record<DispatchDomain, string[]> = {
   architecture: ["cto", "architect"],
@@ -267,10 +267,24 @@ export function previousResponder<T extends TeamMember>(history: HistoryRow[], t
   for (i -= 1; i >= 0; i -= 1) {
     const row = history[i];
     if (row.authorType !== "agent" || isSystemLine(row) || !row.agentId || !row.content?.trim() || isHandoffLine(row.content)) continue;
+    // A "this is for the CTO, not me" reply is routing, not an answer: it must
+    // not keep the thread (live 2026-11-16: the team looped FE → BE → QA on
+    // CTO-directed questions and the CTO never saw one).
+    if (isCtoDeflection(row.content)) continue;
     const agent = team.find((a) => String(a._id) === String(row.agentId));
     if (agent) return agent;
   }
   return null;
+}
+
+/** A specialist's "this is for the CTO, not me" reply (Indonesian or English). */
+const CTO_DEFLECTION =
+  /\b(?:saya|aku|I'?m)\s+(?:bukan|not)\s+(?:the\s+)?CTO\b|\bditujukan\s+(?:kepada|untuk|to)\s+(?:the\s+)?CTO\b|\b(?:addressed|meant)\s+to\s+(?:the\s+)?CTO\b|\blebih tepat dijawab[^.\n]{0,30}\bCTO\b|\bfor the CTO\b/i;
+
+/** The reply defers to the CTO instead of answering (bounded length: a real answer may mention the CTO). */
+export function isCtoDeflection(text: string): boolean {
+  const t = (text ?? "").trim();
+  return words(t) <= 120 && CTO_DEFLECTION.test(t);
 }
 
 /** The first enabled agent for a domain's roles, in preference order. */

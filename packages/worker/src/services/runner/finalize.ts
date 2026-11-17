@@ -303,6 +303,8 @@ export async function persistPlan(
       ? { degradedReason: input.degradedReason.slice(0, 500) }
       : {}),
     ...(input.estimate ? { estimate: input.estimate } : {}),
+    // Plan 063: a deadline the request stated is stored with its plan version.
+    ...(input.plan.dueAt ? { dueAt: input.plan.dueAt } : {}),
   });
   await postSystemLine(deps, { taskId: input.taskId, projectId: input.projectId, content: planSystemLine(input.plan, input.version) });
 }

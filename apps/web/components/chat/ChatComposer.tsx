@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  AtSign,
   Bold,
   ChevronDown,
   ChevronUp,
@@ -16,6 +17,7 @@ import {
   RotateCcw,
   SendHorizontal,
   Shield,
+  Slash,
   Square,
   Sparkles,
   SquareCode,
@@ -28,6 +30,7 @@ import { QuoteBar, type ChatQuote } from "./QuoteBlock";
 import { useToast } from "../Toasts";
 import { useAutoGrowRef, type QueuedMessage } from "./useChatQueue";
 import { useMediaQuery } from "@/lib/useMediaQuery";
+import { useUiPref } from "@/lib/uiPrefs";
 import {
   PERMISSION_MODES,
   PERMISSION_MODE_HINTS,
@@ -157,6 +160,8 @@ export default function ChatComposer({
 }) {
   const toast = useToast();
   const textareaRef = useAutoGrowRef([draft], 200);
+  // Plan 067: the hint beside Send names the key that actually sends.
+  const [enterToSend] = useUiPref("enterToSend");
   const fileRef = useRef<HTMLInputElement>(null);
   const [formatOpen, setFormatOpen] = useState(false);
   const [targetOpen, setTargetOpen] = useState(false);
@@ -580,7 +585,7 @@ export default function ChatComposer({
               aria-expanded={slashOpen || mentionOpen}
               aria-activedescendant={slashOpen ? `composer-slash-${activeIndex}` : mentionOpen ? `composer-mention-${activeIndex}` : undefined}
               aria-describedby={usage ? "composer-slash-usage" : undefined}
-              placeholder={placeholder ?? (narrow ? "Ask anything" : "Ask anything, / for commands, @ for context")}
+              placeholder={placeholder ?? (narrow ? `Message ${projectName}` : `Message ${projectName}, or type / for a command`)}
               className="block w-full resize-none bg-transparent px-4 pb-1 pt-3 text-base leading-6 text-ink outline-none placeholder:text-ink-3 sm:text-[15px]"
               style={{ minHeight: 48, maxHeight: 200 }}
             />
@@ -600,6 +605,13 @@ export default function ChatComposer({
               />
               <button type="button" className={`${tool} ${formatOpen ? "bg-hover text-ink" : ""}`} aria-label="Formatting" aria-pressed={formatOpen} title="Formatting" onClick={() => setFormatOpen((o) => !o)}>
                 <Type size={16} />
+              </button>
+              {/* Plan 067: the mockup's @ and / shortcuts, wired to the menus that already exist. */}
+              <button type="button" className={tool} aria-label="Mention an agent or a file" title="Mention an agent or a file (@)" onClick={() => insertAtCursor("@")}>
+                <AtSign size={16} />
+              </button>
+              <button type="button" className={tool} aria-label="Run a command" title="Commands (/)" onClick={() => insertAtCursor("/")}>
+                <Slash size={16} />
               </button>
               {draft.trim() && (
                 <button type="button" className={`${tool} max-sm:hidden`} aria-label="Enhance prompt with AI" title="Enhance prompt with AI" disabled={enhancing} onClick={() => void handleEnhance()}>
@@ -714,12 +726,15 @@ export default function ChatComposer({
                   <Mic size={16} />
                 </button>
               )}
+              <span aria-hidden="true" className="mr-2 hidden shrink-0 text-[11px] text-ink-3 sm:inline">
+                {enterToSend ? "Enter to send" : "Ctrl+Enter to send"}
+              </span>
               <button
                 type="button"
                 onClick={send}
                 disabled={sending || !canSend}
                 aria-label="Send message"
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ink text-canvas shadow-sm outline-none transition hover:bg-ink/85 focus-visible:ring-2 focus-visible:ring-ink/30 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-40`}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand text-canvas shadow-sm outline-none transition hover:bg-brand-hover focus-visible:ring-2 focus-visible:ring-ink/30 focus-visible:ring-offset-2 focus-visible:ring-offset-panel disabled:cursor-not-allowed disabled:opacity-40`}
               >
                 {sending ? <Loader2 size={16} className="animate-spin" /> : <SendHorizontal size={16} />}
               </button>

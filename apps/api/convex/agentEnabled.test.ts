@@ -3,7 +3,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
-import { ROLE_KEYS } from "./lib/roles";
+import { FIXED_TEAM_SEED_ORDER } from "./lib/roles";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -19,7 +19,7 @@ describe("agents: disable / enable", () => {
     await t.mutation(api.agents.ensureFixedTeam, {});
 
     const after = await t.run((ctx) => ctx.db.query("agents").collect());
-    expect(after).toHaveLength(ROLE_KEYS.length);
+    expect(after).toHaveLength(FIXED_TEAM_SEED_ORDER.length);
     expect(after.filter((a) => a.role === "qa")).toHaveLength(1);
     expect(after.find((a) => a._id === qa._id)?.isEnabled).toBe(false);
 

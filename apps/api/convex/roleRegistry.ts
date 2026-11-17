@@ -6,13 +6,11 @@ import {
   canViewProject,
   getViewerId,
 } from "./lib/authz";
-import { RETIRED_ROLE_KEYS, ROLE_KEYS, ROLES } from "./lib/roles";
+import { ROLE_KEYS, ROLES } from "./lib/roles";
 import { recordAudit } from "./lib/recordAudit";
 
 // Org chart: the fixed team — see lib/roles.ts (shared with the web app and
-// agents.ts FIXED_AGENTS). The retired roles (Lead, Growth, Product
-// Analyst, UI/UX) are no longer seeded; their existing registry rows are
-// disabled by syncDefaults.
+// agents.ts FIXED_AGENTS).
 export const DEFAULT_ROLES = ROLE_KEYS.map((key) => {
   const role = ROLES[key];
   return {
@@ -104,17 +102,7 @@ export const syncDefaults = internalMutation({
         }
       }
     }
-    // Retired roles: disable their registry rows (kept for history).
-    let disabled = 0;
-    for (const key of RETIRED_ROLE_KEYS) {
-      const rows = await ctx.db.query("roleDefinitions").withIndex("by_key", (q) => q.eq("key", key)).take(5);
-      for (const row of rows) {
-        if (row.enabled === false) continue;
-        await ctx.db.patch(row._id, { enabled: false, updatedAt: Date.now() } as never);
-        disabled++;
-      }
-    }
-    return { updated, created, disabled };
+    return { updated, created };
   },
 });
 
@@ -136,19 +124,18 @@ export const update = mutation({
 });
 
 export const assignToProject = mutation({
-  args: { projectId: v.id("projects"), agentId: v.id("agents"), customInstructions: v.optional(v.string()), allowedTools: v.optional(v.array(v.string())) },
+  args: { projectId: v.id("projects"), agentId: v.id("agents"), allowedTools: v.optional(v.array(v.string())) },
   handler: async (ctx, args) => {
     await assertProjectAccess(ctx, args.projectId);
     const agent = await ctx.db.get(args.agentId);
     if (!agent) throw new Error("Agent not found");
     const existing = await ctx.db.query("projectAgents").withIndex("by_project_and_agent", (q) => q.eq("projectId", args.projectId).eq("agentId", args.agentId)).take(1);
     const id = existing[0]
-      ? (await ctx.db.patch(existing[0]._id, { enabled: true, customInstructions: args.customInstructions, allowedTools: args.allowedTools, updatedAt: Date.now() }), existing[0]._id)
+      ? (await ctx.db.patch(existing[0]._id, { enabled: true, allowedTools: args.allowedTools, updatedAt: Date.now() }), existing[0]._id)
       : await ctx.db.insert("projectAgents", {
           projectId: args.projectId,
           agentId: args.agentId,
           enabled: true,
-          customInstructions: args.customInstructions,
           allowedTools: args.allowedTools,
           createdAt: Date.now(),
         });
@@ -164,7 +151,6 @@ export const assignToProject = mutation({
       projectId: args.projectId,
       details: {
         fields: [
-          ...(args.customInstructions !== undefined ? ["customInstructions"] : []),
           ...(args.allowedTools !== undefined ? ["allowedTools"] : []),
         ],
       },

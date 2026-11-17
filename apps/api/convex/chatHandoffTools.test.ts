@@ -168,6 +168,16 @@ describe("handoff teammates get repo tools", () => {
     expect(queued.count).toBe(1);
   });
 
+  test("a CTO reply with an options block is not followed by handoff teammates", async () => {
+    const { t, projectId, ctoId } = await setup({ worker: "new" });
+    reply = (call) =>
+      speaker(call) === "CTO"
+        ? 'Mau yang mana?\n[options]\nA|Sheet|3 tiers|sheet\nB|Cards|Big|bold\n[/options]\n@Backend tolong cek'
+        : "should not run";
+    const replies = await ask(t, projectId, "@CTO kasih 2 opsi layout pricing");
+    expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
+  });
+
   test("an agent the user @mentions directly gets the tools too", async () => {
     const { t, projectId, qaId } = await setup({ worker: "new" });
     reply = (call) => (toolResults(call) === 0 ? GREP : "Ada 1 match defineSchema.");

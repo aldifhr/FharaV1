@@ -10,7 +10,7 @@ import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { FIXED_AGENTS, defaultSystemPromptForRole } from "./agents";
-import { ROLE_KEYS } from "./lib/roles";
+import { FIXED_TEAM_SEED_ORDER, ROLE_KEYS } from "./lib/roles";
 import { AGENT_SEED_PROMPTS, PREVIOUS_SEED_PROMPTS } from "./lib/prompts/agents";
 import { ROLE_PROMPT_TEMPLATES } from "./lib/prompts/rolePrompts.data";
 import { isUneditedSeed, prefillPromptForRole, roleTemplateFor } from "./lib/prompts/roleTemplate";
@@ -29,7 +29,12 @@ const oldSeed = (role: (typeof ROLE_KEYS)[number]) => {
 describe("role templates as seeds", () => {
   test.each(ROLE_KEYS)("%s seeds, defaults and keeps its earlier seed as previous", (role) => {
     expect(AGENT_SEED_PROMPTS[role]).toBe(ROLE_PROMPT_TEMPLATES[role]);
-    expect(FIXED_AGENTS.find((a) => a.role === role)?.systemPrompt).toBe(ROLE_PROMPT_TEMPLATES[role]);
+    const seeded = FIXED_TEAM_SEED_ORDER.includes(role as (typeof FIXED_TEAM_SEED_ORDER)[number]);
+    if (seeded) {
+      expect(FIXED_AGENTS.find((a) => a.role === role)?.systemPrompt).toBe(ROLE_PROMPT_TEMPLATES[role]);
+    } else {
+      expect(FIXED_AGENTS.find((a) => a.role === role)).toBeUndefined();
+    }
     expect(defaultSystemPromptForRole(role)).toBe(ROLE_PROMPT_TEMPLATES[role]);
     expect(oldSeed(role)).toMatch(/^You are the /);
     expect(isUneditedSeed(role, oldSeed(role))).toBe(true);
@@ -46,14 +51,14 @@ describe("role templates as seeds", () => {
       }
     }
     // Retired roles keep their old seed texts for stored agents, but have no
-    // live prompt template in the four-role roster.
+    // live prompt template in the fixed-team roster.
     const preO2Support = (PREVIOUS_SEED_PROMPTS.support ?? []).filter(isTemplateText);
     expect(preO2Support).toHaveLength(2);
     expect(preO2Support[0]).toMatch(/^# Support Specialist\n/);
   });
 
   test("legacy and label roles resolve to their successor's template; custom roles have none", () => {
-    expect(roleTemplateFor("UI/UX")).toBe(ROLE_PROMPT_TEMPLATES.frontend);
+    expect(roleTemplateFor("UI/UX")).toBe(ROLE_PROMPT_TEMPLATES.designer);
     expect(roleTemplateFor("QA")).toBe(ROLE_PROMPT_TEMPLATES.qa);
     expect(roleTemplateFor("data-wrangler")).toBeNull();
   });

@@ -10,6 +10,29 @@ import { parseDiff } from "@/lib/lineComments";
 // original react-diff-viewer only supports React 16.)
 const DiffViewer = dynamic(() => import("react-diff-viewer-continued"), { ssr: false });
 
+/**
+ * The viewer's colours come from the diff tokens in app/globals.css, so the
+ * palette follows the app theme (light/dark) without hexes in this file.
+ */
+const DIFF_VARIABLES = {
+  diffViewerBackground: "var(--shell-diff-bg)",
+  diffViewerColor: "var(--shell-diff-fg)",
+  addedBackground: "var(--shell-diff-add-bg)",
+  removedBackground: "var(--shell-diff-del-bg)",
+  wordAddedBackground: "var(--shell-diff-word-add)",
+  wordRemovedBackground: "var(--shell-diff-word-del)",
+  addedColor: "var(--shell-diff-add-fg)",
+  removedColor: "var(--shell-diff-del-fg)",
+  codeFoldGutterBackground: "var(--shell-diff-fold-gutter)",
+  codeFoldBackground: "var(--shell-diff-fold)",
+  emptyLineBackground: "var(--shell-diff-empty)",
+  gutterBackground: "var(--shell-diff-gutter)",
+  gutterBackgroundDark: "var(--shell-diff-gutter-2)",
+  diffViewerTitleBackground: "var(--shell-diff-title-bg)",
+  diffViewerTitleColor: "var(--shell-diff-title-fg)",
+  diffViewerTitleBorderColor: "var(--shell-diff-title-line)",
+} as const;
+
 type FileChangeType = "new" | "modified" | "deleted";
 
 /** Count added/removed lines in a unified diff (skips file/hunk headers). */
@@ -140,12 +163,12 @@ export default function DiffCard({
           {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </button>
         <PathLabel path={filePath} />
-        {changeType === "new" && <span className="rounded-md bg-[#e9f8ef] px-1.5 py-0.5 text-[11px] font-medium text-[#1f8a4c] dark:bg-emerald-500/15 dark:text-emerald-300">New</span>}
-        {changeType === "deleted" && <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-950 dark:text-rose-300">Deleted</span>}
-        {applied && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">applied</span>}
+        {changeType === "new" && <span className="rounded-md bg-ok/10 px-1.5 py-0.5 text-[11px] font-medium text-ok">New</span>}
+        {changeType === "deleted" && <span className="rounded bg-danger/10 px-1.5 py-0.5 text-[10px] font-bold text-danger">Deleted</span>}
+        {applied && <span className="rounded bg-ok/10 px-1.5 py-0.5 text-[10px] font-bold text-ok">applied</span>}
         <span className="flex shrink-0 gap-1.5 tabular-nums text-[11px] font-semibold">
-          {added > 0 && <span className="text-[#1f9d55] dark:text-emerald-400">+{added}</span>}
-          {removed > 0 && <span className="text-[#d83a3a] dark:text-rose-400">−{removed}</span>}
+          {added > 0 && <span className="text-ok">+{added}</span>}
+          {removed > 0 && <span className="text-danger">−{removed}</span>}
         </span>
         {approvalId && (
           <span className="ml-auto flex gap-1.5">
@@ -154,7 +177,7 @@ export default function DiffCard({
               disabled={busy}
               onClick={() => onApprove?.(approvalId)}
               title="Approves the whole change set this file belongs to"
-              className="rounded-lg bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+              className="rounded-lg bg-brand px-2 py-1 text-[11px] font-semibold text-brand-ink hover:bg-brand-hover disabled:opacity-50"
             >
               Approve all
             </button>
@@ -183,10 +206,7 @@ export default function DiffCard({
               useDarkTheme={dark}
               extraLinesSurroundingDiff={2}
               styles={{
-                variables: {
-                  dark: { diffViewerBackground: "#111827", diffViewerColor: "#e5e7eb", addedBackground: "#064e3b", removedBackground: "#7f1d1d", wordAddedBackground: "#059669", wordRemovedBackground: "#dc2626", addedColor: "#a7f3d0", removedColor: "#fecaca", codeFoldGutterBackground: "#1f2937", codeFoldBackground: "#374151", emptyLineBackground: "#1f2937", gutterBackground: "#1f2937", gutterBackgroundDark: "#111827", diffViewerTitleBackground: "#1f2937", diffViewerTitleColor: "#e5e7eb", diffViewerTitleBorderColor: "#374151" },
-                  light: { diffViewerBackground: "#ffffff", diffViewerColor: "#374151", addedBackground: "#ecfdf5", removedBackground: "#fef2f2", wordAddedBackground: "#a7f3d0", wordRemovedBackground: "#fecaca", addedColor: "#065f46", removedColor: "#991b1b", codeFoldGutterBackground: "#f9fafb", codeFoldBackground: "#e5e7eb", emptyLineBackground: "#f9fafb", gutterBackground: "#f9fafb", gutterBackgroundDark: "#f3f4f6" },
-                },
+                variables: { light: DIFF_VARIABLES, dark: DIFF_VARIABLES },
                 diffContainer: { fontSize: "11px" },
               }}
             />
@@ -206,15 +226,15 @@ export default function DiffCard({
               }
               const bg =
                 row.type === "add"
-                  ? "bg-[#e8f6ec] dark:bg-[#12301f]"
+                  ? "bg-ok/10"
                   : row.type === "del"
-                    ? "bg-[#fdecec] dark:bg-[#3a1618]"
+                    ? "bg-danger/10"
                     : "";
               const signColor =
                 row.type === "add"
-                  ? "text-[#1f9d55] dark:text-emerald-400"
+                  ? "text-ok"
                   : row.type === "del"
-                    ? "text-[#d83a3a] dark:text-rose-400"
+                    ? "text-danger"
                     : "text-transparent";
               const selected = Boolean(selectedRange && i >= selectedRange[0] && i <= selectedRange[1]);
               const gutter = (n: number | null) =>

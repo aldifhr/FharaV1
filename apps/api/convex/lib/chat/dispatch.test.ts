@@ -220,6 +220,25 @@ describe("routing: the previous responder keeps the conversation", () => {
     expect(to(ask([{ authorType: "user", content: "x" }, { authorType: "agent", agentId: "cto", content: "Saya serahkan ke @Reviewer untuk audit `x`." }], "lebih detail"))).toBe("none");
   });
 
+  it("a CTO deflection does not keep the conversation (plan 062)", () => {
+    const h = [
+      { authorType: "user", content: "kenapa query lambat?" },
+      { authorType: "agent", agentId: "be", content: "Index users belum ada." },
+      { authorType: "user", content: "sebutkan 3 file penting di project ini" },
+      { authorType: "agent", agentId: "qa", content: "Pertanyaan itu ditujukan kepada CTO, dan saya bukan CTO — saya QA engineer di tim. Itu lebih tepat dijawab langsung oleh CTO." },
+    ];
+    // The deflection is skipped, so the earlier real answer (Backend) keeps the thread.
+    expect(to(ask(h, "sebutkan juga strukturnya"))).toBe("backend");
+  });
+
+  it("a long reply that merely mentions the CTO is still an answer", () => {
+    const h = [
+      { authorType: "user", content: "kenapa query lambat?" },
+      { authorType: "agent", agentId: "be", content: `${"Index users belum ada dan latency naik 3x. ".repeat(8)}Bukan keputusan CTO — sudah saya tambahkan index-nya.` },
+    ];
+    expect(to(ask(h, "lebih detail"))).toBe("backend");
+  });
+
   it("no previous responder → the usual rules", () => {
     expect(ask([], "lebih detail").kind).toBe("none");
     expect(to(ask([], "cek lebih dalam tesnya"))).toBe("qa");

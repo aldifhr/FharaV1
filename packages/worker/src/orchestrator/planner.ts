@@ -122,6 +122,24 @@ export interface PlannerResult {
 import type { RoutingAdjustment } from "./planRouting";
 export type { RoutingAdjustment };
 
+/**
+ * Plan 063: normalize the planner's top-level `due` output to a due date
+ * (ms epoch). Only an ISO date string (YYYY-MM-DD, optionally with a time)
+ * or a ms number is accepted; anything unparsable or already in the past
+ * (beyond a day of slack) is dropped — a wrong date is worse than none.
+ */
+export function parsePlanDue(value: unknown, now = Date.now()): number | undefined {
+  const slackMs = 24 * 60 * 60 * 1000;
+  if (typeof value === "number") return Number.isFinite(value) && value > now - slackMs ? value : undefined;
+  if (typeof value !== "string") return undefined;
+  const match = /^(\d{4}-\d{2}-\d{2})(?:[T\s](\d{2}:\d{2}))?/.exec(value.trim());
+  if (!match) return undefined;
+  // A bare date parses as UTC midnight; noon local keeps the calendar day
+  // stable in every timezone the app runs in.
+  const ms = Date.parse(match[2] ? `${match[1]}T${match[2]}:00` : `${match[1]}T12:00:00`);
+  return Number.isFinite(ms) && ms > now - slackMs ? ms : undefined;
+}
+
 export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
   const notes: string[] = [];
   // Cancellation is terminal for planning (Phase 4 hardening): an
@@ -181,6 +199,8 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
         );
       }
       const parsed = extractJson(response.content);
+      // Plan 063: a deadline the request stated rides on the plan (never invented).
+      const dueAt = parsePlanDue((parsed as Record<string, unknown> | null)?.due);
       const validation = validatePlan(
         parsed && typeof parsed === "object" && !Array.isArray(parsed)
           ? {
@@ -204,8 +224,9 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
         });
         const routed = ensureRoutable(hinted, input.agents);
         if (routed) {
+          const plan = withRequirements(withDefaultContracts(gateArchitecture(regateQa(routed.plan, input), input, notes)), input, parsed);
           return {
-            plan: withRequirements(withDefaultContracts(gateArchitecture(regateQa(routed.plan, input), input, notes)), input, parsed),
+            plan: dueAt ? { ...plan, dueAt } : plan,
             createdBy: "orchestrator",
             notes,
             droppedHintKeys: routed.dropped,

@@ -50,7 +50,8 @@ describe("roles: normalization + lookup", () => {
   });
   it("keeps the free-text aliases (titles, retired roles)", () => {
     expect(normalizeRole("Frontend Developer")).toBe("frontend");
-    expect(normalizeRole("UI/UX")).toBe("frontend");
+    expect(normalizeRole("UI/UX")).toBe("designer");
+    expect(normalizeRole("UI/UX Designer")).toBe("designer");
     expect(normalizeRole("product analyst")).toBe("cto");
     expect(normalizeRole("Security Engineer")).toBe("backend");
     expect(normalizeRole("technical-writer")).toBe("backend");

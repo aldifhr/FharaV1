@@ -30,12 +30,14 @@ export { canWritePath } from "@/api/convex/lib/roles";
 /**
  * Aliases collapse retired roles onto their canonical successor. The map is
  * kept here for the worker's free-text routing; the shared module owns the
- * authority for the four live `RoleKey`s.
+ * authority for the live `RoleKey`s. Designer aliases point at the live
+ * designer role (not frontend), so a stored "UI/UX Designer" row keeps its
+ * read-only design permissions.
  */
 const ROLE_ALIASES: Readonly<Record<string, AgentRole>> = {
   ...LEGACY_ROLE_SUCCESSORS,
-  "ui/ux": "frontend",
-  "ui/ux designer": "frontend",
+  "ui/ux": "designer",
+  "ui/ux designer": "designer",
   "frontend-developer": "frontend",
   developer: "frontend",
   "backend-developer": "backend",

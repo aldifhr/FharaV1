@@ -41,6 +41,8 @@ export const CHILD_ENV_ALLOWLIST: readonly string[] = [
   // XDG dirs (OpenCode and npm keep config/cache here)
   "XDG_CONFIG_HOME",
   "XDG_DATA_HOME",
+  // Codex CLI's home (auth.json + config.toml); same class as the XDG dirs.
+  "CODEX_HOME",
   "XDG_CACHE_HOME",
   "XDG_STATE_HOME",
   "XDG_RUNTIME_DIR",

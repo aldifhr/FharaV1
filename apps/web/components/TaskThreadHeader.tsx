@@ -9,6 +9,7 @@ import PauseResumeButton from "./PauseResumeButton";
 import TaskStopButton from "./TaskStopButton";
 import { taskStatusLabel } from "@/lib/taskStatus";
 import { taskStatusTone } from "@/lib/taskStatusTone";
+import { dueDateLabel, isOverdue } from "@/lib/runFormat";
 import { isWidePanel, toggledPanelWidth } from "@/lib/useResizablePanel";
 import { PERMISSION_MODE_LABELS, normalizePermissionMode } from "@/api/convex/lib/permissionModes";
 
@@ -91,6 +92,18 @@ export default function TaskThreadHeader({
           Task thread · {projectName ?? "Workspace"}
           {" · "}
           <span title="Permission mode">{PERMISSION_MODE_LABELS[normalizePermissionMode(task.permissionMode)]}</span>
+          {/* Plan 063: the deadline the request stated; warn-toned once it passes. */}
+          {typeof task.dueAt === "number" && (
+            <>
+              {" · "}
+              <span
+                className={isOverdue(task.dueAt, !running) ? "text-danger" : undefined}
+                title="Due date"
+              >
+                due {dueDateLabel(task.dueAt)}
+              </span>
+            </>
+          )}
           {" · "}
           <Link href={`/runs/${task._id}`} className="underline-offset-2 hover:text-ink hover:underline">
             View trace

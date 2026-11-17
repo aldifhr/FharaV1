@@ -57,10 +57,10 @@ export default function NeedsYou({
   return (
     <section aria-label="Needs you">
       <SectionToggle title="Needs you" count={data?.total} open={open} onToggle={onToggle} />
-      {open && data === undefined && <div className="mx-1 mt-2 h-[68px] animate-pulse rounded-xl bg-hover" />}
+      {open && data === undefined && <div className="mx-1 mt-2 h-[68px] rounded-xl bg-hover" />}
       {open && data && items.length === 0 && <p className="px-2 pt-1.5 text-[13px] text-ink-3">You&apos;re all caught up.</p>}
       {open && items.length > 0 && (
-        <ul className="mt-2 divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
+        <ul className="mt-2 space-y-2">
           {items.slice(0, MAX_SHOWN).map((item) => {
             const meta = KIND_ICON[item.kind] ?? KIND_ICON.review;
             const Icon = meta.icon;
@@ -70,7 +70,7 @@ export default function NeedsYou({
                 <button
                   type="button"
                   onClick={() => openItem(item)}
-                  className="flex w-full items-start gap-3 px-3 py-2.5 text-left outline-none transition hover:bg-hover focus-visible:bg-hover"
+                  className="flex w-full items-start gap-3 rounded-xl border border-line bg-panel-2 px-3 py-2.5 text-left outline-none transition hover:border-line-strong hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30"
                 >
                   <span className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${meta.tone}`}>
                     <Icon size={13} strokeWidth={2.25} />

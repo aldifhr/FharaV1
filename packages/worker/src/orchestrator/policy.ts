@@ -116,7 +116,7 @@ export interface ExecutionPolicy {
    *    the task workspace (danger-full-access per the recorded Plan 014
    *    decision). Host tools stay for the `api` path.
    */
-  executionRuntime?: "api" | "native-provider";
+  executionRuntime?: "api" | "native-provider" | "acp";
   worktreeIsolation?: boolean;
   /**
    * L3: ORCHESTRATOR_WORKTREE_ISOLATION=auto (the default). The runner

@@ -206,15 +206,19 @@ export interface SubtaskExecutionInput {
   /**
    * Plan 014 runtime: "api" (default, host tools + gated LLM) or
    * "native-provider" (provider CLI with its own native tools in the
-   * workspace; full-access per the recorded decision).
+   * workspace; full-access per the recorded decision). Plan 058 step 3 adds
+   * "acp": an Agent Client Protocol agent in the workspace, with Fhara's
+   * deny-by-default policy answered by the client.
    */
-  runtime?: "api" | "native-provider";
+  runtime?: "api" | "native-provider" | "acp";
   /** Plan 057: which CLI the native runtime spawns (default opencode). */
   nativeDriver?: NativeProviderDriver;
   /** Optional CLI binary override for the native-provider runtime. */
   nativeProviderCommand?: string;
   /** Optional Codex CLI override for the codex driver. */
   codexCommand?: string;
+  /** Optional ACP agent command override (ORCHESTRATOR_ACP_COMMAND). */
+  acpCommand?: string;
   /**
    * Agent's OpenCode model (`provider/model`) for the native runtime.
    * Unset: OpenCode is pointed at this subtask's resolved Fhara LLM.
@@ -840,20 +844,29 @@ async function executeSubtaskScoped(rawInput: SubtaskExecutionInput): Promise<Su
     const input = await withOnDemandSkills(rawInput);
     // Plan 014: native-provider runtime (provider CLI with its own native
     // tools in the task workspace). Falls back to the API path when the
-    // provider binary is unavailable.
+    // provider binary is unavailable. Plan 058 step 3: the same branch
+    // serves the "acp" runtime — the availability probe and driver choice
+    // differ, the staging pipeline is shared.
     // QA and review stay deterministic on every runtime: the provider CLI
     // returns no verdict, so a QA/review node sent there would always
     // read as failing (QA audit P0-5).
     if (
-      input.runtime === "native-provider" &&
+      (input.runtime === "native-provider" || input.runtime === "acp") &&
       subtask.kind !== "qa" &&
       subtask.kind !== "review"
     ) {
-      const native = await nativeDriverAvailability(input);
+      const driver: NativeProviderDriver = input.runtime === "acp" ? "acp" : input.nativeDriver ?? "opencode";
+      const native = await nativeDriverAvailability({
+        nativeDriver: driver,
+        nativeProviderCommand: input.nativeProviderCommand,
+        codexCommand: input.codexCommand,
+        acpCommand: input.acpCommand,
+        nativeSpawnImpl: input.nativeSpawnImpl,
+      });
       if (!native.available) {
         await input.onEvent("native.runtime.unavailable", { provider: native.provider, driver: native.driver }, "warn");
       } else {
-        return await executeNativeProvider(input);
+        return await executeNativeProvider({ ...input, nativeDriver: driver });
       }
     }
     switch (subtask.kind) {
@@ -951,7 +964,7 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
   const driver = input.nativeDriver ?? "opencode";
   let llm: NativeRunRequest["llm"];
   let policy: NativeRunRequest["policy"];
-  if (driver !== "codex") {
+  if (driver === "opencode") {
     // OpenCode runs on the agent's own model or this agent's resolved Fhara
     // LLM. O1: a bound key that is missing fails the run, and the per-run
     // permissions are deny-by-default (the staging gate is the second line).
@@ -963,6 +976,11 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
     }
     llm = handle?.config ?? input.llmConfig ?? getGlobalLLMConfig();
     policy = buildOpencodePolicy({ permissions: permissionsForAgent(agent), allowedPaths: subtask.allowedPaths, mutating: subtask.kind === "code_change" || subtask.kind === "shell", roleKey: resolveRoleKey(agent.role ?? "") });
+  } else if (driver === "acp") {
+    // Plan 058 step 3: ACP agents bring their own credentials (like Codex),
+    // but their permission requests are answered by Fhara's policy, and the
+    // client executes fs requests — the deny-by-default rule map applies.
+    policy = buildOpencodePolicy({ permissions: permissionsForAgent(agent), allowedPaths: subtask.allowedPaths, mutating: subtask.kind === "code_change" || subtask.kind === "shell", roleKey: resolveRoleKey(agent.role ?? "") });
   }
   const result = await runNativeDriver({
     driver,
@@ -970,9 +988,11 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
     prompt,
     opencodeCommand: input.nativeProviderCommand,
     codexCommand: input.codexCommand,
+    acpCommand: input.acpCommand,
     model: driver === "codex" ? undefined : input.nativeModel,
     llm,
     policy,
+    mutating: subtask.kind === "code_change" || subtask.kind === "shell",
     timeoutMs: input.nativeTimeoutMs,
     spawnImpl: input.nativeSpawnImpl,
     signal,

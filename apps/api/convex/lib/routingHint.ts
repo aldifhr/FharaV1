@@ -65,9 +65,9 @@ export function hintFiles(text: string): string[] {
 }
 
 /**
- * A role string as one of the four fixed role keys, or undefined. A retired
- * name resolves to its successor, so a hint stored before the roster shrank
- * ("designer") still names the role that does the work now (Frontend).
+ * A role string as one of the live role keys, or undefined. A retired name
+ * resolves to its successor, so hints stored before the roster changed still
+ * name the role that does that work now.
  */
 export function hintRole(role: string | undefined | null): RoleKey | undefined {
   const key = normalizeRoleKey(role ?? "");

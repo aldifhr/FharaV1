@@ -383,7 +383,7 @@ export default defineSchema({
     // L4: retired per-agent runtime and OpenCode model. The runtime is the
     // app-wide setting (Settings → LLM & Models); never read per agent.
     // Optional for one release; migrations:clearPerAgentLlm clears them.
-    executionRuntime: v.optional(v.union(v.literal("api"), v.literal("opencode"))),
+    executionRuntime: v.optional(v.union(v.literal("api"), v.literal("opencode"), v.literal("acp"))),
     // Optional OpenCode model ("provider/model"); unset = Fhara's own LLM.
     opencodeModel: v.optional(v.string()),
     status: agentStatus,
@@ -439,6 +439,9 @@ export default defineSchema({
     worktreePath: v.optional(v.string()),
     assignedAgentIds: v.optional(v.array(v.id("agents"))),
     routingHint: v.optional(routingHintValidator), // P1a (additive): chat's routing decision, a prior for the planner.
+    // Plan 063 (additive): when the user's request states a deadline, the
+    // planner stores it here (ms epoch). Absent = none stated.
+    dueAt: v.optional(v.number()),
     // O2 (additive): the Response Owner role key (e.g. "frontend") that reports the outcome; set per plan version.
     responseOwner: v.optional(v.string()),
     // Plan 013 step 4 (additive): the question asked while the task is `waiting_input`. The answer travels
@@ -1663,9 +1666,7 @@ export default defineSchema({
     projectId: v.id("projects"),
     agentId: v.id("agents"),
     enabled: v.boolean(),
-    customInstructions: v.optional(v.string()),
     allowedTools: v.optional(v.array(v.string())),
-    permissionOverrides: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.optional(v.number()),
   })

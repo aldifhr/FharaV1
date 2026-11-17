@@ -4,8 +4,8 @@
  * Table shape and `decideToolAccess` (default deny for an unknown role or
  * operation) are copied from opencode-agent-orchestration-kit
  * `opencode/scripts/runtime-permission-policy.mjs` (Apache-2.0; see
- * THIRD_PARTY_NOTICES.md). Modified by Fhara: the agent ids are Fhara's four
- * fixed roles, the values mirror `ROLES[k].permissions`
+ * THIRD_PARTY_NOTICES.md). Modified by Fhara: the agent ids are Fhara's live
+ * roles, the values mirror `ROLES[k].permissions`
  * (apps/api/convex/lib/roles.ts) with no "ask" (OpenCode runs unattended),
  * and `delegate` is a plain decision because Fhara never lets OpenCode
  * spawn sub-agents.
@@ -46,12 +46,13 @@ export const ROLE_OPERATION_POLICY: Readonly<Record<RoleKey, Readonly<Record<Pol
   frontend: Object.freeze({ ...common, write: "allow", shell: "allow", network: "deny" }),
   backend: Object.freeze({ ...common, write: "allow", shell: "allow", network: "deny" }),
   qa: Object.freeze({ ...common, write: "deny", shell: "allow", network: "deny" }),
+  designer: Object.freeze({ ...common, write: "deny", shell: "deny", network: "deny" }),
 });
 
 /**
  * No live role is path-limited by the table itself: Frontend and Backend
- * write code, QA is read-only, and the CTO is read-only. Retired roles have
- * no policy row and are refused by `decideToolAccess`.
+ * write code, QA is read-only, and the CTO and Designer are read-only.
+ * Retired roles have no policy row and are refused by `decideToolAccess`.
  */
 export const ROLE_WRITE_SCOPE: Readonly<Partial<Record<RoleKey, readonly string[]>>> = Object.freeze({});
 

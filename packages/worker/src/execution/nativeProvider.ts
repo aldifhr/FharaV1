@@ -32,14 +32,15 @@ export { NATIVE_PROMPT_MESSAGE, workspaceHeader, buildNativePrompt } from "@/pro
  *    the child's environment.
  */
 
-/** Per-agent runtime choice as stored on the agent row. */
-export type AgentRuntimeChoice = "api" | "opencode";
+/** Per-agent runtime choice as stored on the agent row. Plan 058 step 3 adds "acp". */
+export type AgentRuntimeChoice = "api" | "opencode" | "acp";
 /** Runtime the executor actually uses. */
-export type ExecutionRuntime = "api" | "native-provider";
+export type ExecutionRuntime = "api" | "native-provider" | "acp";
 
 /**
  * Per-agent runtime overrides the global policy default:
- * agent "opencode" → native-provider, agent "api" → api, unset → global.
+ * agent "opencode" → native-provider, agent "acp" → acp, agent "api" → api,
+ * unset → global.
  */
 export function resolveExecutionRuntime(
   agent: { executionRuntime?: AgentRuntimeChoice | string | null } | undefined,
@@ -47,6 +48,7 @@ export function resolveExecutionRuntime(
 ): ExecutionRuntime {
   const choice = agent?.executionRuntime;
   if (choice === "opencode") return "native-provider";
+  if (choice === "acp") return "acp";
   if (choice === "api") return "api";
   return globalRuntime ?? "api";
 }

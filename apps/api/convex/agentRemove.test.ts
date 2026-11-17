@@ -3,7 +3,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, test } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
-import { ROLE_KEYS } from "./lib/roles";
+import { FIXED_TEAM_SEED_ORDER } from "./lib/roles";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -17,11 +17,11 @@ async function seedTeam() {
 describe("agents.remove", () => {
   test("refuses every one of the nine fixed-team agents, with a clear message", async () => {
     const { t, agents } = await seedTeam();
-    expect(agents).toHaveLength(ROLE_KEYS.length);
+    expect(agents).toHaveLength(FIXED_TEAM_SEED_ORDER.length);
     for (const agent of agents) {
       await expect(t.mutation(api.agents.remove, { agentId: agent._id })).rejects.toThrow(/part of the fixed team and can't be deleted/);
     }
-    expect(await t.run((ctx) => ctx.db.query("agents").collect())).toHaveLength(ROLE_KEYS.length);
+    expect(await t.run((ctx) => ctx.db.query("agents").collect())).toHaveLength(FIXED_TEAM_SEED_ORDER.length);
   });
 
   test("an extra agent of a fixed role can be deleted, and takes its personal chats along", async () => {

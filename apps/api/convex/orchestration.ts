@@ -845,6 +845,8 @@ export const savePlan = internalMutation({
     /** Task Estimator result (lib/estimate.ts), computed before execution. */
     estimate: v.optional(v.any()),
     workerId: v.optional(v.string()),
+    // Plan 063: the due date the request stated (ms epoch); absent = none.
+    dueAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     // Lease fencing (core M2): a displaced worker must not replace the new

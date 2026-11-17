@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useMutation } from "convex/react";
-import { BookmarkPlus, Dices } from "lucide-react";
+import { BookmarkPlus, Dices, Wand2 } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import { AGENT_TOOL_OPTIONS } from "@/api/convex/lib/toolNames";
 import { AGENT_ROLES, roleDefaultTools, roleLabel, roleTemplateFor } from "@/lib/agentRoles";
@@ -41,7 +41,29 @@ export default function AgentConfigureForm({ agent, onDirtyChange }: { agent: Ag
   const [confirmReset, setConfirmReset] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
+  const [namingBusy, setNamingBusy] = useState(false);
   useEffect(() => onDirtyChange?.(form.dirty), [form.dirty, onDirtyChange]);
+
+  // Plan 067: a random name fetched through the server proxy (/api/random-name);
+  // the API is randomuser.me, and the route falls back to a synthetic id-style
+  // name when it is unreachable (no hardcoded name list anywhere).
+  async function generateName() {
+    setNamingBusy(true);
+    try {
+      const res = await fetch("/api/random-name");
+      const data = (await res.json()) as { name?: string; source?: string };
+      if (data.name) {
+        set("name", data.name);
+        if (data.source === "fallback") toast("info", "Name API unreachable", "Used a generated placeholder instead.");
+      } else {
+        toast("error", "Could not generate a name", "Try again in a moment.");
+      }
+    } catch (err) {
+      toast("error", "Could not generate a name", err instanceof Error ? err.message : "");
+    } finally {
+      setNamingBusy(false);
+    }
+  }
 
   async function save() {
     if (!draft.name.trim()) return setError("Name is required");
@@ -118,7 +140,20 @@ export default function AgentConfigureForm({ agent, onDirtyChange }: { agent: Ag
               </span>
             </button>
             <div className="grid min-w-0 flex-1 gap-2">
-              <input value={draft.name} onChange={(e) => set("name", e.target.value)} aria-label="Name" placeholder="Name" className={INSPECTOR_INPUT} />
+              <div className="flex items-center gap-2">
+                <input value={draft.name} onChange={(e) => set("name", e.target.value)} aria-label="Name" placeholder="Name" className={INSPECTOR_INPUT} />
+                {/* Plan 067: a random name from the name API (no hardcoded list). */}
+                <button
+                  type="button"
+                  disabled={namingBusy}
+                  onClick={() => void generateName()}
+                  title="Generate a random name"
+                  aria-label="Generate a random name"
+                  className="shrink-0 rounded-lg border border-line p-1.5 text-ink-3 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
+                >
+                  <Wand2 size={14} />
+                </button>
+              </div>
               <select aria-label="Role" value={draft.role} onChange={(e) => set("role", e.target.value)} className={INSPECTOR_INPUT}>
                 {!draft.role && <option value="">Choose a role</option>}
                 {roleOptionsFor(draft.role).map((role) => (

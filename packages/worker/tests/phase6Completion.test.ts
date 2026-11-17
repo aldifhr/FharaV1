@@ -167,6 +167,8 @@ function createDeps(policy: ExecutionPolicy) {
     title: "Write the helper and validate it",
     command: "Write a small helper function",
     status: "running",
+    // Plan-020: the scenario auto-applies the QA fix, so full_access.
+    permissionMode: "full_access",
   };
   const project = {
     _id: "project-1",

@@ -60,13 +60,13 @@
   --color-ink: var(--shell-ink);
   --color-ink-2: var(--shell-ink-2);
   --color-ink-3: var(--shell-ink-3);
-  /* There is no accent colour: the primary action is ink (bg-ink text-canvas).
-     The old purple brand names stay as ink aliases so a stray class cannot turn
-     purple again; the guard in scripts/guards/rules.mjs rejects new uses. */
-  --color-brand: var(--shell-ink);
-  --color-brand-hover: var(--shell-ink);
-  --color-brand-soft: var(--shell-hover);
-  --color-brand-ink: var(--shell-ink);
+  /* Plan 067: the purple accent is the primary action colour (mockup parity).
+     bg-brand = filled primary buttons; bg-brand-soft = tinted chip fills;
+     text-brand = accent text; text-brand-ink = text on a filled accent. */
+  --color-brand: var(--shell-brand);
+  --color-brand-hover: var(--shell-brand-hover);
+  --color-brand-soft: var(--shell-brand-soft);
+  --color-brand-ink: var(--shell-brand-ink);
   --color-warn: var(--shell-warn);
   --color-warn-soft: var(--shell-warn-soft);
   /* Dashboard restyle (F1). */
@@ -148,6 +148,30 @@
   --shell-danger: #c2410c;
   --shell-warn: #d9580b;
   --shell-warn-soft: #fff1e6;
+  /* Accent (plan 067): the mockup's purple primary. */
+  --shell-brand: #6c5ce7;
+  --shell-brand-hover: #5b4bd1;
+  --shell-brand-soft: #efecfd;
+  --shell-brand-ink: #ffffff;
+  /* Diff viewer (plan 067): react-diff-viewer takes concrete colours through
+     inline styles, so its palette is tokens here instead of hexes in
+     components/DiffCard.tsx. Values are the light theme's original ones. */
+  --shell-diff-bg: #ffffff;
+  --shell-diff-fg: #374151;
+  --shell-diff-add-bg: #ecfdf5;
+  --shell-diff-del-bg: #fef2f2;
+  --shell-diff-word-add: #a7f3d0;
+  --shell-diff-word-del: #fecaca;
+  --shell-diff-add-fg: #065f46;
+  --shell-diff-del-fg: #991b1b;
+  --shell-diff-fold-gutter: #f9fafb;
+  --shell-diff-fold: #e5e7eb;
+  --shell-diff-empty: #f9fafb;
+  --shell-diff-gutter: #f9fafb;
+  --shell-diff-gutter-2: #f3f4f6;
+  --shell-diff-title-bg: #f9fafb;
+  --shell-diff-title-fg: #374151;
+  --shell-diff-title-line: #e5e7eb;
 }
 
 .dark {
@@ -205,6 +229,28 @@
   --shell-danger: #f0845c;
   --shell-warn: #f08a3c;
   --shell-warn-soft: #2d1d12;
+  /* Accent (plan 067): lighter violet on dark, soft tint from the panel. */
+  --shell-brand: #7d6ef0;
+  --shell-brand-hover: #8d80f3;
+  --shell-brand-soft: #241f3d;
+  --shell-brand-ink: #0b0b0d;
+  /* Diff viewer (plan 067): the dark values of the same tokens. */
+  --shell-diff-bg: #111827;
+  --shell-diff-fg: #e5e7eb;
+  --shell-diff-add-bg: #064e3b;
+  --shell-diff-del-bg: #7f1d1d;
+  --shell-diff-word-add: #059669;
+  --shell-diff-word-del: #dc2626;
+  --shell-diff-add-fg: #a7f3d0;
+  --shell-diff-del-fg: #fecaca;
+  --shell-diff-fold-gutter: #1f2937;
+  --shell-diff-fold: #374151;
+  --shell-diff-empty: #1f2937;
+  --shell-diff-gutter: #1f2937;
+  --shell-diff-gutter-2: #111827;
+  --shell-diff-title-bg: #1f2937;
+  --shell-diff-title-fg: #e5e7eb;
+  --shell-diff-title-line: #374151;
 }
 
 html {
@@ -261,7 +307,7 @@ body {
   color: var(--shell-ink-2);
   font-variant-numeric: tabular-nums;
 }
-/* Status as a hairline frame plus text, never a tinted fill (see ui/status-tag.tsx). */
+/* Status chip: hairline frame + soft tinted fill (plan 067, see ui/status-tag.tsx). */
 @utility status-tag {
   display: inline-flex;
   align-items: center;
@@ -276,8 +322,11 @@ body {
   line-height: 1;
   white-space: nowrap;
   color: var(--status-tone, var(--shell-ink-2));
-  background: transparent;
+  /* Plan 067 (mockup parity): a soft tinted fill under the hairline frame. */
+  background: color-mix(in oklab, var(--status-tone, var(--shell-ink-3)) 10%, transparent);
 }
+
+/* Status as a hairline frame plus a soft tint (see ui/status-tag.tsx). */
 
 /* Thin, quiet scrollbars inside the shell panes. */
 .shell-scroll {

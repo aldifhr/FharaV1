@@ -11,6 +11,8 @@ import { useToast } from "../Toasts";
 import { isClosedStatus } from "@/lib/taskStatus";
 import { normalizePermissionMode } from "@/api/convex/lib/permissionModes";
 import { refusalCopy } from "@/lib/taskInput";
+import { dueDateLabel, isOverdue } from "@/lib/runFormat";
+import { taskRef } from "@/lib/taskDock";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : "Please try again.");
 
@@ -134,16 +136,25 @@ export default function TaskCard({
           icon={statusIcon}
           title={task.title}
           meta={
-            owners.length > 0 ? (
-              <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-                {owners.slice(0, 3).map((owner) => (
+            <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+              {/* Plan 067: the meta row carries the task ref and its deadline. */}
+              <span className="font-mono text-[12px] font-medium text-ink-3">{taskRef(task._id)}</span>
+              {owners.length > 0 &&
+                owners.slice(0, 3).map((owner) => (
                   <span key={owner.agentId} className="inline-flex items-center gap-1.5">
                     <RoleAvatar role={owner.role} size={18} />
                     <span className="text-ink-2">{roleLabel(owner.role)}</span>
                   </span>
                 ))}
-              </span>
-            ) : undefined
+              {task.dueAt && (
+                <span
+                  className={`text-[12px] ${isOverdue(task.dueAt, task.status === "done") ? "text-danger" : "text-ink-3"}`}
+                  title="Due date"
+                >
+                  due {dueDateLabel(task.dueAt)}
+                </span>
+              )}
+            </span>
           }
           aside={
             <>

@@ -1,6 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
-import { FIXED_TEAM_SEED_ORDER, isRetiredRole, normalizeRoleKey } from "./roles";
+import { FIXED_TEAM_SEED_ORDER, normalizeRoleKey } from "./roles";
 
 /**
  * The project's team as every surface sees it. An explicit `agentIds` list
@@ -21,7 +21,7 @@ export function effectiveTeamIds(
   const byRole = new Map<string, Id<"agents">>();
   for (const agent of [...allAgents].sort((a, b) => a._creationTime - b._creationTime)) {
     const role = normalizeRoleKey(agent.role);
-    if (!order.includes(role) || isRetiredRole(agent.role) || byRole.has(role)) continue;
+    if (!order.includes(role) || byRole.has(role)) continue;
     byRole.set(role, agent._id);
   }
   return order.flatMap((role) => (byRole.has(role) ? [byRole.get(role)!] : []));

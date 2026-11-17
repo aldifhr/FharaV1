@@ -11,7 +11,7 @@ import type { ModelTiers } from "@/api/convex/lib/modelTiers";
 import { orderChain, overrideModelFor } from "@/api/convex/lib/llmChain";
 import type { LlmSelectionMode } from "@/api/convex/lib/llmSelection";
 import { matchesModelPattern, orderPoolPairs } from "@/api/convex/lib/llmOrder";
-import { isOpencodeConnection, withoutOpencode } from "@/api/convex/lib/opencodeProvider";
+import { isNativeCliConnection, isOpencodeConnection, withoutNativeCli } from "@/api/convex/lib/opencodeProvider";
 import { registerSecretValues } from "@/utils/redact";
 import { isSafeApiKeyEnv } from "@/api/convex/lib/apiKeyEnv";
 
@@ -267,7 +267,11 @@ export function resolveForAgent(
   } = {}
 ): AgentResolution {
   const rotation = options.rotation ?? rotationCursor;
-  if (!options.includeOpencode) pool = withoutOpencode(pool);
+  // Plan 066: the whole native-CLI family is task-side only; chat and every
+  // non-execution worker call never sees any of them, and (until the per-model
+  // routing plan lands) only opencode entries stay eligible for the route walk.
+  pool = pool.filter(
+    (connection) => !isNativeCliConnection(connection) || (options.includeOpencode && isOpencodeConnection(connection))  );
   // Empty pool: the worker env is the configuration (Settings has no providers).
   if (pool.length === 0) return envResolution(need);
 

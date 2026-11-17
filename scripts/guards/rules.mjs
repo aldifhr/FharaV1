@@ -7,7 +7,7 @@
 // `unawaitedAsyncAssertions` is adapted from Nuphos `eslint-rules/no-unawaited-async-assertion.js`,
 // Copyright 2026 Zeabur Inc., Apache License 2.0.
 // Modified by Fhara, 2026-11: oxlint/ESLint rules rewritten as plain source scans over text and the
-// TypeScript AST; Fhara's own UI rules (animate-pulse, pills/badges, palette tints, raw hex, the retired brand colour) added;
+// TypeScript AST; Fhara's own UI rules (animate-pulse, pills/badges, palette tints, raw hex) added;
 // the line budget lowered to 800; native confirm() banned. See THIRD_PARTY_NOTICES.md (## GOAT, ## Nuphos).
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -95,8 +95,10 @@ const UTILITY = "bg|text|border|border-[trblxy]|ring|ring-offset|from|via|to|fil
 const TINT = new RegExp(`(?<![\\w-])(?:${UTILITY})-(?:${PALETTE})-\\d{2,3}(?![\\w])`, "gu");
 // A hex colour starting a string or a Tailwind arbitrary value: "#fff", '#635bff', [#ebe9f0].
 const RAW_HEX = /(?<=["'`[])#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![\w])/gu;
-// The old purple brand: the primary is ink now (bg-ink text-canvas), with no accent colour.
-const BRAND = new RegExp(`(?<![\\w-])(?:${UTILITY})-brand(?:-(?:hover|soft|ink))?(?![\\w-])|var\\(--(?:shell|accent)-brand`, "gu");
+// Plan 067: the brand colour is back as the purple accent (globals.css
+// --shell-brand*), so brand classes (bg-brand, bg-brand-soft, …) are tokens
+// like bg-canvas and there is no separate "brand" rule. The tint rule below
+// keeps every OTHER palette tint out, and the hex rule keeps raw colours out.
 const PULSE = /(?<![\w-])animate-pulse(?![\w-])/gu;
 const PILL_SHAPE = /(?<![\w-])rounded-full(?![\w-])[^"'`\n]*?(?<![\w-])px-|(?<![\w-])px-[\d.]+(?![\w-])[^"'`\n]*?(?<![\w-])rounded-full(?![\w-])/u;
 const PILL_CLASS = /["'`\s](?:pill|badge|chip)(?:-[\w-]+)?(?=["'`\s])/u;
@@ -129,9 +131,6 @@ export function uiRuleCounts(text) {
     confirm: countMatches(code, NATIVE_CONFIRM),
   };
 }
-
-/** Uses of the retired purple brand colour (kept out of uiRuleCounts so its shape stays stable). */
-export const brandUses = (text) => countMatches(stripComments(text), BRAND);
 
 // ---------------------------------------------------------------- async assertions
 
@@ -188,8 +187,6 @@ export function measureFile(file, text) {
   if (suppressions) out.suppressions = suppressions;
   if (isUiSource(file)) {
     for (const [key, value] of Object.entries(uiRuleCounts(text))) if (value) out[key] = value;
-    const brand = brandUses(text);
-    if (brand) out.brand = brand;
   }
   if (isTestCode(file) && /\b(?:rejects|resolves)\b/u.test(text)) {
     const unawaited = unawaitedAsyncAssertions(text, file).length;
@@ -203,8 +200,7 @@ export const RULE_HELP = {
   suppressions: "Say why: end an eslint directive with `-- reason`, write the reason after `@ts-expect-error`, or put a comment on the line above.",
   pulse: "No animate-pulse. Show a static loading state (text-ink-3 \"Loading…\" or a plain bg-hover block).",
   pill: "No pills or badges (rounded-full + px-, pill/badge/chip classes, ui/badge). Use plain text in text-ink-2/-3.",
-  tint: "No palette tints (bg-rose-100, text-emerald-600, …). Use theme tokens: bg-canvas/panel/hover, border-line, text-ink/-2/-3.",
-  brand: "No brand/accent colour. The primary is ink: bg-ink text-canvas, focus rings ring-ink/30, active rows bg-hover text-ink.",
+  tint: "No palette tints (bg-rose-100, text-emerald-600, …). Use theme tokens: bg-canvas/panel/hover, border-line, text-ink/-2/-3, and the accent tokens bg-brand/bg-brand-soft/text-brand-ink for primary actions.",
   confirm: "No window.confirm/confirm(). Use ConfirmDialog (components/ConfirmDialog.tsx), and only for destructive actions.",
   hex: "No raw hex colours in UI code. Use theme tokens defined in app/globals.css.",
   unawaited: "`expect(...).rejects/.resolves` settles asynchronously. Prefix it with `await` (or `return`).",

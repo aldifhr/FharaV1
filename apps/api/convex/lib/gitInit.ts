@@ -2,7 +2,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { checkRepoReadiness, withExcludeLine, worktreesExcludePattern, type RepoGit, type RepoReadiness } from "./repoReadiness";
+import { checkRepoReadiness, LEGACY_WORKTREES_DIR, withExcludeLine, worktreesExcludePattern, type RepoGit, type RepoReadiness } from "./repoReadiness";
 
 /**
  * Lane git-init: the "Initialize git" action and the worktree exclude.
@@ -12,13 +12,16 @@ import { checkRepoReadiness, withExcludeLine, worktreesExcludePattern, type Repo
  */
 
 /**
- * Keep the worktrees directory out of the repository: one line in
+ * Keep the worktrees directories out of the repository: lines in
  * `.git/info/exclude` (local, never committed), so `git add -A` in the
- * initial commit, and `git status` afterwards, skip it.
+ * initial commit, and `git status` afterwards, skip them. The default base
+ * is outside the repo now (plan 065), but the legacy in-repo
+ * `.moagent-worktrees` is always excluded so an old checkout's leftover
+ * folder can never be committed by Fhara's own flows.
  */
 export function ensureWorktreesExcluded(repoRoot: string, worktreesBase: string, git: RepoGit): void {
   const pattern = worktreesExcludePattern(repoRoot, worktreesBase, path);
-  if (!pattern) return;
+  const patterns = [pattern, `/${LEGACY_WORKTREES_DIR}/`].filter((p): p is string => p !== null);
   const excludePath = path.resolve(repoRoot, git(["rev-parse", "--git-path", "info/exclude"]).trim());
   let current = "";
   try {
@@ -26,7 +29,8 @@ export function ensureWorktreesExcluded(repoRoot: string, worktreesBase: string,
   } catch {
     current = "";
   }
-  const next = withExcludeLine(current, pattern);
+  let next = current;
+  for (const line of patterns) next = withExcludeLine(next, line);
   if (next === current) return;
   fs.mkdirSync(path.dirname(excludePath), { recursive: true });
   fs.writeFileSync(excludePath, next, "utf-8");

@@ -159,6 +159,8 @@ export const createFromCommand = mutation({
     invokedSkills: invokedSkillsField,
     /** P1a: chat's routing decision (lib/routingHint.ts); an offer's own hint is used when absent. */
     routingHint: v.optional(routingHintValidator),
+    /** Plan 063: a due date stated with the request (ms epoch); absent = none. */
+    dueAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const project = await assertProjectAccess(ctx, args.projectId);
@@ -283,6 +285,7 @@ export const createFromCommand = mutation({
       ...(args.conversationId ? { conversationId: args.conversationId } : {}),
       permissionMode: args.permissionMode ?? projectDefaultPermissionMode(project),
       ...(args.shadowAgent ?? project.shadowAgentDefault ? { shadowAgent: true } : {}),
+      ...(args.dueAt ? { dueAt: args.dueAt } : {}),
       updatedAt: now,
     });
     await syncTaskThread(ctx, taskId, { seen: true }); // Paradev B1 thread list

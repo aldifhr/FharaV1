@@ -12,6 +12,7 @@ import { unroutedReason } from "@/orchestrator/capabilities";
 import { decideRetry } from "@/orchestrator/decisionEngine/retry";
 import type { RunContext } from "../types";
 import { logSkippedRoutes, logUnroutable } from "./nodeObserver";
+import { acpCommand, isAcpAvailable } from "@/execution/acpProvider";
 
 /**
  * Agent and model resolution of the DAG nodes runner, plus OpenCode
@@ -19,7 +20,7 @@ import { logSkippedRoutes, logUnroutable } from "./nodeObserver";
  * behaviour change).
  */
 
-export type OpencodeSelection = { runtime: "api" | "native-provider"; model?: string };
+export type OpencodeSelection = { runtime: "api" | "native-provider" | "acp"; model?: string };
 
 /** Plan 035: the agent's OpenCode selection without the plan 038 provider. */
 function selectionOf(ctx: RunContext, agent: AgentDefinition): OpencodeSelection {
@@ -41,7 +42,7 @@ function selectionOf(ctx: RunContext, agent: AgentDefinition): OpencodeSelection
 export function nodeTimeoutFor(ctx: RunContext, agent: AgentDefinition | null): number {
   const mayRunNative =
     Boolean(ctx.input.llmResolver?.hasOpencode()) ||
-    (agent ? selectionOf(ctx, agent).runtime === "native-provider" : false);
+    (agent ? selectionOf(ctx, agent).runtime !== "api" : false);
   return subtaskTimeoutFor(ctx.deps.policy, mayRunNative ? { nativeTimeoutMs: nativeTimeoutMs() } : {});
 }
 
@@ -70,7 +71,8 @@ export function createExecutionResolver(ctx: RunContext) {
     });
   // Plan 057: the legacy native switch must gate on the CLI the setting
   // selects. A plan-038 route still comes from an OpenCode model entry, so
-  // its gate stays OpenCode-specific.
+  // its gate stays OpenCode-specific. Plan 058 step 3: the acp driver gates
+  // on its own command's launchability.
   const nativeDriver = input.nativeDriver ?? nativeDriverFromEnv();
   const legacyNativeGate = async () =>
     nativeDriver === "codex"
@@ -78,7 +80,9 @@ export function createExecutionResolver(ctx: RunContext) {
           available: await isCodexAvailable(codexCommand()),
           worktreeIsolation: deps.policy.worktreeIsolation,
         })
-      : opencodeGate();
+      : nativeDriver === "acp"
+        ? { available: await isAcpAvailable(acpCommand()) }
+        : opencodeGate();
   return {
     /**
      * onStart: resolve the executor's model now, so subtask.routed records

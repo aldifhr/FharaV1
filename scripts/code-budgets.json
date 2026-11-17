@@ -1,6 +1,6 @@
 {
   "apps/api/convex/chat.ts": {
-    "lines": 1407
+    "lines": 1527
   },
   "apps/api/convex/githubPush.ts": {
     "lines": 846
@@ -9,16 +9,16 @@
     "lines": 1066
   },
   "apps/api/convex/orchestration.ts": {
-    "lines": 3079
+    "lines": 3084
   },
   "apps/api/convex/schema.ts": {
-    "lines": 2231
+    "lines": 2236
   },
   "apps/api/convex/skills.ts": {
     "lines": 1257
   },
   "apps/api/convex/worker.ts": {
-    "lines": 1536
+    "lines": 1538
   },
   "apps/web/app/WorkspaceContext.tsx": {
     "pulse": 1
@@ -58,18 +58,11 @@
   "apps/web/components/AgentAvatar.tsx": {
     "tint": 7
   },
-  "apps/web/components/ApprovalCard.tsx": {
-    "hex": 3
-  },
   "apps/web/components/ChatPanel.tsx": {
     "tint": 8
   },
   "apps/web/components/ConfirmDialog.tsx": {
     "tint": 6
-  },
-  "apps/web/components/DiffCard.tsx": {
-    "tint": 15,
-    "hex": 39
   },
   "apps/web/components/GithubAccount.tsx": {
     "tint": 5
@@ -78,7 +71,7 @@
     "tint": 62
   },
   "apps/web/components/LlmSettings.tsx": {
-    "lines": 1028,
+    "lines": 1084,
     "tint": 4
   },
   "apps/web/components/Modal.tsx": {
@@ -106,10 +99,6 @@
   },
   "apps/web/components/chat/ManageProjectModal.tsx": {
     "tint": 1
-  },
-  "apps/web/components/chat/OptionCards.tsx": {
-    "tint": 3,
-    "hex": 3
   },
   "apps/web/components/chat/PersonalChatPanel.tsx": {
     "tint": 6
@@ -158,12 +147,8 @@
   "apps/web/components/sidebar/AgentForms.tsx": {
     "tint": 2
   },
-  "apps/web/components/sidebar/NeedsYou.tsx": {
-    "pulse": 1
-  },
   "apps/web/components/sidebar/ProjectList.tsx": {
-    "pulse": 2,
-    "tint": 4
+    "pulse": 2
   },
   "apps/web/components/team/CollaborationSection.tsx": {
     "pulse": 1
@@ -172,13 +157,16 @@
     "tint": 10
   },
   "packages/worker/src/execution/agentExecutor.ts": {
-    "lines": 2592
+    "lines": 2615
   },
   "packages/worker/src/execution/nativeProvider.ts": {
-    "lines": 1099
+    "lines": 1101
   },
   "packages/worker/src/execution/qa.ts": {
     "lines": 937
+  },
+  "packages/worker/src/orchestrator/planner.ts": {
+    "lines": 818
   },
   "packages/worker/tests/dagScheduler.test.ts": {
     "lines": 820

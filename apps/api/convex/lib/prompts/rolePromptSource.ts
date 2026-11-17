@@ -15,6 +15,7 @@ export const ROLE_PROMPT_FILES: Record<RoleKey, string> = {
   frontend: "FRONTEND.md",
   backend: "BACKEND.md",
   qa: "QA.md",
+  designer: "DESIGNER.md",
 };
 
 /** A source file's text as stored: LF line ends, no surrounding blank space. */

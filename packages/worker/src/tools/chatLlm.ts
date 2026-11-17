@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { wenv } from "@fhara/config/worker";
 
 /**
  * FharaV2-style model selection for chat. The worker owns the local CLI, so it
@@ -33,7 +34,7 @@ export function isSafeChatModel(model: string): boolean {
 }
 
 export function chatSettingsPath(): string {
-  return String(process.env.FHARA_SETTINGS_PATH ?? "").trim() || DEFAULT_SETTINGS_FILE;
+  return String(wenv("FHARA_SETTINGS_PATH") ?? "").trim() || DEFAULT_SETTINGS_FILE;
 }
 
 export async function readChatModelFromSettings(filePath = chatSettingsPath()): Promise<string | null> {
@@ -112,8 +113,8 @@ export async function runChatLlm(
   if (!model) return { ok: false, text: "No model configured in settings.json (defaultModelSelection.model)." };
   if (!isSafeChatModel(model)) return { ok: false, text: "Invalid chat model id: only letters, digits, . _ : @ / - are allowed." };
   const prompt = composeChatPrompt(String(args.system ?? ""), Array.isArray(args.messages) ? args.messages : []);
-  const command = String(opts.command ?? process.env.ORCHESTRATOR_NATIVE_PROVIDER_COMMAND ?? "opencode").trim() || "opencode";
-  const timeoutMs = Math.max(5_000, Number(opts.timeoutMs ?? process.env.FHARA_CHAT_LLM_TIMEOUT_MS ?? 120_000));
+  const command = String(opts.command ?? wenv("ORCHESTRATOR_NATIVE_PROVIDER_COMMAND") ?? "opencode").trim() || "opencode";
+  const timeoutMs = Math.max(5_000, Number(opts.timeoutMs ?? wenv("FHARA_CHAT_LLM_TIMEOUT_MS") ?? 120_000));
   try {
     const ran = await spawnOpenCode(command, ["run", "-m", model, "--pure"], prompt, timeoutMs, opts.spawnImpl);
     const text = String(ran.stdout ?? "").trim();

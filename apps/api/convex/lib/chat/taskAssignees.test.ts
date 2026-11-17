@@ -102,7 +102,7 @@ describe("hintForCommand", () => {
   });
 
   test("a legacy role name resolves to its successor, an unknown one is dropped", () => {
-    expect(hintRole("designer")).toBe("frontend");
+    expect(hintRole("designer")).toBe("designer");
     expect(hintRole("support")).toBe("backend");
     expect(hintRole("reviewer")).toBe("qa");
     expect(hintRole("wizard")).toBeUndefined();

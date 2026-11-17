@@ -39,6 +39,12 @@ export default function TaskBoard({
   const pendingApprovals = useQuery(api.approvals.listPendingAll, {});
   const agents = useQuery(api.agents.list, {});
   const prLanes = useQuery(api.prFeedback.lanesByProject, { projectId: projectId as any });
+  // Plan 064: one totals query feeds every card's Context metric.
+  const contextTotals = useQuery(api.contextSnapshots.contextTotals, { projectId: projectId as any });
+  const contextByTask = useMemo(
+    () => new Map((contextTotals?.tasks ?? []).map((t) => [String(t.taskId), t.promptTokens] as const)),
+    [contextTotals]
+  );
   const { deleteTask } = useWorkspace();
   const createTask = useMutation(api.tasks.createFromCommand);
   const cancelTask = useMutation(api.tasks.cancel);
@@ -231,6 +237,7 @@ export default function TaskBoard({
                   // The user's own toggle wins; with none, the selected task starts open.
                   isOpen={expanded[t._id] ?? selectedTaskId === t._id}
                   agentById={agentNameById}
+                  contextPromptTokens={contextByTask.get(t._id)}
                   onSelect={() => onSelectTask(t._id)}
                   onToggle={() => setExpanded((prev) => ({ ...prev, [t._id]: !(prev[t._id] ?? selectedTaskId === t._id) }))}
                   onStop={() => stopTask({ _id: t._id, title: t.title })}

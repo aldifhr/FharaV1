@@ -609,7 +609,10 @@ export default function TaskThreadPanel({
                         <SendLoader size={15} className="shrink-0 animate-spin text-warn" aria-hidden="true" />
                       )}
                       <span className="min-w-0 flex-1 truncate text-ink">{event.payload?.label ?? "QA check"}</span>
-                      <span className="shrink-0 text-[13px] text-ink-3">{passed ? "clean" : (event.payload?.status ?? "running")}</span>
+                      {/* Plan 067: a readable word, never the raw status token. */}
+                      <span className="shrink-0 text-[13px] text-ink-3">
+                        {passed ? "clean" : failed ? "failed" : event.payload?.status === "blocked" ? "blocked" : "running"}
+                      </span>
                     </li>
                   );
                 })}

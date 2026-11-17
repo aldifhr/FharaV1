@@ -8,6 +8,10 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
+    // effect-acp sources keep upstream's explicit `.ts` import extensions
+    // (plan 058 stage 1); the worker imports them since the ACP runtime, so
+    // tsc must accept the same style. Typecheck runs with --noEmit.
+    "allowImportingTsExtensions": true,
     "forceConsistentCasingInFileNames": true,
     "paths": {
       "@/api/*": ["../../apps/api/*"],

@@ -287,6 +287,49 @@ export const recent = query({
   },
 });
 
+// Plan 064: per-task and per-project context totals for the header icon and
+// the task-row badges. Summed over the most recent snapshots only — a badge,
+// not an audit report; `capped` says honestly when the window was hit.
+const PROJECT_TOTALS_CAP = 2000;
+
+export const contextTotals = query({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    await assertProjectAccess(ctx, args.projectId);
+    const rows = await ctx.db
+      .query("contextSnapshots")
+      .withIndex("by_project_created", (q) => q.eq("projectId", args.projectId))
+      .order("desc")
+      .take(PROJECT_TOTALS_CAP);
+    const tasks = new Map<string, { taskId: Id<"tasks">; calls: number; promptTokens: number; lastCallAt: number }>();
+    const chat = { calls: 0, promptTokens: 0 };
+    let promptTokens = 0;
+    let lastCallAt = 0;
+    for (const row of rows) {
+      promptTokens += row.promptTokens;
+      if (row.createdAt > lastCallAt) lastCallAt = row.createdAt;
+      if (row.taskId) {
+        const entry = tasks.get(String(row.taskId)) ?? { taskId: row.taskId, calls: 0, promptTokens: 0, lastCallAt: 0 };
+        entry.calls += 1;
+        entry.promptTokens += row.promptTokens;
+        entry.lastCallAt = Math.max(entry.lastCallAt, row.createdAt);
+        tasks.set(String(row.taskId), entry);
+      } else {
+        chat.calls += 1;
+        chat.promptTokens += row.promptTokens;
+      }
+    }
+    return {
+      calls: rows.length,
+      promptTokens,
+      lastCallAt,
+      capped: rows.length >= PROJECT_TOTALS_CAP,
+      tasks: [...tasks.values()].sort((a, b) => b.promptTokens - a.promptTokens),
+      chat,
+    };
+  },
+});
+
 /** Replay Session: the run's ordered steps, built from events + snapshots. */
 export const replay = query({
   args: { taskId: v.id("tasks") },

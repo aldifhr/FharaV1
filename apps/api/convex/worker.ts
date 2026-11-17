@@ -278,6 +278,8 @@ export const savePlan = action({
     degradedReason: v.optional(v.string()),
     // Task Estimator result (lib/estimate.ts).
     estimate: v.optional(v.any()),
+    // Plan 063: the due date the request stated (ms epoch); absent = none.
+    dueAt: v.optional(v.number()),
     // Lease fencing: pass the worker id so a displaced worker is refused.
     workerId: v.optional(v.string()),
   },

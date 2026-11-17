@@ -116,6 +116,10 @@ export default function StatusLine({
     <div className="h-7 w-full shrink-0 px-4 sm:px-9 lg:px-11" aria-live="polite">
       {text && (
         <p role="status" className="h-7 truncate text-center text-[13px] leading-7 text-ink-3">
+          {/* Plan 067: the mockup's quiet "···" prefix marks this as live status, not a message. */}
+          <span aria-hidden="true" className="mr-1.5 select-none">
+            ···
+          </span>
           {text}
         </p>
       )}

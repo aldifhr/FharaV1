@@ -780,7 +780,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             onCancelQuote={() => setQuote(null)}
             slashCommands={slashEntries}
             stop={replyStop}
-            dock={<TaskDock tasks={docked} agents={agents} onOpenTask={onSelectTask} />}
+            dock={<TaskDock tasks={docked} agents={agents} onOpenTask={onSelectTask} projectId={projectId} />}
           />}
           {decisions?.pickup && !decisions.pickup.workerOnline && decisions.pickup.queuedTasks + decisions.pickup.pendingMessages > 0 && (
             <p role="status" className="-mt-2 shrink-0 bg-panel px-4 pb-2 text-[12.5px] text-ink-3 sm:px-9 lg:px-11">

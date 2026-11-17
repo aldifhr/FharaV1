@@ -18,7 +18,7 @@ const ROLE_CAPABILITIES: Array<{ pattern: RegExp; capabilities: string[] }> = [
   },
   {
     pattern: /\b(designer|design|wireframe|ui-ux|figma)\b/i,
-    capabilities: [...ROLES.frontend.registryCapabilities],
+    capabilities: [...ROLES.designer.registryCapabilities],
   },
   {
     pattern: /\b(frontend|front-end|ui|ux|react|web)\b/i,

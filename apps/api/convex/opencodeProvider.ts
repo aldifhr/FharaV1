@@ -24,7 +24,7 @@ import type { DataModel, Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
 import { assertServiceToken } from "./lib/authz";
 import { recordAudit } from "./lib/recordAudit";
-import { isOpencodeConnection, OPENCODE_PROVIDER, OPENCODE_PROVIDER_NAME } from "./lib/opencodeProvider";
+import { CLI_PROVIDER_NAME, CLI_PROVIDERS, isOpencodeConnection, OPENCODE_PROVIDER, OPENCODE_PROVIDER_NAME, type NativeCli } from "./lib/opencodeProvider";
 import { materializePositions } from "./llmModels";
 
 /** A worker counts as online when it heartbeated this recently. */
@@ -36,6 +36,18 @@ type Ctx = GenericQueryCtx<DataModel> | GenericMutationCtx<DataModel>;
 export async function findOpencodeRow(ctx: Ctx): Promise<Doc<"llmProviders"> | null> {
   const rows = await ctx.db.query("llmProviders").collect();
   return rows.find((row) => isOpencodeConnection(row)) ?? null;
+}
+
+/** One native-CLI provider row (plan 066: codex, claude-code), when added. */
+export async function findNativeCliRow(ctx: Ctx, cli: NativeCli): Promise<Doc<"llmProviders"> | null> {
+  const rows = await ctx.db.query("llmProviders").collect();
+  return rows.find((row) => row.provider === cli) ?? null;
+}
+
+/** Validate the optional cli arg; undefined/empty = opencode (the legacy default). */
+function cliArg(cli: string | undefined): NativeCli | null {
+  if (cli === undefined || cli === "") return "opencode";
+  return (CLI_PROVIDERS as readonly string[]).includes(cli) ? (cli as NativeCli) : null;
 }
 
 export interface OpencodeProviderStatus {
@@ -63,8 +75,35 @@ export interface OpencodeProviderStatus {
 
 /** Everything the Settings row shows. Holds no credential material. */
 export const status = query({
-  args: {},
-  handler: async (ctx): Promise<OpencodeProviderStatus> => {
+  args: { cli: v.optional(v.string()) },
+  handler: async (ctx, args): Promise<OpencodeProviderStatus> => {
+    const cli = cliArg(args.cli);
+    if (cli && cli !== "opencode") {
+      // Plan 066: the other CLI rows have no detection/catalog yet — the
+      // Settings row shows only existence and the enabled state.
+      const cliRow = await findNativeCliRow(ctx, cli);
+      const now = Date.now();
+      const liveWorkers = await ctx.db
+        .query("workers")
+        .withIndex("by_status_and_heartbeat", (q) => q.eq("status", "online").gte("lastHeartbeatAt", now - WORKER_FRESH_MS))
+        .take(1);
+      return {
+        configured: cliRow !== null,
+        enabled: cliRow !== null && cliRow.isEnabled !== false,
+        providerId: cliRow ? String(cliRow._id) : null,
+        workerOnline: liveWorkers.length > 0,
+        installed: null,
+        version: null,
+        path: null,
+        error: null,
+        checkedAt: 0,
+        hostname: null,
+        pendingCheck: false,
+        pendingTest: false,
+        test: null,
+        legacy: null,
+      };
+    }
     const row = await findOpencodeRow(ctx);
     const now = Date.now();
     const liveWorkers = await ctx.db
@@ -104,6 +143,25 @@ export const status = query({
 });
 
 /**
+ * The Settings row for one native CLI (plan 066), or null when it was never
+ * added. The opencode row keeps its full status via `status({ cli })`.
+ */
+export const cliRow = query({
+  args: { cli: v.string() },
+  handler: async (ctx, args) => {
+    const cli = cliArg(args.cli);
+    if (!cli) return null;
+    const row = await findNativeCliRow(ctx, cli);
+    return {
+      cli,
+      configured: row !== null,
+      enabled: row !== null && row.isEnabled !== false,
+      providerId: row ? String(row._id) : null,
+    };
+  },
+});
+
+/**
  * Enable or disable the OpenCode provider. The first call creates the row
  * and carries a plan 035 "OpenCode CLI + model" setting over as the first
  * entry of the list, so a deployment that used the old switch keeps running
@@ -111,11 +169,13 @@ export const status = query({
  * Settings UI reaches it through /api/llm-providers).
  */
 export const setEnabled = mutation({
-  args: { token: v.string(), enabled: v.boolean() },
+  args: { token: v.string(), enabled: v.boolean(), cli: v.optional(v.string()) },
   handler: async (ctx, args): Promise<{ providerId: string; carriedOver: string | null }> => {
     assertServiceToken(args.token);
+    const cli = cliArg(args.cli);
+    if (!cli) throw new Error(`Unknown CLI provider: ${String(args.cli).slice(0, 40)}`);
     const now = Date.now();
-    const existing = await findOpencodeRow(ctx);
+    const existing = await findNativeCliRow(ctx, cli);
     if (existing) {
       if ((existing.isEnabled !== false) !== args.enabled) {
         await ctx.db.patch(existing._id, { isEnabled: args.enabled, updatedAt: now });
@@ -129,9 +189,9 @@ export const setEnabled = mutation({
     }
     const providers = await ctx.db.query("llmProviders").collect();
     const id = await ctx.db.insert("llmProviders", {
-      name: OPENCODE_PROVIDER_NAME,
-      provider: OPENCODE_PROVIDER,
-      presetId: OPENCODE_PROVIDER,
+      name: CLI_PROVIDER_NAME[cli],
+      provider: cli,
+      presetId: cli,
       model: "",
       baseUrl: "",
       apiKeyEnv: "",
@@ -141,29 +201,33 @@ export const setEnabled = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    // Plan 035 carry-over stays opencode-only: the legacy switch was an
+    // OpenCode switch; Codex/Claude Code rows start empty (plan 066).
     let carriedOver: string | null = null;
-    const legacy = await ctx.db.query("opencodeSettings").first();
-    const legacyModel = (legacy?.model ?? "").trim();
-    if (legacy?.runtime === "opencode" && legacyModel) {
-      // The old switch ran EVERY task on OpenCode: keep that by putting the
-      // model at the top of the list.
-      await materializePositions(ctx);
-      for (const model of await ctx.db.query("llmModels").collect()) {
-        await ctx.db.patch(model._id, { position: (model.position ?? 0) + 1 });
+    if (cli === "opencode") {
+      const legacy = await ctx.db.query("opencodeSettings").first();
+      const legacyModel = (legacy?.model ?? "").trim();
+      if (legacy?.runtime === "opencode" && legacyModel) {
+        // The old switch ran EVERY task on OpenCode: keep that by putting the
+        // model at the top of the list.
+        await materializePositions(ctx);
+        for (const model of await ctx.db.query("llmModels").collect()) {
+          await ctx.db.patch(model._id, { position: (model.position ?? 0) + 1 });
+        }
+        await ctx.db.insert("llmModels", {
+          providerId: id,
+          modelId: legacyModel,
+          isAvailable: true,
+          position: 0,
+          createdAt: now,
+          updatedAt: now,
+        });
+        carriedOver = legacyModel;
       }
-      await ctx.db.insert("llmModels", {
-        providerId: id,
-        modelId: legacyModel,
-        isAvailable: true,
-        position: 0,
-        createdAt: now,
-        updatedAt: now,
-      });
-      carriedOver = legacyModel;
     }
     await recordAudit(ctx, {
       action: "llmProvider.create",
-      target: OPENCODE_PROVIDER_NAME,
+      target: CLI_PROVIDER_NAME[cli],
       details: { fields: ["isEnabled"], ...(carriedOver ? { carriedOver } : {}) },
     });
     return { providerId: String(id), carriedOver };

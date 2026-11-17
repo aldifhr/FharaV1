@@ -1374,11 +1374,12 @@
         "worker",
         "scripts"
       ],
-      "doc": "Global execution runtime: api (default) or native-provider (alias opencode).",
+      "doc": "Global execution runtime: api (default), native-provider (alias opencode), or acp (plan 058 step 3).",
       "default": "api",
       "options": [
         "api",
-        "native-provider"
+        "native-provider",
+        "acp"
       ],
       "aliases": [
         "ORCHESTRATOR_RUNTIME"
@@ -1396,7 +1397,8 @@
       "default": "api",
       "options": [
         "api",
-        "native-provider"
+        "native-provider",
+        "acp"
       ],
       "deprecated": "use ORCHESTRATOR_EXECUTION_RUNTIME"
     },
@@ -1420,11 +1422,12 @@
         "worker",
         "scripts"
       ],
-      "doc": "Fallback provider CLI for the native runtime when the app-wide setting (Settings, LLM & Models) was never written: opencode or codex.",
+      "doc": "Fallback provider CLI for the native runtime when the app-wide setting (Settings, LLM & Models) was never written: opencode, codex, or acp.",
       "default": "opencode",
       "options": [
         "opencode",
-        "codex"
+        "codex",
+        "acp"
       ]
     },
     {
@@ -1452,6 +1455,30 @@
       "parse": "nullish"
     },
     {
+      "name": "ORCHESTRATOR_ACP_COMMAND",
+      "type": "string",
+      "group": "exec",
+      "runtimes": [
+        "worker",
+        "scripts"
+      ],
+      "doc": "ACP agent command for the acp runtime (plan 058 step 3); an Agent Client Protocol binary speaking JSON-RPC over stdio, e.g. claude-code-acp.",
+      "default": "claude-code-acp",
+      "parse": "nullish"
+    },
+    {
+      "name": "ORCHESTRATOR_ACP_ARGS",
+      "type": "string",
+      "group": "exec",
+      "runtimes": [
+        "worker",
+        "scripts"
+      ],
+      "doc": "Literal argv for ORCHESTRATOR_ACP_COMMAND as a JSON array (e.g. '[\"--profile\",\"acp\"]'); never parsed through a shell.",
+      "default": "",
+      "parse": "nullish"
+    },
+    {
       "name": "ORCHESTRATOR_NATIVE_TIMEOUT_MS",
       "type": "int",
       "group": "exec",
@@ -1460,6 +1487,28 @@
       ],
       "doc": "Wall-clock limit for one OpenCode run (ms).",
       "default": "600000",
+      "parse": "atLeast"
+    },
+    {
+      "name": "FHARA_SETTINGS_PATH",
+      "type": "string",
+      "group": "exec",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Worker-local settings.json path for the chat model bridge; empty resolves to the repo root settings.json.",
+      "default": "",
+      "parse": "nullish"
+    },
+    {
+      "name": "FHARA_CHAT_LLM_TIMEOUT_MS",
+      "type": "int",
+      "group": "exec",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Wall-clock limit for one worker-bridged chat LLM call (ms).",
+      "default": "120000",
       "parse": "atLeast"
     },
     {

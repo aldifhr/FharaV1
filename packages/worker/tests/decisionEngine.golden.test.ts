@@ -666,7 +666,14 @@ async function run(s: Scenario) {
   const delegations: unknown[] = [];
   const pauses: unknown[] = [];
   const lifecycle: string[] = [];
-  const task = testTask({ title: s.command, command: s.command, ...(s.resume ? { status: "needs_approval" } : {}) });
+  // Plan-020: the golden flows auto-apply fixes, so the task runs in
+  // full_access; supervised is covered by the mode tests elsewhere.
+  const task = testTask({
+    title: s.command,
+    command: s.command,
+    permissionMode: "full_access",
+    ...(s.resume ? { status: "needs_approval" } : {}),
+  });
   const resumeContext = s.resume
     ? { plan: { payload: JSON.parse(JSON.stringify(s.plans[0])), version: 1 }, executions: [], recordedSteps: [] }
     : { plan: null };

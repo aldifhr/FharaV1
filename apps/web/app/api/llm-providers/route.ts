@@ -59,7 +59,7 @@ const OP_FIELDS: Record<string, readonly string[]> = {
   updateModel: ["id", ...MODEL_FIELDS],
   removeModel: ["id"],
   // Plan 038: the OpenCode provider row (no URL, no key).
-  setOpencodeEnabled: ["enabled"],
+  setOpencodeEnabled: ["enabled", "cli"],
 };
 
 export async function POST(request: NextRequest) {
@@ -167,6 +167,8 @@ export async function POST(request: NextRequest) {
         const result = await client.mutation(api.opencodeProvider.setEnabled, {
           token,
           enabled: payload.enabled === true,
+          // Plan 066: "codex" / "claude-code" select the sibling rows.
+          ...(typeof payload.cli === "string" && payload.cli ? { cli: payload.cli } : {}),
         });
         return NextResponse.json(result);
       }

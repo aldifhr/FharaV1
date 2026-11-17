@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useMutation } from "convex/react";
-import { Dices } from "lucide-react";
+import { Dices, Wand2 } from "lucide-react";
 import { api } from "@/api/convex/_generated/api";
 import Modal from "../Modal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
@@ -58,6 +58,23 @@ export function CreateAgentModal({ onClose }: { onClose: () => void }) {
   // Null = derive the avatar from the name (the backend default); a seed is a
   // shuffled face the user picked in this modal.
   const [avatarSeed, setAvatarSeed] = useState<string | null>(null);
+  // Plan 067: a random name fetched through the server proxy (/api/random-name);
+  // the route always returns a name (API or synthetic fallback), so no error
+  // state is needed here.
+  const [namingBusy, setNamingBusy] = useState(false);
+
+  async function generateName() {
+    setNamingBusy(true);
+    try {
+      const res = await fetch("/api/random-name");
+      const data = (await res.json()) as { name?: string };
+      if (data.name) setName(data.name);
+    } catch {
+      // Keep the typed name; the user can retry or type one.
+    } finally {
+      setNamingBusy(false);
+    }
+  }
 
   const roleOptions = roleOptionsFor(agentRole);
 
@@ -125,16 +142,29 @@ export function CreateAgentModal({ onClose }: { onClose: () => void }) {
 
         <label className="grid gap-1.5">
           <span className="text-[12.5px] text-ink-3">Name</span>
-          <input
-            value={name}
-            onChange={(event) => {
-              setName(event.target.value);
-              setAgentError("");
-            }}
-            placeholder="e.g. Ada"
-            autoComplete="off"
-            className={field}
-          />
+          <div className="flex items-center gap-2">
+            <input
+              value={name}
+              onChange={(event) => {
+                setName(event.target.value);
+                setAgentError("");
+              }}
+              placeholder="e.g. Ada"
+              autoComplete="off"
+              className={field}
+            />
+            {/* Plan 067: a random first name from the name API. */}
+            <button
+              type="button"
+              disabled={namingBusy}
+              onClick={() => void generateName()}
+              title="Generate a random name"
+              aria-label="Generate a random name"
+              className="shrink-0 rounded-lg border border-line p-2 text-ink-3 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
+            >
+              <Wand2 size={14} />
+            </button>
+          </div>
         </label>
 
         <div className="grid gap-1.5">

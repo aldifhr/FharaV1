@@ -3,6 +3,7 @@
 import { action, type ActionCtx } from "./_generated/server";
 import { v } from "convex/values";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -84,7 +85,7 @@ export const initialize = action({
       fs.mkdirSync(target.root, { recursive: true });
       const result = initializeRepo(
         target.root,
-        worktreesBaseFor(target.root, target.worktreesPath, path),
+        worktreesBaseFor(target.root, target.worktreesPath, path, os.homedir()),
         (gitArgs) => gitExec(target.root, gitArgs, 16 * 1024 * 1024),
         gitIdentityArgs(identity)
       );

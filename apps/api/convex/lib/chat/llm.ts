@@ -3,7 +3,7 @@
  * OpenAI-compatible or Anthropic endpoint, plus config resolution from the
  * shared provider pool (llmResolver) with the env-var global fallback.
  */
-import { isOpencodeConnection, withoutOpencode } from "../opencodeProvider";
+import { isOpencodeConnection, withoutNativeCli } from "../opencodeProvider";
 import { resolveConnectionKey, type PoolConnectionPayload, type PoolModelPayload } from "../llmResolver";
 
 import { getGlobalLLMConfig, type LlmEndpointConfig } from "../llmConfig";
@@ -561,7 +561,7 @@ export function orderedChatPairs(
   if (!providers || providers.length === 0) return [];
   // Plan 038: OpenCode entries run only on the worker (tasks); the backend
   // cannot run the CLI, so chat walks the API models of the same list.
-  const enabled = withoutOpencode(providers).filter((p) => p.isEnabled !== false);
+  const enabled = withoutNativeCli(providers).filter((p) => p.isEnabled !== false);
   const roleTiers = enabled[0]?.roleTiers;
   return orderChain(enabled, {
     mode: enabled[0]?.selectionMode ?? "fallback",
@@ -618,7 +618,7 @@ export async function resolveConfigFromProviders(
 ): Promise<ChatLlmConfig> {
   // Plan 060: an OpenCode model the user picked (or the only usable model)
   // goes to the worker bridge. HTTP configs are never given a fake key here.
-  const pool = opts?.excludeOpencode ? withoutOpencode(providers ?? []) : (providers ?? []);
+  const pool = opts?.excludeOpencode ? withoutNativeCli(providers ?? []) : (providers ?? []);
   const opencode = pool.find(isOpencodeConnection);
   const opencodeModel = (id?: string) =>
     opencode?.models.find((m) => String(m._id ?? "") === String(id ?? ""))?.modelId ??

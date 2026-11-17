@@ -64,6 +64,12 @@ export interface ExecutionPlan {
   responseOwner?: string;
   /** O2: review/qa nodes were dropped because the plan changes no code. */
   gatesSkipped?: boolean;
+  /**
+   * Plan 063: the due date the user's request stated (ms epoch), parsed from
+   * the planner's top-level `due` output. Absent = none stated; never set
+   * when the planner would have to invent one.
+   */
+  dueAt?: number;
 }
 
 export interface Classification {

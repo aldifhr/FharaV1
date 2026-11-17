@@ -39,7 +39,7 @@ export function useShellChords(onCommand: () => void, onSettings: () => void): s
 const iconBtn =
   "flex h-8 w-8 shrink-0 items-center justify-center rounded-field text-ink-3 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30";
 
-function Logo({ onNavigate }: { onNavigate?: () => void }) {
+export function Logo({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <Link
       href="/"

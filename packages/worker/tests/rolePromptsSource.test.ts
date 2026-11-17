@@ -40,7 +40,7 @@ describe("role prompt templates", () => {
   });
 
   test("read-only roles say so", () => {
-    for (const key of ["cto", "qa"] as const) {
+    for (const key of ["cto", "qa", "designer"] as const) {
       expect(ROLE_PROMPT_TEMPLATES[key]).toMatch(/read-only/i);
     }
   });

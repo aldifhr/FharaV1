@@ -28,6 +28,7 @@ const SKIP_DIRS = new Set([
   ".ssh",
   ".gnupg",
   ".moagent-worktrees",
+  ".fhara",
   "_generated",
 ]);
 

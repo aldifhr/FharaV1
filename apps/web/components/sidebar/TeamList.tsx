@@ -14,6 +14,18 @@ export type TeamAgent = { _id: string; _creationTime?: number; name: string; rol
 /** Extra (non-fixed) agents shown before "N more"; the fixed team is always shown in full. */
 const EXTRAS_SHOWN = 3;
 
+
+/** Plan 067: a per-status colored dot beside the status word (mockup parity). */
+const STATUS_DOT: Record<string, string> = {
+  waiting: "bg-warn",
+  working: "bg-ok",
+  testing: "bg-ok",
+  thinking: "bg-ok",
+  queued: "bg-ink-3",
+  idle: "bg-dot",
+  disabled: "bg-dot",
+};
+
 function TeamRow({ agent, status, drafting, onOpen }: { agent: TeamAgent; status?: StatusMap; drafting: boolean; onOpen: () => void }) {
   const view = agentStatusView(status?.[agent._id], { isEnabled: agent.isEnabled, drafting });
   const name = agentName(agent);
@@ -36,7 +48,7 @@ function TeamRow({ agent, status, drafting, onOpen }: { agent: TeamAgent; status
           data-status={view.kind}
           className={`flex max-w-[46%] shrink-0 items-center gap-1.5 truncate text-right text-[13px] ${view.needsYou ? "text-ink" : "text-ink-3"}`}
         >
-          {view.needsYou && <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-ink" />}
+          <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_DOT[view.kind]}`} />
           <span className="truncate">{view.label}</span>
         </span>
       </button>

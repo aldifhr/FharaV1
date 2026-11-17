@@ -225,7 +225,7 @@ function GenericApprovalCard({
                 type="button"
                 disabled={disabled}
                 onClick={() => void run("reject", onReject)}
-                className={`${BTN_PRIMARY} bg-[#d83a3a] hover:bg-[#c02f2f]`}
+                className={`${BTN_PRIMARY} bg-danger hover:bg-danger/90`}
               >
                 Confirm reject
               </button>
@@ -250,7 +250,7 @@ function GenericApprovalCard({
     >
       {secretFindings && (
         <div role="alert" className={`border-t ${CARD_DIVIDER} px-4 py-3 text-[13px]`}>
-          <p className="font-semibold text-[#d83a3a]">Possible secret in these changes</p>
+          <p className="font-semibold text-danger">Possible secret in these changes</p>
           <ul className={`mt-1 list-disc pl-5 ${MUTED}`}>
             {secretFindings.map((finding) => (
               <li key={finding.filePath}>

@@ -81,10 +81,10 @@ describe("role permission table", () => {
     }
   });
 
-  it("only Frontend and Backend write; CTO and QA are read-only", () => {
+  it("only Frontend and Backend write; CTO, QA and Designer are read-only", () => {
     const writers = ROLE_KEYS.filter((key) => ROLES[key].permissions.write === true);
     expect(writers.sort()).toEqual(["backend", "frontend"]);
-    for (const key of ["cto", "qa"] as const) {
+    for (const key of ["cto", "qa", "designer"] as const) {
       expect(ROLES[key].permissions.write).toBe(false);
       expect(ROLES[key].defaultTools).not.toContain("write_file");
     }
@@ -106,7 +106,7 @@ describe("role permission table", () => {
   });
 
   it("resolves titles and aliases; a custom role keeps what its tools allowed", () => {
-    expect(permissionsForAgent(agent("UI/UX Designer")).write).toBe(true);
+    expect(permissionsForAgent(agent("UI/UX Designer")).write).toBe(false);
     expect(permissionsForAgent(agent("QA Engineer")).shell).toBe("verify");
     expect(permissionsForAgent(agent("technical-writer")).write).toBe(true);
     expect(permissionsForAgent(agent("Frontend Developer")).write).toBe(true);

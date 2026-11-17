@@ -187,6 +187,8 @@ function createDeps(options: {
   plan: ExecutionPlan;
   agents: WorkerAgent[];
   approvalMode?: "ask" | "auto";
+  /** Plan-020: full_access lets the fix loops auto-apply instead of waiting for approval. */
+  permissionMode?: string;
   broker?: "allow" | "ask" | "deny";
   policy?: Partial<ExecutionPolicy>;
   /** Resume scenario: task waits in needs_approval with an approved approval. */
@@ -201,6 +203,7 @@ function createDeps(options: {
     title: "fix",
     command: "fix the dashboard",
     status: options.resumeApproved ? "needs_approval" : "running",
+    ...(options.permissionMode ? { permissionMode: options.permissionMode } : {}),
   };
   const project = { _id: "project-1", name: "Fixture", workspacePath: workspace, approvalMode, qaUrl: "http://127.0.0.1:9001" };
   const subtasks: WorkerSubtask[] = options.plan.subtasks.map((subtask, index) => ({
@@ -327,6 +330,7 @@ describe("core H1: verification is not gated on QA", () => {
     const { deps, captured, task } = createDeps({
       plan: planOf([node("implement", "code_change", "frontend-development")]),
       agents: [FRONTEND],
+      permissionMode: "full_access",
     });
     await processTask(task, deps);
     (captured as any).dump?.();
@@ -455,7 +459,7 @@ describe("QA policy", () => {
 
   it("a QA failure is fixed by the UI owner, scoped to its allowedPaths, at most 1 round", async () => {
     mock.qaVerdicts = ["failed", "failed", "failed"];
-    const { deps, captured, task } = createDeps({ plan: qaPlan(), agents: [FRONTEND, BACKEND, QA] });
+    const { deps, captured, task } = createDeps({ plan: qaPlan(), agents: [FRONTEND, BACKEND, QA], permissionMode: "full_access" });
     await processTask(task, deps);
     (captured as any).dump?.();
     const fixes = mock.executed.filter((e) => e.key.startsWith("fix_qa"));
@@ -529,6 +533,7 @@ describe("verification fix budget is per phase (initial apply, then after each Q
       agents: [FRONTEND],
       completed: done,
       stagedFiles: ["implement.txt"],
+      permissionMode: "full_access",
     });
     await processTask(task, deps);
     expect(mock.executed.map((e) => e.key)).toEqual(["fix_verify_qa1_1"]);

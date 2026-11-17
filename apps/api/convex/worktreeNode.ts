@@ -3,7 +3,8 @@
 import { internalAction, type ActionCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { execFileSync } from "node:child_process";
-import { rmSync } from "node:fs";
+import * as os from "node:os";
+import { rmSync, rmdirSync } from "node:fs";
 import * as path from "node:path";
 import { internal } from "./_generated/api";
 import { buildChildEnv } from "./lib/childEnv";
@@ -12,7 +13,7 @@ import { settingFrom } from "./lib/appSettings";
 import { makeTaskBranchName, resolveMainBranch } from "./lib/taskBranch";
 import { worktreeRetentionMs } from "./lib/worktreeRetention";
 import { assertRepoPathExists, resolveRepoPath } from "./lib/workspacePath";
-import { checkRepoReadiness, taskWorktreePath, worktreesBaseFor } from "./lib/repoReadiness";
+import { checkRepoReadiness, LEGACY_WORKTREES_DIR, taskWorktreePath, worktreesBaseFor } from "./lib/repoReadiness";
 import { ensureWorktreesExcluded } from "./lib/gitInit";
 import { buildBranchPatch, type GitRun } from "./lib/diffPatch";
 import { deleteTaskCheckpointRefs, removeTaskGitState } from "./lib/checkpointRefs";
@@ -94,7 +95,7 @@ export const createBranch = internalAction({
     const workspacePath = resolveRepoPath(data.workspacePath, { workspaceRoot: args.workspaceRoot });
     assertRepoPathExists(workspacePath, data.workspacePath);
     const branchName = data.existingBranchName ?? makeTaskBranchName(args.taskId, data.taskTitle);
-    const worktreesBase = worktreesBaseFor(workspacePath, data.worktreesPath, path);
+    const worktreesBase = worktreesBaseFor(workspacePath, data.worktreesPath, path, os.homedir());
     // path.join, not a template: on Windows the old one mixed `\` and `/`.
     const worktreePath = data.existingWorktreePath ?? taskWorktreePath(worktreesBase, data.projectName, branchName, path);
     const git = (gitArgs: string[]) => gitExec(workspacePath, gitArgs);
@@ -262,6 +263,10 @@ async function dropCheckpointRefs(ctx: ActionCtx, repo: string, taskId: Id<"task
  * Remove every worktree of this task (fhara/<id>/ and legacy moagent/<id>/
  * branches, read from `worktree list --porcelain`), never the main
  * checkout, and (GOAT G5) its checkpoint refs. Branches are kept.
+ * Plan 065: afterwards the legacy in-repo base (`<repo>/.moagent-worktrees`)
+ * is pruned while it empties out, so it disappears with its last worktree —
+ * rmdirSync only removes empty dirs, so anything still holding files is
+ * never destroyed.
  */
 function removeTaskWorktrees(
   workspacePath: string,
@@ -275,7 +280,27 @@ function removeTaskWorktrees(
     return { removed: [], refsDeleted: [], kept: [] };
   }
   const isMain = (wtPath: string) => path.resolve(wtPath) === main;
-  return removeTaskGitState((args) => gitExec(workspacePath, args), taskId, isMain, beforeRemove);
+  const result = removeTaskGitState((args) => gitExec(workspacePath, args), taskId, isMain, beforeRemove);
+  pruneLegacyWorktreeBase(main, result.removed);
+  return result;
+}
+
+/** Best-effort empty-dir walk from each removed worktree up through the legacy base. */
+function pruneLegacyWorktreeBase(repoRoot: string, removed: string[]): void {
+  const base = path.resolve(repoRoot, LEGACY_WORKTREES_DIR);
+  for (const wtPath of removed) {
+    let dir = path.dirname(path.resolve(wtPath));
+    while (dir === base || dir.startsWith(base + path.sep)) {
+      try {
+        rmdirSync(dir);
+      } catch {
+        break;
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  }
 }
 
 /** GOAT G6: snapshot a worktree into `refs/fhara/snapshots/<taskId>/<ms>` (lib/checkpointRestore.ts). Throws on failure. */

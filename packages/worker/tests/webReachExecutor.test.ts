@@ -104,7 +104,7 @@ describe("executeSubtask with the web_reach tool", () => {
     const agent: AgentDefinition = {
       _id: "a1",
       name: "Researcher",
-      role: "researcher",
+      role: "research-agent", // unknown role: permissionsFromTools derives web from supportedTools
       supportedTools: ["read_file", "web_reach"],
     };
     const { handle } = fakeHandle([
@@ -138,7 +138,7 @@ describe("executeSubtask with the web_reach tool", () => {
 
   // Fixall: a web loop that ends without a JSON answer was marked complete
   // with a "Stopped early" / "Tool findings" dump as its result.
-  const RESEARCHER: AgentDefinition = { _id: "a3", name: "Researcher", role: "researcher", supportedTools: ["read_file", "web_reach"] };
+  const RESEARCHER: AgentDefinition = { _id: "a3", name: "Researcher", role: "research-agent", supportedTools: ["read_file", "web_reach"] };
   const SEARCH = JSON.stringify({ tool: "web_reach", arguments: { channel: "web", action: "search", query: "convex", limit: 3 } });
   const webReach = (maxIterations: number) => ({
     command: "agent-reach",
@@ -165,7 +165,7 @@ describe("executeSubtask with the web_reach tool", () => {
   });
 
   it("does not offer the tool to an agent that does not declare it", async () => {
-    const agent: AgentDefinition = { _id: "a2", name: "Researcher", role: "researcher", supportedTools: ["read_file"] };
+    const agent: AgentDefinition = { _id: "a2", name: "Researcher", role: "research-agent", supportedTools: ["read_file"] };
     const { handle } = fakeHandle([JSON.stringify({ answer: "From the repository only." })]);
     let called = false;
 

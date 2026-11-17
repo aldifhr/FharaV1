@@ -48,7 +48,7 @@ function ProjectRows({
                 {c && c.open + c.needsYou > 0 && (
                   <span
                     title={`${c.open} in flight${c.needsYou ? ` · ${c.needsYou} need you` : ""}`}
-                    className={`ml-1 flex h-5 min-w-5 items-center justify-center rounded-md border px-1 text-[11px] font-medium tabular-nums group-hover:opacity-0 [@media(hover:none)]:group-hover:opacity-100 ${
+                    className={`ml-1 flex h-5 min-w-5 items-center justify-center rounded-md border px-1.5 text-[11px] font-medium tabular-nums group-hover:opacity-0 [@media(hover:none)]:group-hover:opacity-100 ${
                       c.needsYou ? "border-warn/30 text-warn" : "border-line-strong text-ink-2"
                     }`}
                   >
@@ -61,7 +61,7 @@ function ProjectRows({
                 onClick={() => onRemove(p)}
                 aria-label={`Delete ${p.name}`}
                 title="Delete project"
-                className="absolute right-1.5 hidden h-6 w-6 items-center justify-center rounded-md text-ink-3 outline-none hover:bg-red-50 hover:text-red-600 focus-visible:flex focus-visible:ring-2 focus-visible:ring-red-400/40 group-hover:flex dark:hover:bg-red-950/40 [@media(hover:none)]:hidden"
+                className="absolute right-1.5 hidden h-6 w-6 items-center justify-center rounded-md text-ink-3 outline-none hover:bg-danger/10 hover:text-danger focus-visible:flex focus-visible:ring-2 focus-visible:ring-danger/40 group-hover:flex dark:hover:bg-danger/15 [@media(hover:none)]:hidden"
               >
                 <Trash2 size={13} />
               </button>

@@ -213,6 +213,18 @@ Subtasks run on one of two runtimes (`execution/nativeProvider.ts`,
   scoped home (Codex reads `~/.codex`). `ORCHESTRATOR_CODEX_MODEL` overrides
   the CLI's model; without it Codex uses its own config. Events and usage
   are mapped onto `native.tool` / `native.run.finished` like OpenCode's.
+- ACP (`acp` runtime, plan 058 step 3): an Agent Client Protocol agent
+  (default `claude-code-acp`, `ORCHESTRATOR_ACP_COMMAND` + JSON-array
+  `ORCHESTRATOR_ACP_ARGS`) speaks JSON-RPC over stdio via `effect-acp` in
+  `execution/acpProvider.ts`. Sessions are per-call processes like OpenCode.
+  Fhara answers every `session/request_permission` with the agent's own
+  option chosen by the same deny-by-default `OpencodePolicy` (no fabricated
+  ids; `cancelled` when no decline option exists) and executes
+  `fs/read_text_file` / `fs/write_text_file` itself through
+  `resolveSandboxPath` + the read/edit rule maps — writes only for mutating
+  subtasks in scope. Terminal/MCP requests are unhandled (fail closed).
+  Events reuse `native.run.started` / `native.tool` / `native.run.finished`.
+  Study source: upstream t3code docs, not the FharaV2 fork.
 
 Selection (plan 035): the app-wide setting (Settings → LLM & Models) wins.
 It reaches the worker through the run context (`opencodeRuntime`,

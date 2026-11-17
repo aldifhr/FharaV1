@@ -25,7 +25,8 @@ import { findPreset, guessPreset, LLM_PROVIDER_PRESETS } from "@/api/convex/lib/
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import Segmented from "./ui/segmented";
 import { useToast } from "./Toasts";
-import { OPENCODE_INSTALL_COMMAND, isOpencodeConnection } from "@/api/convex/lib/opencodeProvider";
+import { OPENCODE_INSTALL_COMMAND, isNativeCliConnection, isOpencodeConnection, nativeCliOf } from "@/api/convex/lib/opencodeProvider";
+import { CLI_MODEL_PRESETS, TASK_CLI_LABEL, type TaskCli } from "@/lib/cliProviders";
 import { relativeTime } from "@/lib/runFormat";
 import { RoleOverrideKnob } from "./settings/RoleOverrideKnob";
 import { popoverClass, usePopover } from "./shell/usePopover";
@@ -181,6 +182,9 @@ export default function LlmSettingsSection({
   const opencodeCatalog = useQuery(api.opencodeModels.list, {});
   const requestOpencodeCheck = useMutation(api.opencodeModels.requestRefresh);
   const requestOpencodeTest = useMutation(api.opencodeModels.requestTest);
+  // Plan 066: the sibling CLI rows (registry only; routing comes later).
+  const codexRow = useQuery(api.opencodeProvider.cliRow, { cli: "codex" });
+  const claudeRow = useQuery(api.opencodeProvider.cliRow, { cli: "claude-code" });
   // Plan 057: which provider CLI the native runtime spawns.
   const nativeSettings = useQuery(api.opencodeSettings.get, {});
   const setNativeDriver = useMutation(api.opencodeSettings.setDriver);
@@ -367,23 +371,24 @@ export default function LlmSettingsSection({
     }
   }
 
-  // ---- OpenCode (plan 038) ----
+  // ---- OpenCode + the sibling CLI rows (plans 038, 066) ----
 
-  async function setOpencodeEnabled(enabled: boolean) {
+  async function setOpencodeEnabled(enabled: boolean, cli: TaskCli = "opencode") {
     setOpencodeBusy(true);
+    const label = TASK_CLI_LABEL[cli];
     try {
-      const data = await providerAdmin("setOpencodeEnabled", { enabled });
+      const data = await providerAdmin("setOpencodeEnabled", { enabled, cli });
       toast(
         "success",
-        enabled ? "OpenCode enabled" : "OpenCode disabled",
+        enabled ? `${label} enabled` : `${label} disabled`,
         data.carriedOver
           ? `Your OpenCode runtime model ${data.carriedOver} is now the first entry of the list.`
           : enabled
-            ? "Add OpenCode models to the list; tasks run them on the OpenCode CLI."
+            ? `Add ${label} models to the list; tasks run them on the ${label} CLI.`
             : "Tasks skip its models and use the next one in the list."
       );
     } catch (err) {
-      toast("error", "Failed to update OpenCode", err instanceof Error ? err.message : "");
+      toast("error", `Failed to update ${label}`, err instanceof Error ? err.message : "");
     } finally {
       setOpencodeBusy(false);
     }
@@ -533,18 +538,27 @@ export default function LlmSettingsSection({
     });
   }
 
-  // HTTP connections; the OpenCode row is shown on its own (plan 038).
+  // HTTP connections; the native-CLI rows are shown on their own (plans 038, 066).
   const sortedProviders = providers
-    ? [...providers].filter((p) => !isOpencodeConnection(p)).sort((a, b) => a.priority - b.priority)
+    ? [...providers].filter((p) => !isNativeCliConnection(p)).sort((a, b) => a.priority - b.priority)
     : undefined;
   const opencodeRowId = opencode?.providerId ?? null;
-  const addingOpencode = opencodeRowId !== null && modelForm.providerId === opencodeRowId;
-  const options = addingOpencode ? opencodeCatalog?.models ?? [] : modelOptions[modelForm.providerId] ?? [];
+  const codexRowId = codexRow?.providerId ?? null;
+  const claudeRowId = claudeRow?.providerId ?? null;
+  // Which CLI the Add-model form targets (opencode keeps its live catalog;
+  // codex / claude-code offer presets plus free-typed ids).
+  const addingCli = (["opencode", "codex", "claude-code"] as const).find(
+    (cli) => modelForm.providerId === { opencode: opencodeRowId, codex: codexRowId, "claude-code": claudeRowId }[cli]
+  );
+  const addingOpencode = addingCli === "opencode";
+  const options = addingCli
+    ? (addingCli === "opencode" ? opencodeCatalog?.models ?? [] : CLI_MODEL_PRESETS[addingCli] ?? [])
+    : modelOptions[modelForm.providerId] ?? [];
   const modelPreset = findPreset(providerById.get(modelForm.providerId)?.presetId);
   const opencodeLine = opencodeStatusLine(opencode);
   const opencodeOff = opencodeUnavailableReason(opencode);
   const hasOpencodeEntries = (models ?? []).some((m) => m.providerId === opencodeRowId);
-  const canAddModel = (sortedProviders?.length ?? 0) > 0 || opencodeRowId !== null;
+  const canAddModel = (sortedProviders?.length ?? 0) > 0 || opencodeRowId !== null || codexRowId !== null || claudeRowId !== null;
   const opencodeTest = opencode?.test ?? null;
 
   return (
@@ -743,6 +757,39 @@ export default function LlmSettingsSection({
             )}
           </div>
 
+          {/* Plan 066: sibling CLI rows (registry only — per-model routing lands later). */}
+          {(["codex", "claude-code"] as const).map((cli) => {
+            const row = cli === "codex" ? codexRow : claudeRow;
+            const label = TASK_CLI_LABEL[cli];
+            return (
+              <div key={cli} className="grid gap-1" aria-label={`${label} provider`}>
+                <div className="flex items-center gap-3 border-b border-line py-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[13.5px] text-ink">
+                      {label}
+                      {row && !row.enabled && (
+                        <span className="ml-2 text-[12px] text-ink-3">{row.configured ? "disabled" : "not added"}</span>
+                      )}
+                    </p>
+                    <p className="truncate text-[12px] text-ink-3">
+                      Tasks only · add models with the Add button; routing to this CLI comes with the per-model runtime plan.
+                    </p>
+                  </div>
+                  <label className="flex items-center gap-1.5 text-[12px] text-ink-2">
+                    <input
+                      type="checkbox"
+                      checked={row?.enabled ?? false}
+                      disabled={!row || opencodeBusy}
+                      onChange={(e) => void setOpencodeEnabled(e.target.checked, cli)}
+                      aria-label={`Enable ${label}`}
+                    />
+                    Enabled
+                  </label>
+                </div>
+              </div>
+            );
+          })}
+
           {/* Plan 057: the CLI behind the native runtime (app-wide). */}
           <div className="grid gap-1.5 border-b border-line py-2" aria-label="Native runtime driver">
             <label className={LABEL}>
@@ -854,6 +901,8 @@ export default function LlmSettingsSection({
                       <option key={p._id} value={p._id}>{p.name}</option>
                     ))}
                     {opencodeRowId && <option value={opencodeRowId}>OpenCode (tasks only)</option>}
+                    {codexRowId && <option value={codexRowId}>Codex (tasks only)</option>}
+                    {claudeRowId && <option value={claudeRowId}>Claude Code (tasks only)</option>}
                   </select>
                 </label>
                 <label className={LABEL}>
@@ -864,11 +913,13 @@ export default function LlmSettingsSection({
                       onChange={(e) => setModelForm({ ...modelForm, modelId: e.target.value })}
                       onFocus={() => setModelMenuOpen(true)}
                       placeholder={
-                        addingOpencode
+                        addingCli === "opencode"
                           ? "provider/model"
-                          : modelOptionsLoading
-                            ? "Loading models…"
-                            : options.length > 0
+                          : addingCli
+                            ? "Model id (type one, or pick a preset)"
+                            : modelOptionsLoading
+                              ? "Loading models…"
+                              : options.length > 0
                               ? "Pick or type a model id"
                               : modelPreset?.modelHint ?? "Model id"
                       }
@@ -900,11 +951,15 @@ export default function LlmSettingsSection({
                   </div>
                 </label>
               </div>
-              {addingOpencode ? (
+              {addingCli === "opencode" ? (
                 <p className={HINT}>
                   {options.length > 0
                     ? `${options.length} models the worker's OpenCode CLI can run, or type a provider/model id.`
                     : "The worker has not listed OpenCode models yet. Type a provider/model id, or press Check again."}
+                </p>
+              ) : addingCli ? (
+                <p className={HINT}>
+                  Suggested {TASK_CLI_LABEL[addingCli]} model ids, or type any id this CLI accepts (a custom proxy may serve arbitrary ids).
                 </p>
               ) : (
                 options.length > 0 && <p className={HINT}>{options.length} models available from this provider.</p>
@@ -956,6 +1011,7 @@ export default function LlmSettingsSection({
               {orderedModels.map((m, index) => {
                 const owner = providerById.get(m.providerId);
                 const isOpencode = isOpencodeConnection(owner);
+                const ownerCli = nativeCliOf(owner);
                 // Plan 038: an OpenCode entry the worker would skip right now.
                 const unavailable = isOpencode && m.isAvailable ? opencodeOff : null;
                 const off = !m.isAvailable || owner?.isEnabled === false || unavailable !== null;
@@ -983,7 +1039,7 @@ export default function LlmSettingsSection({
                           {m.displayName || m.modelId}
                         </p>
                         <p className="truncate text-[12px] text-ink-3">
-                          {isOpencode ? "OpenCode · tasks only" : owner?.name ?? "Unknown provider"}
+                          {ownerCli ? `${TASK_CLI_LABEL[ownerCli]} · tasks only` : owner?.name ?? "Unknown provider"}
                           {m.displayName ? ` · ${m.modelId}` : ""}
                           {!m.isAvailable
                             ? " · disabled"

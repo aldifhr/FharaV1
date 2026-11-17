@@ -39,7 +39,7 @@ import {
 } from "./lib/chat/intent";
 import { classifyIntent } from "./lib/chat/classify";
 import { type EchoContext, streamEchoSafe, stripLeadingEcho } from "./lib/chat/echo";
-import { RETIRED_ROLE_LABELS, ROLE_KEYS, ROLES } from "./lib/roles";
+import { ROLE_KEYS, ROLES } from "./lib/roles";
 import { DOMAIN_ROLES, chatPreRouteAllowed, mentionsCode, routedAnswerSubtype, systemRoutingLine } from "./lib/chat/dispatch";
 import { buildTaskStatusLine, resolveChatOwner, type ChatOwner } from "./lib/chat/owner";
 import { detectChatRunCommands } from "./lib/chat/runRequest";
@@ -149,6 +149,9 @@ type ChatTurnArgs = Omit<ReplyArgs, "projectId"> & { projectId?: Id<"projects"> 
 /** A question about the CTO's own role: answered by the CTO alone, no handoff. */
 const CAPABILITY_QUESTION =
   /\b(?:apa yang bisa (?:kamu|anda|lo|lu)|what can you do|siapa kamu|who are you|apa peran kamu|what(?:'s| is) your role|apa tugas kamu|apa yang kamu bisa)\b/i;
+
+/** A reply with a choice block must stay alone until the user picks. */
+const OPTIONS_BLOCK = /\[options\]/i;
 
 /** Tool result when a personal chat with no project is asked for repo tools. */
 const NO_PROJECT_TOOL_TEXT = "No project is attached to this chat, so there is no repository to read.";
@@ -704,9 +707,6 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
           // Every fixed role label too: a personal chat has no teammates in
           // context, yet replies still opened with "CTO:" (live test 4).
           ...ROLE_KEYS.flatMap((k) => [ROLES[k].label, k]),
-          // And the retired ones: a reply can copy "Reviewer:" or "Support:"
-          // from an older message the team no longer has.
-          ...RETIRED_ROLE_LABELS,
           "User",
           "You",
         ].filter((n) => !self || (n.toLowerCase() !== self.name.toLowerCase() && n.toLowerCase() !== self.role.toLowerCase())),
@@ -1492,7 +1492,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         // Only for work turns. A plain question (even one addressed to @CTO)
         // must be answered by the CTO alone — the model tends to @mention the
         // whole team out of habit, so the prompt alone is not a reliable gate.
-        if (isCto && !isOptionPick && !CAPABILITY_QUESTION.test(lastUserContent)) {
+        if (isCto && !isOptionPick && !CAPABILITY_QUESTION.test(lastUserContent) && !OPTIONS_BLOCK.test(content)) {
           const toolsOffForTeam = repoTools?.available !== true || workerGone;
           const dropped: string[] = [];
           for (const mentioned of selectHandoffs(content, team, String(agent._id))) {

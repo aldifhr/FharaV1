@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { ChevronDown, ChevronRight, Square, Trash2 } from "lucide-react";
 import { roleLabel } from "@/lib/agentRoles";
+import { formatTokens } from "@/lib/runFormat";
 import { isClosedStatus, subtaskStatusMeta, taskStatusLabel } from "@/lib/taskStatus";
 import { taskStatusTone } from "@/lib/taskStatusTone";
 import { holdNoticeText } from "@/api/convex/lib/providerHold";
@@ -28,6 +29,7 @@ export default function BoardTaskCard({
   selected,
   isOpen,
   agentById,
+  contextPromptTokens,
   onSelect,
   onToggle,
   onStop,
@@ -42,6 +44,8 @@ export default function BoardTaskCard({
   selected: boolean;
   isOpen: boolean;
   agentById: Map<string, any>;
+  /** Plan 064: prompt tokens this task fed the LLM (undefined = none recorded). */
+  contextPromptTokens?: number;
   onSelect: () => void;
   onToggle: () => void;
   onStop: () => void;
@@ -165,6 +169,8 @@ export default function BoardTaskCard({
           metrics={[
             { label: "Subtasks", value: subtasks.length ? `${done}/${subtasks.length}` : null },
             { label: "Approvals", value: pendingCount > 0 ? String(pendingCount) : null },
+            // Plan 064: the context this task sent to the LLM, "≈"-style like usage estimates.
+            { label: "Context", value: (contextPromptTokens ?? 0) > 0 ? `~${formatTokens(contextPromptTokens)}` : null },
             { label: "PR", value: pr ? `#${pr.prNumber}` : null },
             { label: "Sprint", value: t.sprint ? String(t.sprint) : null },
           ]}

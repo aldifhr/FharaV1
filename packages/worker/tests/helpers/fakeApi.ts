@@ -10,6 +10,10 @@ export const API_DEFAULTS = {
   checkPermission: async () => ({ decision: "allow" as const, reason: "test" }),
   saveDynamicSubtasks: async () => ({ inserted: [] }),
   recordLifecycle: async () => undefined,
+  // Plan-020 auto-approval seam: tryAutoApprove only reaches this for a task
+  // already in full_access/auto_edits mode, so a permissive default never
+  // widens a supervised fixture.
+  autoApprove: async () => ({ autoApproved: true, reason: "test", mode: "full_access" }),
 };
 
 export function withApiDefaults<T extends object>(api: T): T & typeof API_DEFAULTS {

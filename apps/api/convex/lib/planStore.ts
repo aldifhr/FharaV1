@@ -57,6 +57,8 @@ export interface PlanVersionInput {
   estimate?: unknown;
   /** User edits: the version this one was edited from. */
   editedFrom?: number;
+  /** Plan 063: the task's due date (ms epoch) stated in the request; absent = none. */
+  dueAt?: number;
 }
 
 export async function writePlanVersion(ctx: MutationCtx, args: PlanVersionInput): Promise<number> {
@@ -176,6 +178,9 @@ export async function writePlanVersion(ctx: MutationCtx, args: PlanVersionInput)
       // Plan 025: the plan carries the task's requirements; a version that
       // carries none (a user edit) keeps the stored list.
       ...(requirements.length > 0 ? { requirements } : {}),
+      // Plan 063: a stated deadline rides in with its plan version; a version
+      // without one (a user edit) keeps the stored date.
+      ...(args.dueAt ? { dueAt: args.dueAt } : {}),
     });
     const planEventId = await appendTaskEvent(ctx, {
       taskId: args.taskId,

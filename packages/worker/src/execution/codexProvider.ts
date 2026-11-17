@@ -20,11 +20,12 @@ import { opencodeAllowUnisolated } from "./opencodeDetect";
  * is in scope. It is a trusted-machine runtime, like OpenCode's default.
  */
 
-export type NativeProviderDriver = "opencode" | "codex";
+export type NativeProviderDriver = "opencode" | "codex" | "acp";
 
 /** `ORCHESTRATOR_NATIVE_DRIVER`: which CLI the native-provider runtime spawns. */
 export function nativeDriverFromEnv(env?: Record<string, string | undefined>): NativeProviderDriver {
-  return String(wenv("ORCHESTRATOR_NATIVE_DRIVER", env)) === "codex" ? "codex" : "opencode";
+  const value = String(wenv("ORCHESTRATOR_NATIVE_DRIVER", env));
+  return value === "codex" ? "codex" : value === "acp" ? "acp" : "opencode";
 }
 
 export function codexCommand(env?: Record<string, string | undefined>): string {

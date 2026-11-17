@@ -227,6 +227,58 @@ function snapshotArgs(projectId: any, extra: Record<string, unknown> = {}) {
   return { projectId, source: "worker" as const, meta, body, ...extra };
 }
 
+describe('contextTotals (plan 064)', () => {
+  function snapshotRow(projectId: any, fields: Record<string, unknown>) {
+    return {
+      callRole: 'executor',
+      source: 'worker' as const,
+      sectionStats: [],
+      toolNames: [],
+      skillNames: [],
+      memoryIncluded: false,
+      historyMessages: 0,
+      truncated: false,
+      bytes: 0,
+      promptTokens: 0,
+      createdAt: Date.now(),
+      ...fields,
+      projectId,
+    };
+  }
+
+  test('sums prompt tokens per task, buckets chat rows, and sorts tasks by size', async () => {
+    const t = convexTest(schema, modules);
+    const { projectId, taskA, taskB } = await t.run(async (ctx) => {
+      const projectId = await ctx.db.insert('projects', { name: 'P', workspacePath: '/tmp/p' });
+      const taskA = await ctx.db.insert('tasks', { projectId, title: 'A', command: 'c', status: 'done' });
+      const taskB = await ctx.db.insert('tasks', { projectId, title: 'B', command: 'c', status: 'done' });
+      return { projectId, taskA, taskB };
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.insert('contextSnapshots', snapshotRow(projectId, { taskId: taskA, promptTokens: 100, createdAt: 1000 }));
+      await ctx.db.insert('contextSnapshots', snapshotRow(projectId, { taskId: taskA, promptTokens: 50, createdAt: 2000 }));
+      await ctx.db.insert('contextSnapshots', snapshotRow(projectId, { taskId: taskB, promptTokens: 200, createdAt: 1500 }));
+      await ctx.db.insert('contextSnapshots', snapshotRow(projectId, { source: 'chat' as const, callRole: 'chat' as any, promptTokens: 40, createdAt: 1200 }));
+    });
+    const totals = await t.query(api.contextSnapshots.contextTotals, { projectId });
+    expect(totals.calls).toBe(4);
+    expect(totals.promptTokens).toBe(390);
+    expect(totals.lastCallAt).toBe(2000);
+    expect(totals.chat).toEqual({ calls: 1, promptTokens: 40 });
+    expect(totals.tasks).toEqual([
+      { taskId: taskB, calls: 1, promptTokens: 200, lastCallAt: 1500 },
+      { taskId: taskA, calls: 2, promptTokens: 150, lastCallAt: 2000 },
+    ]);
+  });
+
+  test('a project with no snapshots reports zeros', async () => {
+    const t = convexTest(schema, modules);
+    const projectId = await t.run((ctx) => ctx.db.insert('projects', { name: 'P', workspacePath: '/tmp/p' }));
+    const totals = await t.query(api.contextSnapshots.contextTotals, { projectId });
+    expect(totals).toMatchObject({ calls: 0, promptTokens: 0, capped: false, tasks: [], chat: { calls: 0, promptTokens: 0 } });
+  });
+});
+
 describe("storage, retention prune and the kill switch", () => {
   afterEach(() => {
     vi.unstubAllEnvs();

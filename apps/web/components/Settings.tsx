@@ -167,7 +167,7 @@ export const NAV_ITEMS: { id: string; label: string; icon: typeof SlidersHorizon
   // Agents group
   { id: "providers", label: "Providers", icon: Cpu, group: "Agents" },
   { id: "models", label: "LLM & Models", icon: Sparkles, group: "Agents" },
-  { id: "threads", label: "Threads", icon: ListFilter, group: "Agents" },
+  { id: "threads", label: "Tasks", icon: ListFilter, group: "Agents" },
   { id: "chat", label: "Chat", icon: MessageSquare, group: "Agents" },
   { id: "browser", label: "Browser", icon: Globe, group: "Agents" },
   { id: "devices", label: "Devices", icon: Laptop, group: "Agents" },

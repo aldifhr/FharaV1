@@ -3,7 +3,7 @@ import type { QueryCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { decryptApiKey } from "./llmCrypto";
 import { normalizeSelectionMode, type LlmSelectionMode } from "./llmSelection";
-import { isOpencodeConnection } from "./opencodeProvider";
+import { isNativeCliConnection, isOpencodeConnection } from "./opencodeProvider";
 import { normalizeModelTiers, type ModelTiers } from "./modelTiers";
 import { cenvParse, cenvRaw } from "@fhara/config/convex";
 
@@ -129,7 +129,9 @@ export async function loadProviderPool(
   const pool: PoolConnectionPayload[] = [];
   for (const p of providers) {
     if (p.isEnabled === false && !options.includeDisabled) continue;
-    if (isOpencodeConnection(p) && !options.includeOpencode) continue;
+    // Plan 066: no native-CLI row ever serves a backend/chat call; only the
+    // opencode row is eligible for the worker route walk (includeOpencode).
+    if (isNativeCliConnection(p) && !(options.includeOpencode && isOpencodeConnection(p))) continue;
     let models = modelsByProvider.get(p._id) ?? [];
     if (models.length === 0 && p.model) {
       models = [{ modelId: p.model, isAvailable: true, legacy: true }];

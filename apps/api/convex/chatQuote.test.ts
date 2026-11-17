@@ -185,9 +185,8 @@ describe("quote helpers", () => {
 
   test("context line caps the quoted text at about 600 chars", () => {
     const line = quoteContextLine({ authorType: "agent", role: "designer", content: "b".repeat(2000) });
-    // A stored "designer" message is labelled with the role that does the
-    // work now, not the retired name.
-    expect(line.startsWith(`The user is replying to Frontend's message: "`)).toBe(true);
+    // Designer is a live role again, so its stored messages keep their label.
+    expect(line.startsWith(`The user is replying to Designer's message: "`)).toBe(true);
     expect(line.length).toBeLessThan(700);
   });
 });

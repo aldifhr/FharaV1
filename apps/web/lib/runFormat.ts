@@ -79,3 +79,13 @@ export function isActiveStatus(status: string): boolean {
 export function isErrorStatus(status: string): boolean {
   return status === "failed" || status === "rejected";
 }
+
+/** Plan 063: "due Thu 30 Oct" (English copy rule). The value is local noon or a full timestamp, so the local date is stable. */
+export function dueDateLabel(ms: number): string {
+  return new Date(ms).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+}
+
+/** Plan 063: overdue = past the due date and the task has not finished. */
+export function isOverdue(dueAt: number, finished: boolean, now: number = Date.now()): boolean {
+  return !finished && dueAt < now;
+}

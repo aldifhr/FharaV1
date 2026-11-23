@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import type { VerificationCardData } from "@/api/convex/cardTypes";
+import type { VerificationCardData } from "@/api/functions/cardTypes";
 import { runProjectScript, scriptTail, type ProjectScriptOutcome } from "@/execution/projectScriptRun";
 import {
   hostCheckOutcome,

@@ -7,14 +7,14 @@
  *   npm run stats:roles -- --project Shop     project name or id
  *   npm run stats:roles -- --json             raw query result
  *
- * Calls the same Convex query the Team page uses (workload.byRole) with the
- * deployment URL from the root .env (NEXT_PUBLIC_CONVEX_URL, else CONVEX_URL).
+ * Calls the same FharaRuntime query the Team page uses (workload.byRole) with the
+ * deployment URL from the root .env (FHARA_BACKEND_URL, else FHARA_BACKEND_URL).
  * Reads only; nothing is written.
  */
-import { ConvexHttpClient } from "convex/browser";
-import { anyApi } from "convex/server";
+import { FharaRuntimeHttpClient } from "runtime/browser";
+import { anyApi } from "runtime/server";
 import { loadRootEnv } from "./env.mjs";
-import { formatWorkloadTable, type WorkloadResult } from "../apps/api/convex/lib/workload";
+import { formatWorkloadTable, type WorkloadResult } from "../apps/api/functions/lib/workload";
 
 function arg(name: string): string | undefined {
   const argv = process.argv.slice(2);
@@ -26,9 +26,9 @@ function arg(name: string): string | undefined {
 
 async function main() {
   const { merged } = loadRootEnv();
-  const url = merged.NEXT_PUBLIC_CONVEX_URL || merged.CONVEX_URL;
+  const url = merged.FHARA_BACKEND_URL || merged.FHARA_BACKEND_URL;
   if (!url) {
-    console.error("No Convex URL: set NEXT_PUBLIC_CONVEX_URL in the root .env (see .env.example).");
+    console.error("No FharaRuntime URL: set FHARA_BACKEND_URL in the root .env (see .env.example).");
     process.exit(1);
   }
   const days = Number(arg("days") ?? 30);
@@ -36,7 +36,7 @@ async function main() {
     console.error("--days must be 7, 30 or 90");
     process.exit(1);
   }
-  const client = new ConvexHttpClient(url);
+  const client = new FharaRuntimeHttpClient(url);
 
   let projectId: string | undefined;
   let projectName = "All projects";

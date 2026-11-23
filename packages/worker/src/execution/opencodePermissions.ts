@@ -6,11 +6,11 @@
  * `opencode/scripts/runtime-permission-policy.mjs` (Apache-2.0; see
  * THIRD_PARTY_NOTICES.md). Modified by Fhara: the agent ids are Fhara's live
  * roles, the values mirror `ROLES[k].permissions`
- * (apps/api/convex/lib/roles.ts) with no "ask" (OpenCode runs unattended),
+ * (apps/api/functions/lib/roles.ts) with no "ask" (OpenCode runs unattended),
  * and `delegate` is a plain decision because Fhara never lets OpenCode
  * spawn sub-agents.
  */
-import type { RoleKey } from "@/api/convex/lib/roles";
+import type { RoleKey } from "@/api/functions/lib/roles";
 
 /**
  * It is a second, independent statement of the role limits: the CTO gets no

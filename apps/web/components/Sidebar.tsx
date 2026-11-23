@@ -1,10 +1,9 @@
-"use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter } from "@/lib/spaRouter";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "@fhara/runtime/react";
 import { Activity, Inbox, Menu, MessageCircle, PanelLeft, Plus, Settings, X } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import AgentDetailPanel from "./AgentDetailPanel";
 import CommandMenu from "./CommandMenu";

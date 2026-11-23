@@ -1,4 +1,3 @@
-"use client";
 
 import { motion } from "framer-motion";
 import { ChevronDown, ChevronRight, Square, Trash2 } from "lucide-react";
@@ -6,7 +5,7 @@ import { roleLabel } from "@/lib/agentRoles";
 import { formatTokens } from "@/lib/runFormat";
 import { isClosedStatus, subtaskStatusMeta, taskStatusLabel } from "@/lib/taskStatus";
 import { taskStatusTone } from "@/lib/taskStatusTone";
-import { holdNoticeText } from "@/api/convex/lib/providerHold";
+import { holdNoticeText } from "@/api/functions/lib/providerHold";
 import { PanelCard, PanelCardBody, PanelCardFooter, PanelCardHeader } from "../ui/panel-card";
 import { StatusTag } from "../ui/status-tag";
 import SubtaskActivity from "../SubtaskActivity";

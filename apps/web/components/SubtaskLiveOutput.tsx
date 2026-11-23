@@ -1,8 +1,7 @@
-"use client";
 
 import { useLayoutEffect, useRef } from "react";
-import { useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import { useUiPref } from "@/lib/uiPrefs";
 
 /** Lines kept in the DOM; the box shows about six and scrolls the rest. */

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "@/lib/serverCompat";
 import { rejectUnsafeRequest } from "@/lib/apiGuard";
 
 /**
@@ -10,8 +10,6 @@ import { rejectUnsafeRequest } from "@/lib/apiGuard";
  */
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
 // apps/web → repo root (next runs with cwd = apps/web).
 const repoRoot = path.resolve(process.cwd(), "../..");
 
@@ -42,14 +40,14 @@ async function packageVersion(name: string): Promise<{ version?: string } | null
 export async function GET(request: NextRequest) {
   const rejected = rejectUnsafeRequest(request);
   if (rejected) return rejected;
-  const [rootPkg, commit, commitDate, branch, notices, nextPkg, convexPkg] = await Promise.all([
+  const [rootPkg, commit, commitDate, branch, notices, nextPkg, runtimePkg] = await Promise.all([
     readJson(path.join(repoRoot, "package.json")),
     git(["rev-parse", "HEAD"]),
     git(["log", "-1", "--format=%cI"]),
     git(["rev-parse", "--abbrev-ref", "HEAD"]),
     fs.readFile(path.join(repoRoot, "THIRD_PARTY_NOTICES.md"), "utf8").catch(() => null),
     packageVersion("next"),
-    packageVersion("convex"),
+    packageVersion("runtime"),
   ]);
   return NextResponse.json({
     name: rootPkg?.name ?? "fhara",
@@ -59,7 +57,7 @@ export async function GET(request: NextRequest) {
     branch,
     node: process.version,
     next: nextPkg?.version ?? null,
-    convex: convexPkg?.version ?? null,
+    runtime: runtimePkg?.version ?? null,
     notices: notices ? notices.slice(0, 200_000) : null,
   });
 }

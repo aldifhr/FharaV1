@@ -1,11 +1,10 @@
-"use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
+import { Link } from "@/lib/spaRouter";
+import { useMutation, useQuery } from "@fhara/runtime/react";
 import { reconcileOptimistic } from "@/lib/optimisticChat";
 import { X } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import TaskBoard from "./TaskBoard";
 import { useToast } from "./Toasts";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
@@ -29,9 +28,9 @@ import { useDraftMentions } from "./chat/useDraftMentions";
 import { useWorkspace } from "@/app/WorkspaceContext";
 import { clockTime, isSameDay, shortDate } from "@/lib/format";
 import { projectMembers } from "@/lib/projectMembers";
-import { projectDefaultPermissionMode, type PermissionMode } from "@/api/convex/lib/permissionModes";
-import { buildDecisionTray, latestOpenOptionPrompt, type TrayAction, type TrayItem } from "@/api/convex/lib/decisionTray";
-import { composeOfferedTask } from "@/api/convex/lib/chat/intent";
+import { projectDefaultPermissionMode, type PermissionMode } from "@/api/functions/lib/permissionModes";
+import { buildDecisionTray, latestOpenOptionPrompt, type TrayAction, type TrayItem } from "@/api/functions/lib/decisionTray";
+import { composeOfferedTask } from "@/api/functions/lib/chat/intent";
 import { parseOptions } from "@/lib/options";
 import DecisionsTray, { trayPlaceholder, useDecisionTray } from "./chat/DecisionsTray";
 import AutomationHoldLine from "./chat/AutomationHoldLine";
@@ -245,8 +244,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const taskFromPlan = (content: string) => content.match(/^Plan dibuat\. Task (\S+)/)?.[1];
   const replyToTask = new Map<string, string>();
   for (const m of messages ?? []) {
-    const taskId = m.taskId ?? taskFromPlan(m.content ?? "");
-    if (m.replyToMessageId && taskId) replyToTask.set(m.replyToMessageId, taskId);
+    const taskId = (m as any).taskId ?? taskFromPlan((m as any).content ?? "");
+    if ((m as any).replyToMessageId && taskId) replyToTask.set((m as any).replyToMessageId, taskId);
   }
   const blockKey = (m: any) => m.taskId ?? replyToTask.get(m._id) ?? taskFromPlan(m.content ?? "") ?? "conversation";
 

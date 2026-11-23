@@ -4,10 +4,10 @@
 // checks what the task and the screens end up showing.
 //
 //   node e2e/fixtures-ui/worker-flows.mjs --project <projectId> [--flows a-normal,b-approval,...]
-//        [--base http://127.0.0.1:3000] [--convex http://127.0.0.1:3210] [--shots DIR]
+//        [--base http://127.0.0.1:3000] [--runtime http://127.0.0.1:3210] [--shots DIR]
 //        [--mock-port 3397] [--reset-repo]
 //
-// Needs, already running: the local Convex backend, the web app, and a worker
+// Needs, already running: the local Fhara runtime backend, the web app, and a worker
 // whose ONLY active model is an `openai-compatible` provider row pointing at
 // http://127.0.0.1:<mock-port>/v1 (any dummy key; the mock runs --no-token).
 // This script starts and stops the mock itself, with
@@ -23,8 +23,8 @@ import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ConvexHttpClient } from "convex/browser";
-import { anyApi } from "convex/server";
+import { Fhara runtimeHttpClient } from "runtime/browser";
+import { anyApi } from "runtime/server";
 import { chromium } from "playwright-core";
 import { allowedPathsOfScript, changesOutside, snapshotTree } from "./world.mjs";
 
@@ -32,7 +32,7 @@ const repo = path.resolve(import.meta.dirname, "../..");
 const args = process.argv.slice(2);
 const opt = (n, d) => (args.includes(n) ? args[args.indexOf(n) + 1] : d);
 const base = opt("--base", process.env.FHARA_WEB_URL ?? "http://127.0.0.1:3000").replace(/\/$/, "");
-const convexUrl = opt("--convex", process.env.CONVEX_SELF_HOSTED_URL ?? process.env.CONVEX_URL ?? "http://127.0.0.1:3210");
+const runtimeUrl = opt("--runtime", process.env.FHARA_BACKEND_URL ?? process.env.FHARA_BACKEND_URL ?? "http://127.0.0.1:3210");
 const project = opt("--project");
 const mockPort = Number(opt("--mock-port", "3397"));
 const shots = path.resolve(opt("--shots", fs.mkdtempSync(path.join(os.tmpdir(), "worker-flows-"))));
@@ -40,8 +40,8 @@ if (!project) throw new Error("--project <projectId> is required");
 fs.mkdirSync(shots, { recursive: true });
 process.env.NO_PROXY = process.env.no_proxy = "127.0.0.1,localhost";
 
-const convex = new ConvexHttpClient(convexUrl);
-const q = (name, a) => convex.query(name, a);
+const runtime = new Fhara runtimeHttpClient(runtimeUrl);
+const q = (name, a) => runtime.query(name, a);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ── results ────────────────────────────────────────────────────────────
@@ -471,7 +471,7 @@ for (const name of wanted) {
   try {
     // A clean slate: no open task of an earlier flow competes for the chat's cards.
     for (const t of await tasks()) {
-      if (!TERMINAL.has(t.status)) await convex.mutation(anyApi.tasks.cancel, { taskId: t._id }).catch(() => {});
+      if (!TERMINAL.has(t.status)) await runtime.mutation(anyApi.tasks.cancel, { taskId: t._id }).catch(() => {});
     }
     resetTheRepo();
     const world = repoPath ? snapshotTree(repoPath) : null;

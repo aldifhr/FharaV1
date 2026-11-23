@@ -2,8 +2,8 @@
  * Plain-text helpers for Settings → Scheduled tasks (GOAT G8): how a
  * schedule, a target, a time and a run read in the list.
  */
-import type { api } from "@/api/convex/_generated/api";
-import type { FunctionReturnType } from "convex/server";
+import type { api } from "@fhara/runtime/api";
+import type { FunctionReturnType } from "@fhara/runtime/server";
 
 export type ScheduledTaskRow = FunctionReturnType<typeof api.scheduledTasks.listForViewer>[number];
 export type ScheduledRunRow = FunctionReturnType<typeof api.scheduledTasks.listRuns>[number];

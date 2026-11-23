@@ -1,5 +1,5 @@
 import { isClosedStatus } from "@/lib/taskStatus";
-import type { PrLane } from "@/api/convex/lib/prFeedback";
+import type { PrLane } from "@/api/functions/lib/prFeedback";
 
 // Agile phases: derived from subtask kind + task status, never from a stale
 // stored phase. Order matches the sprint flow.

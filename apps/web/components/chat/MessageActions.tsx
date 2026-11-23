@@ -1,9 +1,8 @@
-"use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useMutation } from "convex/react";
+import { useMutation } from "@fhara/runtime/react";
 import { Brain, Check, Copy, MoreHorizontal, PanelRightOpen, Pin, PinOff, Plus, Reply, ShieldCheck } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import { useToast } from "../Toasts";
 
 /** Per-message controls of the chat timeline (split out of MessageList.tsx). */

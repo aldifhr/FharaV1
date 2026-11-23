@@ -1,11 +1,10 @@
-"use client";
 
 import { Suspense, useState } from "react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { useMutation, useQuery } from "convex/react";
+import { Link } from "@/lib/spaRouter";
+import { useSearchParams } from "@/lib/spaRouter";
+import { useMutation, useQuery } from "@fhara/runtime/react";
 import { GitBranch, Trash2 } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import Sidebar from "@/components/Sidebar";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toasts";

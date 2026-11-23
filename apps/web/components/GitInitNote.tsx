@@ -1,9 +1,8 @@
-"use client";
 
 import { useEffect, useState } from "react";
-import { useAction } from "convex/react";
+import { useAction } from "@fhara/runtime/react";
 import { GitBranch } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import { useToast } from "./Toasts";
 
 type Target = { projectId?: string; taskId?: string; workspacePath?: string };

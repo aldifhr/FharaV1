@@ -1,10 +1,10 @@
 import { wenv, wenvRaw } from "@fhara/config/worker";
 import { executionRuntimeFromEnv } from "@/execution/nativeProvider";
 import { observedLlmLatencyMs } from "@/llm/latency";
-import { settingEnv } from "@/api/convex/lib/appSettings";
+import { settingEnv } from "@/api/functions/lib/appSettings";
 
 // Every knob is read through settingEnv: a value set in Settings (stored in
-// Convex, applied on each heartbeat) wins over the process env. Defaults,
+// FharaRuntime, applied on each heartbeat) wins over the process env. Defaults,
 // bounds and parse rules live in the env schema (@fhara/config,
 // schema/policy.ts); the defaultsParity test pins them to the pre-E1 values.
 const setting = <N extends Parameters<typeof wenv>[0]>(name: N) => wenv(name, settingEnv);
@@ -282,7 +282,7 @@ export function defaultParallelism(worktreeIsolation: boolean): number {
 export function loadPolicy(): ExecutionPolicy {
   const maxReplans = setting("ORCHESTRATOR_MAX_REPLANS");
   // Tristate (L3): true = always (fails tasks whose workspace is not a git
-  // repo, and needs the Convex node action to share the worker's disk),
+  // repo, and needs the FharaRuntime node action to share the worker's disk),
   // false = never, undefined = auto (decided per task by the runner).
   const isolationSetting = setting("ORCHESTRATOR_WORKTREE_ISOLATION");
   const worktreeIsolation = isolationSetting === true;

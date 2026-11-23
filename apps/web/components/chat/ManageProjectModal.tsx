@@ -1,8 +1,7 @@
-"use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useMutation, useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import Modal from "../Modal";
 import GithubRepoSettings from "../GithubRepoSettings";
 import GitInitNote, { useRepoReadinessNote } from "../GitInitNote";
@@ -15,21 +14,21 @@ import {
   PERMISSION_MODE_LABELS,
   projectDefaultPermissionMode,
   type PermissionMode,
-} from "@/api/convex/lib/permissionModes";
+} from "@/api/functions/lib/permissionModes";
 import {
   PLAN_REVIEW_HINTS,
   PLAN_REVIEW_LABELS,
   PLAN_REVIEW_SETTINGS,
   normalizePlanReview,
   type PlanReviewSetting,
-} from "@/api/convex/lib/planReviewPolicy";
+} from "@/api/functions/lib/planReviewPolicy";
 import {
   MODEL_TIER_HINTS,
   MODEL_TIER_KEYS,
   MODEL_TIER_LABELS,
   type ModelTierKey,
   type ModelTiers,
-} from "@/api/convex/lib/modelTiers";
+} from "@/api/functions/lib/modelTiers";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : "Please try again.");
 

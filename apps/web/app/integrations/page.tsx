@@ -1,7 +1,6 @@
-"use client";
 
 import { Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams } from "@/lib/spaRouter";
 import Sidebar from "@/components/Sidebar";
 import { IntegrationsPanel } from "@/components/integrations/IntegrationsPanel";
 

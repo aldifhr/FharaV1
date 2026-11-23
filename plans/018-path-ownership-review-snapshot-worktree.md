@@ -42,8 +42,8 @@ between a task's edits and the user's dirty main workspace.
 - `packages/worker/src/scheduler/dagScheduler.ts:3-6,340-355` — `SchedulerNode` is `{id, dependencies}`; ready scan has no path overlap gate. `runNodes.ts:217` hardcodes `maxConcurrency: 1` (FIFO), so overlap is future-proofing for when concurrency rises.
 - `packages/worker/src/execution/agentExecutor.ts:583-665` — review already reads the staged diff snapshot passed in (`runNodes.ts:111`), but the verdict carries no snapshot identity.
 - `packages/worker/src/services/taskRunner.ts:1316` — `applyStaged` resolves the main workspace directly, ignoring `input.workspacePath`; `:217-225` worktree isolation disabled with the upgrade path recorded.
-- `apps/api/convex/worktreeNode.ts:22-201` — `createBranch/getDiff/mergeBranch/discardBranch` live and token-gated via `worker.ts`; never called from `taskRunner`.
-- `apps/api/convex/schema.ts:194-221` — subtask rows have no path scope field.
+- `apps/api/functions/worktreeNode.ts:22-201` — `createBranch/getDiff/mergeBranch/discardBranch` live and token-gated via `worker.ts`; never called from `taskRunner`.
+- `apps/api/functions/schema.ts:194-221` — subtask rows have no path scope field.
 
 ## Decisions that must not change during execution
 

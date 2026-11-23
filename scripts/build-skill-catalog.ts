@@ -1,5 +1,5 @@
 /**
- * Builds apps/api/convex/lib/skillCatalog.json, the bundled catalog the
+ * Builds apps/api/functions/lib/skillCatalog.json, the bundled catalog the
  * Library "Browse" tab falls back to when no refreshed copy is stored.
  *
  *   npm run catalog:build                      # read every index from GitHub
@@ -18,11 +18,11 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseFrontMatter } from "../apps/api/convex/lib/githubSkills";
-import { parseSkillIndex, type BundledCatalog, type CatalogEntry, type CatalogSource } from "../apps/api/convex/lib/skillCatalog";
+import { parseFrontMatter } from "../apps/api/functions/lib/githubSkills";
+import { parseSkillIndex, type BundledCatalog, type CatalogEntry, type CatalogSource } from "../apps/api/functions/lib/skillCatalog";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const OUT = join(ROOT, "apps/api/convex/lib/skillCatalog.json");
+const OUT = join(ROOT, "apps/api/functions/lib/skillCatalog.json");
 
 const SOURCES: CatalogSource[] = [
   {

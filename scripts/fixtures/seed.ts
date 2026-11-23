@@ -1,5 +1,5 @@
 /**
- * Load the synthetic fixtures into a dev Convex deployment, or wipe them.
+ * Load the synthetic fixtures into a dev FharaRuntime deployment, or wipe them.
  *
  *   npm run fixtures:seed                      every scenario
  *   npm run fixtures:seed -- --only planned-push,held-resume
@@ -8,21 +8,21 @@
  *   npm run fixtures:seed -- --list            print the scenarios and exit
  *
  * It calls the internal mutations devFixtures:seed / devFixtures:wipe with
- * the Convex CLI (`npx convex run`, from apps/api), so it targets whatever
- * deployment the CLI would: CONVEX_SELF_HOSTED_URL (+ ADMIN_KEY) or
- * CONVEX_DEPLOYMENT, from the environment or apps/api/.env.local.
+ * the FharaRuntime CLI (`npx runtime run`, from apps/api), so it targets whatever
+ * deployment the CLI would: FHARA_BACKEND_URL (+ ADMIN_KEY) or
+ * FHARA_DEPLOYMENT, from the environment or apps/api/.env.local.
  *
  * Guard, twice: this script refuses unless the target is local or
  * self-hosted (or FHARA_FIXTURES=1 is set here), and the mutations refuse
- * a Convex cloud deployment unless FHARA_FIXTURES=1 is set ON the
- * deployment (`npx convex env set FHARA_FIXTURES 1`, dev deployments only).
+ * a FharaRuntime cloud deployment unless FHARA_FIXTURES=1 is set ON the
+ * deployment (`npx runtime env set FHARA_FIXTURES 1`, dev deployments only).
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readVar } from "@fhara/config";
-import { fixturesAllowed } from "../../apps/api/convex/lib/devFixtures";
+import { fixturesAllowed } from "../../apps/api/functions/lib/devFixtures";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const API = path.join(ROOT, "apps/api");
@@ -65,8 +65,8 @@ function listScenarios(): string[] {
   return index.scenarios.map((s) => s.id);
 }
 
-function convexRun(fn: string, args: unknown): unknown {
-  const res = spawnSync("npx", ["convex", "run", fn, JSON.stringify(args)], {
+function runtimeRun(fn: string, args: unknown): unknown {
+  const res = spawnSync("npx", ["runtime", "run", fn, JSON.stringify(args)], {
     cwd: API,
     encoding: "utf8",
     // The CLI needs the platform env (PATH, HOME) and its own deployment vars.
@@ -74,7 +74,7 @@ function convexRun(fn: string, args: unknown): unknown {
     maxBuffer: 16 * 1024 * 1024,
     shell: process.platform === "win32",
   });
-  if (res.status !== 0) throw new Error(`npx convex run ${fn} failed:\n${(res.stderr || res.stdout || "").trim()}`);
+  if (res.status !== 0) throw new Error(`npx runtime run ${fn} failed:\n${(res.stderr || res.stdout || "").trim()}`);
   const out = res.stdout.trim();
   try {
     return JSON.parse(out.slice(out.search(/[[{]/)));
@@ -95,8 +95,8 @@ function main(): void {
   if (unknown.length) throw new Error(`Unknown scenario(s): ${unknown.join(", ")} (have: ${all.join(", ")})`);
 
   const verdict = targetAllowed({
-    selfHostedUrl: env<string | undefined>("CONVEX_SELF_HOSTED_URL"),
-    deployment: env<string | undefined>("CONVEX_DEPLOYMENT"),
+    selfHostedUrl: env<string | undefined>("FHARA_BACKEND_URL"),
+    deployment: env<string | undefined>("FHARA_DEPLOYMENT"),
     flag: env<boolean>("FHARA_FIXTURES"),
   });
   if (!verdict.ok) {
@@ -109,7 +109,7 @@ function main(): void {
     for (const fixture of only ?? [undefined]) {
       let total = 0;
       for (let round = 0; round < 200; round++) {
-        const res = convexRun("devFixtures:wipe", fixture ? { fixture } : {}) as { deleted: number; more: boolean };
+        const res = runtimeRun("devFixtures:wipe", fixture ? { fixture } : {}) as { deleted: number; more: boolean };
         total += res.deleted;
         if (!res.more) break;
       }
@@ -121,7 +121,7 @@ function main(): void {
     const dir = path.join(SCENARIOS, id);
     const scenario = JSON.parse(fs.readFileSync(path.join(dir, "scenario.json"), "utf8"));
     const events = fs.readFileSync(path.join(dir, "events.ndjson"), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
-    const res = convexRun("devFixtures:seed", { scenario, events }) as { rows: number; events: number; reusedAgents: string[]; replaced: number };
+    const res = runtimeRun("devFixtures:seed", { scenario, events }) as { rows: number; events: number; reusedAgents: string[]; replaced: number };
     console.log(`  ${id}: ${res.rows} rows, ${res.events} events${res.reusedAgents?.length ? `, reused agents: ${res.reusedAgents.join(", ")}` : ""}${res.replaced ? ` (replaced ${res.replaced})` : ""}`);
   }
 }

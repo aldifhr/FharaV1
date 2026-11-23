@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { createHash } from "node:crypto";

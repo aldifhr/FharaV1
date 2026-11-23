@@ -1,8 +1,7 @@
-"use client";
 
 import { useState } from "react";
-import { useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import ContextInspector, { SnapshotPicker } from "./ContextInspector";
 import { formatTokens } from "@/lib/runFormat";
 

@@ -1,4 +1,3 @@
-"use client";
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -36,7 +35,7 @@ import {
   PERMISSION_MODE_HINTS,
   PERMISSION_MODE_LABELS,
   type PermissionMode,
-} from "@/api/convex/lib/permissionModes";
+} from "@/api/functions/lib/permissionModes";
 import ModelPicker, { type ModelOption } from "./ModelPicker";
 import SlashMenu from "./SlashMenu";
 import type { ReplyStop } from "./useReplyStop";

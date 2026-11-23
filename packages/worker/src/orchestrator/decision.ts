@@ -1,4 +1,4 @@
-import type { ExecutionObservation } from "@/api/convex/lib/observations";
+import type { ExecutionObservation } from "@/api/functions/lib/observations";
 import {
   CAPABILITY,
   type AgentDefinition,
@@ -138,7 +138,7 @@ export interface DecisionObservation {
   /**
    * Plan 025: the typed execution observations behind this decision
    * (deterministic mapping of the execution outcome; see
-   * `@/api/convex/lib/observations`). Additive: every field above keeps
+   * `@/api/functions/lib/observations`). Additive: every field above keeps
    * its meaning, and a caller that sets none behaves as before.
    */
   observations?: ExecutionObservation[];

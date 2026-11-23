@@ -1,4 +1,4 @@
-import { observationFromOutcome } from "@/api/convex/lib/observations";
+import { observationFromOutcome } from "@/api/functions/lib/observations";
 import type { RunContext, RunState } from "./types";
 import type { SchedulerNode, NodeOutcome } from "@/scheduler/dagScheduler";
 import type { ReviewResult } from "@/utils/json";
@@ -8,7 +8,7 @@ import { decideNext, directNext, judgeObjective, targetAgent } from "@/orchestra
 import { decideWithLlm } from "@/orchestrator/decisionLlm";
 import { toAgentResult } from "./setup";
 import { resolveIssuesForApproval, resolveIssuesForQaPass } from "@/orchestrator/taskContext";
-import type { Escalation } from "@/api/convex/lib/subtaskContract";
+import type { Escalation } from "@/api/functions/lib/subtaskContract";
 import { handleEscalation } from "./escalation";
 import { handleArchDecision } from "./archDecision";
 import { agentRoleLabel, postSystemLine } from "./systemLines";

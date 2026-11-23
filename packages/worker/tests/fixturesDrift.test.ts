@@ -6,8 +6,8 @@ import { buildAll } from "../../../scripts/fixtures/make-synthetic.mjs";
 /**
  * The committed fixtures (fixtures/scenarios) are exactly what the
  * generator writes: run `npm run fixtures:make` after changing it. Their
- * validity against the Convex schema is checked by
- * apps/api/convex/devFixtures.test.ts (it seeds every one).
+ * validity against the FharaRuntime schema is checked by
+ * apps/api/functions/devFixtures.test.ts (it seeds every one).
  */
 const ROOT = path.resolve(import.meta.dirname, "../../../fixtures/scenarios");
 

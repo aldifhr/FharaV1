@@ -77,10 +77,10 @@ describe("classifier", () => {
 
   describe("questions about a change vs change requests (Indonesian)", () => {
     it.each([
-      "Kenapa API ini menggunakan Convex?",
+      "Kenapa API ini menggunakan FharaRuntime?",
       "Kenapa kita perlu refactor taskRunner?",
       "Apakah sebaiknya pindah ke postgres?",
-      "why did we switch to convex?",
+      "why did we switch to runtime?",
     ])("treats %s as research", (text) => {
       expect(classifyCommand(text).kind).toBe("research");
     });

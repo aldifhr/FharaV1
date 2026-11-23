@@ -1,10 +1,9 @@
-"use client";
 
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { roleLabel } from "@/lib/agentRoles";
-import { reasoningForDisplay } from "@/api/convex/lib/chat/reasoningDisplay";
-import type { ChatToolStep } from "@/api/convex/lib/chat/activity";
+import { reasoningForDisplay } from "@/api/functions/lib/chat/reasoningDisplay";
+import type { ChatToolStep } from "@/api/functions/lib/chat/activity";
 import { activityTitleKind, isHandoffStep, reasoningRowHasLabel } from "@/lib/activityHeading";
 
 /**

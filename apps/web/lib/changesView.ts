@@ -4,7 +4,7 @@
  * patch splitting, plain-text labels and the "open the Changes tab" hand-off
  * live here so they can be unit tested without React.
  */
-import type { ChangesetFile, ChangesPr } from "@/api/convex/lib/changeset";
+import type { ChangesetFile, ChangesPr } from "@/api/functions/lib/changeset";
 
 /** The marker line lib/diffPatch.ts appends to a patch cut at its byte budget. */
 const TRUNCATION_MARKER = /^\\ Fhara: diff truncated[^\n]*$/m;

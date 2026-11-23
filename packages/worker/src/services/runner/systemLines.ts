@@ -1,11 +1,11 @@
 /**
  * O2: the orchestrator's System status lines in the task thread. Neutral
  * copy only: what happened, never an opinion, never an @name. The backend
- * dedupes identical lines per task (apps/api/convex/systemLines.ts).
+ * dedupes identical lines per task (apps/api/functions/systemLines.ts).
  */
 import type { AgentDefinition, ExecutionPlan } from "@/types";
-import { roleLabel } from "@/api/convex/lib/roles";
-import { ARCH_DECISION_KEY } from "@/api/convex/lib/architectureFlag";
+import { roleLabel } from "@/api/functions/lib/roles";
+import { ARCH_DECISION_KEY } from "@/api/functions/lib/architectureFlag";
 import { resolveRoleKey } from "@/utils/rolePolicy";
 import { GATES_SKIPPED_NOTE } from "@/orchestrator/responseOwner";
 import type { RunnerDeps } from "./types";

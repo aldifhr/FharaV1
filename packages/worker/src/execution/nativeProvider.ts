@@ -2,7 +2,7 @@ import { schemaDefault } from "@fhara/config";
 import { wenv } from "@fhara/config/worker";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";

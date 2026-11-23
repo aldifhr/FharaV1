@@ -1,9 +1,8 @@
-"use client";
 
 import { useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
-import Link from "next/link";
+import { useMutation, useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
+import { Link } from "@/lib/spaRouter";
 import { ArrowUpRight, Check, Inbox as InboxIcon } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import { roleLabel } from "@/lib/agentRoles";

@@ -3,8 +3,8 @@
  *
  * Isolation is ON, with ORCHESTRATOR_PARALLEL_DEFAULT (default 2) parallel
  * nodes, when the project folder is a git repository with at least one
- * commit, its checkout is clean, and the Convex backend can reach the
- * worker's disk (local or self-hosted; the worktree step runs in a Convex
+ * commit, its checkout is clean, and the FharaRuntime backend can reach the
+ * worker's disk (local or self-hosted; the worktree step runs in a FharaRuntime
  * Node action). Otherwise the task runs in the checkout one step at a
  * time. A dirty checkout gets one System line per task, because a worktree
  * starts from the base branch and would not see the uncommitted edits.
@@ -14,8 +14,8 @@
  * over the width picked here.
  */
 import { wenv } from "@fhara/config/worker";
-import { checkRepoReadiness, FHARA_PROJECT_DIR, LEGACY_WORKTREES_DIR, type RepoReadiness } from "@/api/convex/lib/repoReadiness";
-import { backendLocality, type BackendLocality } from "@/api/convex/lib/backendLocality";
+import { checkRepoReadiness, FHARA_PROJECT_DIR, LEGACY_WORKTREES_DIR, type RepoReadiness } from "@/api/functions/lib/repoReadiness";
+import { backendLocality, type BackendLocality } from "@/api/functions/lib/backendLocality";
 import type { ExecutionPolicy } from "@/orchestrator/policy";
 import { untrustedGitSync } from "@/vendor/threadbear/safeGit";
 import { postSystemLine } from "./systemLines";
@@ -83,13 +83,13 @@ export function hasUncommittedChanges(porcelain: string): boolean {
     });
 }
 
-/** Worker-side probe: the backend from the worker's Convex URL, then git in the project folder (read-only listing git). */
+/** Worker-side probe: the backend from the worker's FharaRuntime URL, then git in the project folder (read-only listing git). */
 export function probeIsolation(
   workspacePath: string,
-  convexUrl: string | undefined = wenv("NEXT_PUBLIC_CONVEX_URL"),
+  runtimeUrl: string | undefined = wenv("FHARA_BACKEND_URL"),
   git: (args: string[]) => string = (args) => untrustedGitSync(workspacePath, args)
 ): IsolationProbe {
-  const backend = backendLocality(convexUrl);
+  const backend = backendLocality(runtimeUrl);
   if (backend === "cloud" || backend === "unknown") return { backend };
   const readiness = checkRepoReadiness(git).state;
   if (readiness !== "ready") return { backend, readiness };

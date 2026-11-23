@@ -8,8 +8,8 @@ import {
   TIME_CONTEXT_INTERVAL_MS,
   TimeContextThrottle,
   withTimeTail,
-} from "@/api/convex/lib/timeContext";
-import { splitPromptSections } from "@/api/convex/lib/contextSnapshot";
+} from "@/api/functions/lib/timeContext";
+import { splitPromptSections } from "@/api/functions/lib/contextSnapshot";
 import { currentUserTimeZone, resetTimeContextForTest, setUserTimeZone, timeContextLine } from "@/context/timeContext";
 import { turnUserContent } from "@/execution/turnContext";
 import { planningPrompt } from "@/prompts/planner";

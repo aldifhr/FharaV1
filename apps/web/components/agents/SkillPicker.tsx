@@ -1,4 +1,3 @@
-"use client";
 
 export type LibrarySkill = { _id: string; name: string; description?: string; version?: number; versionCount?: number };
 

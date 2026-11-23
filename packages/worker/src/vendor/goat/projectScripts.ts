@@ -3,11 +3,11 @@
 //
 // Changed by Fhara (GOAT G9): ported `projectScriptCwd`, `projectScriptRuntimeEnv`,
 // `setupProjectScript` and `checkProjectScript` only. Fhara stores one `{ setup, check }`
-// object of exact argv (apps/api/convex/lib/projectScriptsSchema.ts) instead of GOAT's
+// object of exact argv (apps/api/functions/lib/projectScriptsSchema.ts) instead of GOAT's
 // script list with role flags, the env names are FHARA_*, and there are no legacy
 // T3 env names, settings overrides or project-file fallback.
 
-import { configuredProjectScript } from "@/api/convex/lib/projectScriptsSchema";
+import { configuredProjectScript } from "@/api/functions/lib/projectScriptsSchema";
 
 interface ProjectScriptRuntimeEnvInput {
   project: { cwd: string };

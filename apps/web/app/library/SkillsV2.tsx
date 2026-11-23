@@ -1,18 +1,17 @@
-"use client";
 
 /**
  * Skill v2 views for /library: version history (diff + restore) and the
  * Sources (marketplace) tab. Theme tokens only, divide-y lists, no pills.
  */
 import { useMemo, useState } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "@fhara/runtime/react";
 import { RefreshCw } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import Modal from "@/components/Modal";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toasts";
 import { roleLabel } from "@/lib/agentRoles";
-import { SKILL_PERMISSION_LABELS, type SkillPermission } from "@/api/convex/lib/skillGraph";
+import { SKILL_PERMISSION_LABELS, type SkillPermission } from "@/api/functions/lib/skillGraph";
 
 export type LibrarySkill = {
   _id: string;
@@ -49,7 +48,7 @@ export type LibrarySkill = {
   }>;
 };
 
-/** Convex wraps thrown errors ("… Uncaught Error: msg"); keep the message. */
+/** FharaRuntime wraps thrown errors ("… Uncaught Error: msg"); keep the message. */
 export function errorText(err: unknown, fallback: string): string {
   const raw = err instanceof Error ? err.message : "";
   const m = /Uncaught Error:\s*([\s\S]*?)(?:\n\s+at |\n\s*Called by|$)/.exec(raw);

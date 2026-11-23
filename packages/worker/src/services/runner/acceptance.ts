@@ -4,7 +4,7 @@ import {
   defaultGatesForKind,
   evaluateGates,
   type GateResult,
-} from "@/api/convex/lib/subtaskContract";
+} from "@/api/functions/lib/subtaskContract";
 import { resolveSandboxPathAsync } from "@/tools/sandbox";
 import type { PlanSubtask } from "@/types";
 import type { RunContext } from "./types";

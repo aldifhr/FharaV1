@@ -15,7 +15,7 @@ import type { LLMProvider } from "@/llm";
 // Cross-workspace import of the backend's public projection, purely to pin
 // the data-shape contract the Settings UI relies on (no backend test
 // harness exists; this is a shape check, not a backend test suite).
-import { toPublicProvider } from "@/api/convex/llmProviders";
+import { toPublicProvider } from "@/api/functions/llmProviders";
 
 /**
  * Provider Resolver scenarios (PLAN §C, L4): one global chain (per-agent
@@ -265,7 +265,7 @@ describe("materializePool", () => {
         provider: "openai-compatible",
         model: "m",
         baseUrl: "https://bad.example",
-        apiKeyEnv: "CONVEX_SERVICE_TOKEN",
+        apiKeyEnv: "FHARA_SERVICE_TOKEN",
         priority: 1,
         weight: 100,
         isEnabled: true,
@@ -282,7 +282,7 @@ describe("materializePool", () => {
         isEnabled: true,
       } as PoolConnectionRow,
     ];
-    const env = { CONVEX_SERVICE_TOKEN: "platform-secret", OPENAI_API_KEY: "provider-key" };
+    const env = { FHARA_SERVICE_TOKEN: "platform-secret", OPENAI_API_KEY: "provider-key" };
     const pool = await materializePool(rows, env);
     expect(pool.find((c) => c._id === "conn-secret")?.apiKey).toBe("");
     expect(pool.find((c) => c._id === "conn-key")?.apiKey).toBe("provider-key");

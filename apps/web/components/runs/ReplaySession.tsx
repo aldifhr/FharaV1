@@ -1,11 +1,10 @@
-"use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "convex/react";
+import { useQuery } from "@fhara/runtime/react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import ContextInspector, { CopyButton } from "@/components/context/ContextInspector";
-import { diffRuns, lineDiff, type DiffRow, type RunSide } from "@/api/convex/lib/replay";
+import { diffRuns, lineDiff, type DiffRow, type RunSide } from "@/api/functions/lib/replay";
 import { roleLabel } from "@/lib/agentRoles";
 import { clockTime } from "@/lib/format";
 import { taskStatusLabel } from "@/lib/taskStatus";

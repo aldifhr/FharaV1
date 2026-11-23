@@ -2,7 +2,7 @@
  * Personal chat (plan 039) display helpers, kept pure for node:test.
  */
 
-import { builtinCommandsForScope } from "@/api/convex/lib/slashCommands";
+import { builtinCommandsForScope } from "@/api/functions/lib/slashCommands";
 
 export type ConversationKind = "personal" | "project" | "team";
 

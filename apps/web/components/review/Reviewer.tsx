@@ -1,4 +1,3 @@
-"use client";
 
 /**
  * Reviewer observer UI: Second Opinion (subtask / chat reply) and Shadow
@@ -7,11 +6,11 @@
  * disagree verdict. Nothing is applied automatically.
  */
 import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
-import type { FunctionReturnType } from "convex/server";
-import { api } from "@/api/convex/_generated/api";
+import { useMutation, useQuery } from "@fhara/runtime/react";
+import type { FunctionReturnType } from "@fhara/runtime/server";
+import { api } from "@fhara/runtime/api";
 import { useToast } from "@/components/Toasts";
-import { SHADOW_KIND_LABELS, VERDICT_LABELS, type OpinionVerdict, type ShadowNoteKind } from "@/api/convex/lib/reviewer/opinion";
+import { SHADOW_KIND_LABELS, VERDICT_LABELS, type OpinionVerdict, type ShadowNoteKind } from "@/api/functions/lib/reviewer/opinion";
 
 type TaskReview = NonNullable<FunctionReturnType<typeof api.reviewer.listForTask>>;
 export type Opinion = TaskReview["opinions"][number];
@@ -30,7 +29,7 @@ const OUTCOME_COPY: Record<string, string> = {
 
 function errorText(err: unknown): string | undefined {
   if (!(err instanceof Error)) return undefined;
-  // Convex wraps server errors; keep the user-facing part.
+  // FharaRuntime wraps server errors; keep the user-facing part.
   const match = /Uncaught Error: (.*?)(?:\n|$)/.exec(err.message);
   return match ? match[1] : err.message;
 }

@@ -4,7 +4,7 @@ import { CAPABILITY, type AgentDefinition, type PlanSubtask } from "@/types";
 import { routeCapability } from "@/orchestrator/capabilities";
 import { loadAwareRoutingEnabled, pickLoadAware, type LoadAwareDecision } from "@/orchestrator/loadAwareRouting";
 import { performanceRoutingEnabled, pickByPerformance, type PerformanceDecision } from "@/orchestrator/performanceRouting";
-import type { PerformanceScore } from "@/api/convex/lib/agentPerformance";
+import type { PerformanceScore } from "@/api/functions/lib/agentPerformance";
 import type { ModelRoutingInfo } from "@/llm/resolver";
 import type { WebClient } from "@/tools/webClient";
 import { applyFileChange, hashContent, type FileDiff } from "@/tools/gitDiff";

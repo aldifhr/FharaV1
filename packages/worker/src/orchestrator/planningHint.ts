@@ -20,8 +20,8 @@
  * binds, and that binding is the task's agent pool, as before.
  */
 import { CAPABILITY, type Classification, type ExecutionPlan } from "@/types";
-import { ROLES, isRoleKey } from "@/api/convex/lib/roles";
-import { readRoutingHint, type RoutingHint } from "@/api/convex/lib/routingHint";
+import { ROLES, isRoleKey } from "@/api/functions/lib/roles";
+import { readRoutingHint, type RoutingHint } from "@/api/functions/lib/routingHint";
 import { isExplicitNoCode } from "./classifier";
 
 export { routingHintPromptLines } from "@/prompts/routingHint";

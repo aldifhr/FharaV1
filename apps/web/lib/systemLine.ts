@@ -1,17 +1,17 @@
 /**
  * Orchestrator/CTO split O4: how the web shows System status lines.
  *
- * A System line is a message with `voice: "system"` (apps/api/convex/lib/systemLine.ts):
+ * A System line is a message with `voice: "system"` (apps/api/functions/lib/systemLine.ts):
  * routing/status only, no agent, no @name. Older chats hold the pre-O3 handoff line an agent
  * posted instead ("Handing this to @Backend for …"); it is shown the same way, as "Sent to Backend".
  *
  * Pure, so tests/unit/systemLine.test.mjs can run it under node:test.
  */
-import { isSystemLine } from "@/api/convex/lib/systemLine";
+import { isSystemLine } from "@/api/functions/lib/systemLine";
 
 export { isSystemLine };
 
-// Same shape as `isHandoffLine` in apps/api/convex/lib/chat/dispatch.ts, with the name captured.
+// Same shape as `isHandoffLine` in apps/api/functions/lib/chat/dispatch.ts, with the name captured.
 const LEGACY_HANDOFF = /^(?:Handing this to @([\w.-]+) for [^\n]{1,160}\.|Saya serahkan ke @([\w.-]+) untuk [^\n]{1,160}\.)$/;
 
 type Row = { voice?: string | null; authorType?: string; content?: string | null };

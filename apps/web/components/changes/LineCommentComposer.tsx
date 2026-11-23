@@ -1,4 +1,3 @@
-"use client";
 // Paradev A4 (plan audit/paradev-plan-2026-11-11.md, P-A): the inline line
 // comment composer and one comment as it shows under its diff line. Idea
 // from Paradev's AgentCommentComposer; markup and keys are Fhara's.

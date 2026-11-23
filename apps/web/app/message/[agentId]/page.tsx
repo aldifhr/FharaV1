@@ -1,10 +1,9 @@
-"use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useMutation } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { Link } from "@/lib/spaRouter";
+import { useParams } from "@/lib/spaRouter";
+import { useMutation } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import Sidebar from "@/components/Sidebar";
 import PersonalChatPanel from "@/components/chat/PersonalChatPanel";
 

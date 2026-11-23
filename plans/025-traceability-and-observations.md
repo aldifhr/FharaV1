@@ -76,7 +76,7 @@ map 1:1 (`dependency_deadlock` / `no_runnable_nodes` → `dependency_blocked`,
 
 ## Steps (done)
 
-1. Shared pure libs `apps/api/convex/lib/requirements.ts`,
+1. Shared pure libs `apps/api/functions/lib/requirements.ts`,
    `lib/observations.ts`; validators `lib/traceValidators.ts`;
    `requirementIds` in `subtaskContractFields`.
 2. Schema (additive): `tasks.requirements`, `tasks.requirementCoverage`,
@@ -99,7 +99,7 @@ map 1:1 (`dependency_deadlock` / `no_runnable_nodes` → `dependency_blocked`,
   `processTask` end to end: the auth plan without a refresh-token
   subtask is not done (completed with gaps, `r4` uncovered); with it,
   done; a plan without requirements is not gated.
-- `apps/api/convex/traceability.test.ts`: the observation mapping table,
+- `apps/api/functions/traceability.test.ts`: the observation mapping table,
   stored observations from `logEvent` / `updateExecution`, requirements
   stored by `savePlan`, the coverage query, and the lease fence on
   `recordRequirementCoverage`.

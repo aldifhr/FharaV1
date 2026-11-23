@@ -9,12 +9,12 @@ import {
   quantile,
   samplesFromUsage,
   type EstimateSample,
-} from "@/api/convex/lib/estimate";
+} from "@/api/functions/lib/estimate";
 import { buildPlanEstimate } from "@/services/runner/planReview";
 import type { AgentDefinition, ExecutionPlan } from "@/types";
 
 /**
- * Task Estimator math (apps/api/convex/lib/estimate.ts): deterministic,
+ * Task Estimator math (apps/api/functions/lib/estimate.ts): deterministic,
  * median per kind+role with kind and default fallbacks, priced cost,
  * critical-path duration range.
  */

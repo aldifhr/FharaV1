@@ -13,10 +13,10 @@ import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { captureCheckpoint } from "@/tools/gitCheckpoint";
 import { parseTurnDiffFilesFromNumstat } from "@/vendor/goat/diffs";
-import { checkpointRefName, listTaskCheckpointRefs, removeTaskGitState } from "@/api/convex/lib/checkpointRefs";
-import { buildBranchPatch, type GitRun } from "@/api/convex/lib/diffPatch";
+import { checkpointRefName, listTaskCheckpointRefs, removeTaskGitState } from "@/api/functions/lib/checkpointRefs";
+import { buildBranchPatch, type GitRun } from "@/api/functions/lib/diffPatch";
 import { checkpointRecordArgs } from "@/services/runner/checkpoints";
-import { CHECKPOINT_FILES_LIMIT } from "@/api/convex/lib/checkpointValidators";
+import { CHECKPOINT_FILES_LIMIT } from "@/api/functions/lib/checkpointValidators";
 
 const TASK = "k17abc123task";
 let root: string;

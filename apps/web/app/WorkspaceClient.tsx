@@ -1,14 +1,13 @@
-"use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "@/lib/spaRouter";
 import { AnimatePresence, motion } from "framer-motion";
 import Sidebar from "@/components/Sidebar";
 import TaskThreadPanel from "@/components/TaskThreadPanel";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "@fhara/runtime/react";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toasts";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { takeRequestedThread } from "@/lib/pendingThread";
 import { threadLinkView, type ThreadLink } from "@/lib/threadTree";

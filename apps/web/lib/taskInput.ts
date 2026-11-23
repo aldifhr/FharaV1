@@ -1,4 +1,4 @@
-import { TASK_INPUT_REFUSAL_COPY, type TaskInputRefusal } from "@/api/convex/lib/taskInputGuard";
+import { TASK_INPUT_REFUSAL_COPY, type TaskInputRefusal } from "@/api/functions/lib/taskInputGuard";
 
 /** The inline line for a steer/answer the backend input guard refused. */
 export function refusalCopy(reason: string | undefined): string {

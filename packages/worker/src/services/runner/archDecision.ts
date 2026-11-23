@@ -19,7 +19,7 @@ import {
   ARCH_REVISE_FEEDBACK_PREFIX,
   parseArchVerdict,
   type ArchVerdict,
-} from "@/api/convex/lib/architectureFlag";
+} from "@/api/functions/lib/architectureFlag";
 
 const REASON_CHARS = 600;
 

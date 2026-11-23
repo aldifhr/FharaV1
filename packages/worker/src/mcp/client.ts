@@ -7,7 +7,7 @@
  *
  * Security properties:
  *  - The child env is filtered to the shared allowlist, so the worker's
- *    `CONVEX_SERVICE_TOKEN` / `PROVIDER_ENCRYPTION_KEY` never enter the
+ *    `FHARA_SERVICE_TOKEN` / `PROVIDER_ENCRYPTION_KEY` never enter the
  *    MCP process.
  *  - Per-request timeout; a hung server is killed, never awaited.
  *  - Results are truncated to `maxResultChars` before they reach the
@@ -16,11 +16,11 @@
 
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { maskStringSecrets } from "@/governance/tools";
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
 
 /**
  * Build an MCP child's env on top of the shared allowlist (buildChildEnv).
- * Never forwards the whole `process.env`: the worker holds the Convex
+ * Never forwards the whole `process.env`: the worker holds the FharaRuntime
  * service token and the provider encryption key, and an MCP server (or a
  * malicious config) must not see them.
  */

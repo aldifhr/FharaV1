@@ -1,4 +1,4 @@
-import type { TaskBrief } from "@/api/convex/lib/brief";
+import type { TaskBrief } from "@/api/functions/lib/brief";
 import type { ReviewFinding } from "@/utils/json";
 import type { Classification } from "./plan";
 

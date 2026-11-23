@@ -1,4 +1,3 @@
-"use client";
 
 import { Check, Copy } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -51,7 +50,7 @@ function CopyId({ id, label = "id", display }: { id: string; label?: string; dis
   );
 }
 
-/** Short form of a long Convex id: first 6 and last 4 characters. */
+/** Short form of a long FharaRuntime id: first 6 and last 4 characters. */
 function shortId(id: string): string {
   return id.length > 14 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id;
 }

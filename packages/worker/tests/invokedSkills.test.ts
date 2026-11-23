@@ -1,7 +1,7 @@
 // Paradev C3: skills the user invoked ("/<skill>") reach every task run inline.
 import { describe, expect, test, vi } from "vitest";
-import type { LibrarySkillRef, PromptSkill } from "@/api/convex/lib/skills";
-import { INVOKED_SKILLS_NOTE } from "@/api/convex/lib/skillRuntime";
+import type { LibrarySkillRef, PromptSkill } from "@/api/functions/lib/skills";
+import { INVOKED_SKILLS_NOTE } from "@/api/functions/lib/skillRuntime";
 import { toAgentDefinition } from "@/services/runner/setup";
 import { preloadOnDemandSkills, SKILL_PRELOAD_DONE, taskAgentSkills } from "@/execution/skillLoading";
 import type { WorkerRunAgent } from "@/workerApi";

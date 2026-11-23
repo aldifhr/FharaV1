@@ -6,17 +6,17 @@
  * MIT, Copyright (c) 2026 Mike Cann. Rewritten for Fhara: options are typed
  * html | image | markdown; html goes through the validator + sanitizer
  * (htmlPreview.ts) and a scripts-off PNG render (render.ts); the review is a
- * Convex row the subtask waits on in-process (like a run_command approval),
+ * FharaRuntime row the subtask waits on in-process (like a run_command approval),
  * and the design files are kept in the worktree under .fhara/design/<key>/
  * (N.html + N.png + README.md, threadbear's docs/*-design pattern).
  */
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { wenv } from "@fhara/config/worker";
-import type { Id } from "@/api/convex/_generated/dataModel";
+import type { Id } from "@fhara/runtime/data";
 import type { WorkerApi } from "@/workerApi";
 import { resolveSandboxPathAsync } from "@/tools/sandbox";
-import { OPTIONS_REVIEW_LIMITS, isPurpose, type OptionsReviewPurpose } from "@/api/convex/lib/optionsReview";
+import { OPTIONS_REVIEW_LIMITS, isPurpose, type OptionsReviewPurpose } from "@/api/functions/lib/optionsReview";
 import { MOCKUP_ASSET_MAX, formatFindings, prepareHtmlOption, type AssetResolver } from "./htmlPreview";
 import { captureRoute, renderHtmlOption } from "./render";
 

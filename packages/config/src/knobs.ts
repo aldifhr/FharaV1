@@ -1,7 +1,7 @@
 /**
  * The Settings-modal knobs, derived from the schema. KNOBS_FROM_SCHEMA has
  * exactly the shape of the SETTING_KNOBS literal that lived in
- * apps/api/convex/lib/appSettings.ts before E1 (a parity test pins it).
+ * apps/api/functions/lib/appSettings.ts before E1 (a parity test pins it).
  */
 import { envVar } from "./schema";
 import type { EnvVar } from "./schema/types";
@@ -15,7 +15,7 @@ export interface SettingKnob {
   type: SettingKnobType;
   /** The value the code uses when neither the UI nor the env sets one. */
   defaultValue: string;
-  /** Who reads it: the worker process, or a Convex function. */
+  /** Who reads it: the worker process, or a FharaRuntime function. */
   reader: "worker" | "api" | "both";
   min?: number;
   max?: number;

@@ -52,7 +52,7 @@ plan could only be stopped by cancelling the whole task.
 4. **Decomposer graph.** `runs.get.graph` + `components/runs/PlanGraph.tsx`
    (layered SVG layout, status-dot colours), toggled with the timeline.
 
-The plan validator moved to `apps/api/convex/lib/planValidation.ts` (with
+The plan validator moved to `apps/api/functions/lib/planValidation.ts` (with
 `lib/ownershipPaths.ts`) so the backend validates edits with the same rules;
 the worker modules re-export it under their old paths.
 
@@ -64,6 +64,6 @@ the worker modules re-export it under their old paths.
 ## Completion criteria
 
 - [x] `npm run typecheck` (web, api, worker)
-- [x] `convex/planReview.test.ts`, `convex/lib/routing.test.ts`
+- [x] `runtime/planReview.test.ts`, `runtime/lib/routing.test.ts`
 - [x] `tests/planReview.test.ts`, `tests/estimate.test.ts`, `tests/layering.test.ts`
 - [ ] Live smoke: a project on `always` pauses, edit + approve runs the edited plan

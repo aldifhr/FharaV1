@@ -1,6 +1,6 @@
 ---
 name: smoke
-description: Start the Fhara stack and prove a change works in the real app. Use when asked to smoke test, QA, verify, or check a change or PR in the running UI, the worker, or the backend. Covers the web app, the worker, and Convex.
+description: Start the Fhara stack and prove a change works in the real app. Use when asked to smoke test, QA, verify, or check a change or PR in the running UI, the worker, or the backend. Covers the web app, the worker, and Fhara runtime.
 ---
 
 # Smoke
@@ -14,7 +14,7 @@ tests or typecheck; it proves the user-visible path.
 - Read the root `AGENTS.md` and the `AGENTS.md` of every surface in the diff.
 - Get the change set: `git diff --name-only $(git merge-base origin/main HEAD)`
   plus `git status --short`. On `main` with no upstream, use the working tree.
-- Check that the environment exists: root `.env` needs `NEXT_PUBLIC_CONVEX_URL`,
+- Check that the environment exists: root `.env` needs `FHARA_BACKEND_URL`,
   `CONVEX_SERVICE_TOKEN`, and `PROVIDER_ENCRYPTION_KEY`. Never print their values.
   Never edit `.env` to make a smoke test pass.
 - Do not touch an existing dev stack you did not start.
@@ -37,13 +37,13 @@ say so and stop.
 | Plan needs | Command |
 | --- | --- |
 | Web UI only | `npm run dev` (http://localhost:3000) |
-| Worker + backend | `npm run convex` (Convex dev + worker in one terminal) |
-| A full task run | `npm run convex` **and** `npm run dev` |
+| Worker + backend | `npm run runtime` (Fhara runtime dev + worker in one terminal) |
+| A full task run | `npm run runtime` **and** `npm run dev` |
 | Desktop shell | `npm run electron:dev` |
 
 - Start long-running commands in the background and wait for the port or the
-  Convex "Convex functions ready" line, not for a fixed number of seconds.
-- Convex codegen is required first on a fresh clone:
+  Fhara runtime "Fhara runtime functions ready" line, not for a fixed number of seconds.
+- Fhara runtime codegen is required first on a fresh clone:
   `npm run --workspace=@fhara/api codegen`.
 - A full task run spends real provider quota. Keep the prompt short and use a
   cheap model. Say in the report that you spent quota.
@@ -53,8 +53,8 @@ say so and stop.
 - Use the browser tools against `http://localhost:3000`. Wait for an element or a
   state, never for elapsed time.
 - For a backend-only change, drive the function directly instead of the UI:
-  `npx convex run <module>:<fn> '<json>'` against the dev deployment, or a
-  `convex-test` case when the function is internal.
+  `npx runtime run <module>:<fn> '<json>'` against the dev deployment, or a
+  `runtime-test` case when the function is internal.
 - For a worker change, watch the worker log and the task's event trail
   (`taskEvents`, `lifecycleHistory`) rather than guessing from the UI.
 - Do not add `data-testid`. Select by role and accessible name. An element with
@@ -65,7 +65,7 @@ say so and stop.
 - Stop only the processes you started. Kill by PID. Never `pkill -f node`,
   `pkill -f next`, or `pkill -f tsx`.
 - Leave a stack that was already running before you started.
-- Do not delete the Convex local database or `workspaces/`.
+- Do not delete the Fhara runtime local database or `workspaces/`.
 
 ## Step 5 — Report
 

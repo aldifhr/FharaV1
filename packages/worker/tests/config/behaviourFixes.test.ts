@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { ENV_SCHEMA, type EnvVar, readVar, schemaDefault, setEnvIssueSink } from "@fhara/config";
-import { setSettingOverrides } from "@/api/convex/lib/appSettings";
+import { setSettingOverrides } from "@/api/functions/lib/appSettings";
 import { toolLoopEnabled } from "@/execution/toolLoopFlag";
 import { loadPolicy } from "@/orchestrator/policy";
 
@@ -130,10 +130,10 @@ describe("B3: numbers are validated (no NaN), \"\" reads as the default", () => 
   });
 });
 
-describe("B5: one LLM fallback for the worker and Convex", () => {
+describe("B5: one LLM fallback for the worker and FharaRuntime", () => {
   it("openai-compatible takes the OpenAI defaults in both, and both honour the flavour URL", async () => {
     const { getGlobalLLMConfig: worker } = await import("@/llm");
-    const { getGlobalLLMConfig: convex } = await import("@/api/convex/lib/llmConfig");
+    const { getGlobalLLMConfig: runtime } = await import("@/api/functions/lib/llmConfig");
     const cases: Array<Record<string, string>> = [
       { LLM_PROVIDER: "openai-compatible" },
       { LLM_PROVIDER: "openai-compatible", LLM_OPENAI_BASE_URL: "http://o/v1", LLM_BASE_URL: "http://b/v1" },
@@ -146,7 +146,7 @@ describe("B5: one LLM fallback for the worker and Convex", () => {
       for (const env of cases) {
         for (const k of ["LLM_PROVIDER", "LLM_MODEL", "LLM_BASE_URL", "LLM_OPENAI_BASE_URL", "LLM_ANTHROPIC_BASE_URL", "LLM_API_KEY", "OPENAI_API_KEY"]) delete process.env[k];
         Object.assign(process.env, env);
-        expect(convex()).toEqual(worker(env));
+        expect(runtime()).toEqual(worker(env));
       }
       expect(worker({ LLM_PROVIDER: "openai-compatible" })).toMatchObject({ model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" });
       expect(worker({ LLM_PROVIDER: "openai-compatible", LLM_OPENAI_BASE_URL: "http://o/v1", LLM_BASE_URL: "http://b/v1" }).baseUrl).toBe("http://o/v1");
@@ -206,18 +206,18 @@ describe("B6: the worker decrypts with PROVIDER_ENCRYPTION_KEY_OLD during a rota
 });
 
 describe("B7: one workspace-path resolver", () => {
-  it("worker, web and Convex node resolve a project the same way from the same root and anchor", async () => {
+  it("worker, web and FharaRuntime node resolve a project the same way from the same root and anchor", async () => {
     const nodePath = await import("node:path");
     const { resolveWorkspacePath } = await import("@/services/runner/setup");
     const { WORKER_DIR } = await import("@/utils/rootEnv");
     const { resolveWorkspaceBase } = await import("../../../../apps/web/lib/projectFilesPolicy");
-    const { resolveRepoPath } = await import("@/api/convex/lib/workspacePath");
+    const { resolveRepoPath } = await import("@/api/functions/lib/workspacePath");
     for (const root of ["./workspaces", "ws", "/abs/ws"]) {
       for (const project of ["p1", "nested/p2", "/abs/proj"]) {
         const expected = nodePath.isAbsolute(project) ? nodePath.resolve(project) : nodePath.resolve(WORKER_DIR, root, project);
         expect(resolveWorkspacePath(root, project), `worker ${root} ${project}`).toBe(expected);
         expect(resolveWorkspaceBase(project, { WORKSPACE_ROOT: root }, WORKER_DIR), `web ${root} ${project}`).toBe(expected);
-        expect(resolveRepoPath(project, { env: { WORKSPACE_ROOT: root }, cwd: WORKER_DIR }), `convex ${root} ${project}`).toBe(expected);
+        expect(resolveRepoPath(project, { env: { WORKSPACE_ROOT: root }, cwd: WORKER_DIR }), `runtime ${root} ${project}`).toBe(expected);
       }
     }
   });
@@ -240,7 +240,7 @@ describe("B7: one workspace-path resolver", () => {
   });
 });
 
-describe("startup: .env is loaded before any module-load read; the log shows the CONVEX_URL alias", () => {
+describe("startup: .env is loaded before any module-load read; the log shows the FHARA_BACKEND_URL alias", () => {
   it("index.ts imports utils/loadEnv first and nothing else calls dotenv", async () => {
     const fs = await import("node:fs");
     const nodePath = await import("node:path");
@@ -262,19 +262,19 @@ describe("startup: .env is loaded before any module-load read; the log shows the
     expect(others).toEqual([]);
   });
 
-  it("the listening line reads NEXT_PUBLIC_CONVEX_URL with its CONVEX_URL alias", async () => {
+  it("the listening line reads FHARA_BACKEND_URL with its FHARA_BACKEND_URL alias", async () => {
     const { wenv } = await import("@fhara/config/worker");
-    expect(wenv("NEXT_PUBLIC_CONVEX_URL", { CONVEX_URL: "http://legacy" })).toBe("http://legacy");
+    expect(wenv("FHARA_BACKEND_URL", { FHARA_BACKEND_URL: "http://legacy" })).toBe("http://legacy");
     const fs = await import("node:fs");
     const nodePath = await import("node:path");
     const index = fs.readFileSync(nodePath.resolve(import.meta.dirname, "../../src/index.ts"), "utf8");
-    expect(index).toContain('listening: convex=${wenv("NEXT_PUBLIC_CONVEX_URL")}');
+    expect(index).toContain('listening: runtime=${wenv("FHARA_BACKEND_URL")}');
   });
 });
 
 describe("QA_CHROMIUM_NO_SANDBOX: the Settings knob shows the real default (auto)", () => {
   it("is an auto / true / false knob defaulting to auto, and auto reads as auto", async () => {
-    const { SETTING_KNOBS, normalizeSettingValue } = await import("@/api/convex/lib/appSettings");
+    const { SETTING_KNOBS, normalizeSettingValue } = await import("@/api/functions/lib/appSettings");
     expect(SETTING_KNOBS.QA_CHROMIUM_NO_SANDBOX).toEqual({ type: "enum", defaultValue: "auto", reader: "worker", options: ["auto", "true", "false"] });
     expect(normalizeSettingValue("QA_CHROMIUM_NO_SANDBOX", "Auto")).toBe("auto");
     expect(readVar("QA_CHROMIUM_NO_SANDBOX", { QA_CHROMIUM_NO_SANDBOX: "auto" })).toBeUndefined();

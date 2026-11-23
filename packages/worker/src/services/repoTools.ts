@@ -2,11 +2,11 @@ import path from "node:path";
 import type { WorkerApi } from "@/workerApi";
 import { runRepoReadTool } from "@/tools/repoRead";
 import { runChatLlm, type ChatLlmArgs } from "@/tools/chatLlm";
-import { capToolOutput, type RepoToolResult } from "@/api/convex/lib/chat/repoTools";
+import { capToolOutput, type RepoToolResult } from "@/api/functions/lib/chat/repoTools";
 
 /**
  * Grounded chat, worker side: claim one read-only repo tool call queued by
- * the chat action (apps/api/convex/repoTools.ts), run it inside that
+ * the chat action (apps/api/functions/repoTools.ts), run it inside that
  * project's workspace and write the capped result back. A project without
  * a workspace gets an error result, never the worker's own root.
  */

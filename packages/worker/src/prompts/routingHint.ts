@@ -2,10 +2,10 @@
  * The planning prompt's routing hint block (P1a). Lives in prompts/ (layer 0)
  * so the planner prompt can use it; orchestrator/planningHint.ts re-exports
  * it. The hint type is structural here (RoutingHint from
- * api/convex/lib/routingHint is assignable) to keep Convex validators out
+ * api/runtime/lib/routingHint is assignable) to keep FharaRuntime validators out
  * of the foundation layer.
  */
-import { ROLES } from "@/api/convex/lib/roles";
+import { ROLES } from "@/api/functions/lib/roles";
 
 /** The fields of a routing hint the prompt block reads. */
 export interface RoutingHintFacts {

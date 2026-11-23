@@ -11,8 +11,8 @@ import { executeSubtask, type SubtaskExecutionInput } from "@/execution/agentExe
 import type { SpawnImpl } from "@/execution/nativeProvider";
 import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "@/orchestrator/types";
 import type { RunContext } from "@/services/runner/types";
-import { extractRequirementsFallback } from "@/api/convex/lib/requirements";
-import { sandboxInstructionSpan } from "@/api/convex/lib/sandboxBrief";
+import { extractRequirementsFallback } from "@/api/functions/lib/requirements";
+import { sandboxInstructionSpan } from "@/api/functions/lib/sandboxBrief";
 import { approvalDeciderLabel } from "../../../apps/web/lib/approvalDecider";
 import { createTempGitRepo } from "./helpers/tempRepo";
 

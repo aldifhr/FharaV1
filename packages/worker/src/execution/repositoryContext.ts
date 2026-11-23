@@ -9,7 +9,7 @@ const IGNORED = new Set([
   ".next",
   "dist",
   "build",
-  ".convex",
+  ".runtime",
   ".turbo",
   ".qa",
   "coverage",

@@ -14,7 +14,7 @@ import {
   verifyFixKey,
   type FixNeededFacts,
 } from "@/orchestrator/decisionEngine";
-import { ROLES } from "@/api/convex/lib/roles";
+import { ROLES } from "@/api/functions/lib/roles";
 import type { AgentDefinition, PlanSubtask } from "@/types";
 import type { ReviewFinding } from "@/utils/json";
 

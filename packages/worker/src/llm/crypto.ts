@@ -1,17 +1,17 @@
 /**
  * Worker-side decryption for provider API keys (spec §5).
  *
- * Mirrors apps/api/convex/lib/llmCrypto.ts: AES-256-GCM, ciphertext format
+ * Mirrors apps/api/functions/lib/llmCrypto.ts: AES-256-GCM, ciphertext format
  * `v1:<iv b64>:<tag b64>:<cipher b64>`, key from the
  * `PROVIDER_ENCRYPTION_KEY` env var (base64-encoded 32 bytes) which must be
- * set to the SAME value on the worker and the Convex deployment.
+ * set to the SAME value on the worker and the FharaRuntime deployment.
  *
  * Decryption failure is a HARD error naming the provider — never a silent
  * fallback to another credential.
  *
  * Key rotation (B6, D7): when the current key cannot open a ciphertext and
  * `PROVIDER_ENCRYPTION_KEY_OLD` is set, the worker tries the old key too,
- * so rows the Convex rotation migration has not re-encrypted yet still work.
+ * so rows the FharaRuntime rotation migration has not re-encrypted yet still work.
  */
 import { wenv } from "@fhara/config/worker";
 
@@ -43,7 +43,7 @@ function encryptionKey(): Promise<CryptoKey> {
       ? importDecryptKey("PROVIDER_ENCRYPTION_KEY", raw)
       : Promise.reject(
           new Error(
-            "PROVIDER_ENCRYPTION_KEY is not set in the worker environment. Provider credentials stored encrypted cannot be decrypted until it matches the key set on the Convex deployment."
+            "PROVIDER_ENCRYPTION_KEY is not set in the worker environment. Provider credentials stored encrypted cannot be decrypted until it matches the key set on the FharaRuntime deployment."
           )
         );
     key.catch(() => {});

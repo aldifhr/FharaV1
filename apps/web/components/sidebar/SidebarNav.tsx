@@ -1,10 +1,9 @@
-"use client";
 
-import Link from "next/link";
+import { Link } from "@/lib/spaRouter";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
-import { useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import { readUiPref } from "@/lib/uiPrefs";
 
 export type NavIcon = ComponentType<{ size?: number; strokeWidth?: number; className?: string }>;

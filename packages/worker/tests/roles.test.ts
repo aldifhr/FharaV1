@@ -8,7 +8,7 @@ import {
   selectAgentsForTask,
 } from "@/orchestrator/roles";
 import type { AgentDefinition } from "@/orchestrator/types";
-import { ROLES, ROLE_KEYS } from "@/api/convex/lib/roles";
+import { ROLES, ROLE_KEYS } from "@/api/functions/lib/roles";
 
 const dev: AgentDefinition = { _id: "d1", name: "Dev", role: "frontend", capabilities: ["frontend-development", "backend-development"], isEnabled: true } as any;
 const qa: AgentDefinition = { _id: "q1", name: "QA", role: "qa", capabilities: ["browser-testing"], isEnabled: true } as any;
@@ -40,7 +40,7 @@ describe("roles: normalization + lookup", () => {
     expect(roleForAgent(dev)).toBe("frontend");
     expect(roleForAgent(cto)).toBe("cto");
   });
-  it("derives every role from the shared registry (apps/api/convex/lib/roles.ts)", () => {
+  it("derives every role from the shared registry (apps/api/functions/lib/roles.ts)", () => {
     expect(Object.keys(ROLE_DEFINITIONS).sort()).toEqual([...ROLE_KEYS].sort());
     for (const key of ROLE_KEYS) {
       expect(ROLE_DEFINITIONS[key].systemPromptHint).toBe(ROLES[key].hint);

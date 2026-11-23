@@ -1,10 +1,9 @@
-"use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "convex/react";
+import { useQuery } from "@fhara/runtime/react";
 import { FileDiff } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
-import type { ChangesCardData } from "@/api/convex/cardTypes";
+import { api } from "@fhara/runtime/api";
+import type { ChangesCardData } from "@/api/functions/cardTypes";
 import DiffCard from "../../DiffCard";
 import { CARD_SURFACE, MUTED } from "./primitives";
 import { useUiPref } from "@/lib/uiPrefs";

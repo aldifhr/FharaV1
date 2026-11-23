@@ -1,13 +1,12 @@
-"use client";
 // Paradev A2 (plan audit/paradev-plan-2026-11-11.md, P-A): the read-only
 // Changes pane of one task. Proposed files (fileChanges) before Accept, the
 // committed branch (changes.branchPatch) after; Open PR goes through the
 // existing git_push approval path (githubPush.requestPush), never a direct
 // push. Idea from Paradev's DiffPane; markup and data flow are Fhara's.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
-import type { BranchPatchResult } from "@/api/convex/changes";
+import { useAction, useMutation, useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
+import type { BranchPatchResult } from "@/api/functions/changes";
 import DiffCard from "../DiffCard";
 import { useToast } from "../Toasts";
 import ChangesFileList from "./ChangesFileList";

@@ -1,9 +1,8 @@
-"use client";
 
 import { useState, type FormEvent, type ReactNode } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "@fhara/runtime/react";
 import { Plus } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import Modal from "@/components/Modal";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import AgentAvatar from "@/components/AgentAvatar";
@@ -14,7 +13,7 @@ import {
   TEMPLATE_DESCRIPTION_MAX,
   TEMPLATE_NAME_MAX,
   TEMPLATE_PROMPT_MAX,
-} from "@/api/convex/lib/agentTemplates";
+} from "@/api/functions/lib/agentTemplates";
 
 type LibrarySkill = { _id: string; name: string };
 

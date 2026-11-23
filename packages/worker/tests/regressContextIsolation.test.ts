@@ -6,7 +6,7 @@
  * executions, decisions, artifacts or original request, and a plain
  * prior-output hand-off carries only the outputs it was given. The backend
  * half (chat history, summaries, task inputs) is pinned in
- * apps/api/convex/regressContextIsolation.test.ts.
+ * apps/api/functions/regressContextIsolation.test.ts.
  */
 import * as os from "node:os";
 import { describe, expect, it } from "vitest";

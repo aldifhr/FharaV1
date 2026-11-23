@@ -8,8 +8,8 @@ import {
   type EstimateModel,
   type EstimateSample,
   type PlanEstimate,
-} from "@/api/convex/lib/estimate";
-import { planReviewApplies } from "@/api/convex/lib/planReviewPolicy";
+} from "@/api/functions/lib/estimate";
+import { planReviewApplies } from "@/api/functions/lib/planReviewPolicy";
 import type { RunnerDeps } from "./types";
 
 /**

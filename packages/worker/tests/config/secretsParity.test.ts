@@ -8,16 +8,16 @@ import {
   secretValues,
   type EnvVar,
 } from "@fhara/config";
-import { DEFAULT_DENIED_SECRET_ENV_KEYS, WORKER_SECRET_ENV_KEYS } from "@/api/convex/lib/childEnv";
+import { DEFAULT_DENIED_SECRET_ENV_KEYS, WORKER_SECRET_ENV_KEYS } from "@/api/functions/lib/childEnv";
 
 /** Frozen copies of the childEnv lists at 4d2dfb7 (before E1), plus labelled later additions. */
 const OLD_WORKER_SECRET_ENV_KEYS = [
-  "CONVEX_SERVICE_TOKEN",
+  "FHARA_SERVICE_TOKEN",
   "PROVIDER_ENCRYPTION_KEY",
   "PROVIDER_ENCRYPTION_KEY_OLD",
-  "CONVEX_SELF_HOSTED_ADMIN_KEY",
-  "CONVEX_ADMIN_KEY",
-  "CONVEX_DEPLOY_KEY",
+  "FHARA_ADMIN_KEY",
+  "FHARA_ADMIN_KEY",
+  "FHARA_DEPLOY_KEY",
   "OAUTH_STATE_SECRET",
   "GITHUB_CLIENT_SECRET",
   "GITHUB_WEBHOOK_SECRET",
@@ -72,7 +72,7 @@ describe("secrets parity (E1)", () => {
   it("the 14 schema secrets are the ones the inventory flags", () => {
     expect([...SCHEMA_SECRET_NAMES].sort()).toEqual(
       [
-        "CONVEX_SERVICE_TOKEN",
+        "FHARA_SERVICE_TOKEN",
         "FHARA_MCP_TOKEN",
         "FHARA_MCP_WEBHOOK_SECRET",
         "FHARA_SMOKE_GITHUB_TOKEN",
@@ -93,6 +93,6 @@ describe("secrets parity (E1)", () => {
   });
 
   it("secretValues returns set secret values only", () => {
-    expect(secretValues({ CONVEX_SERVICE_TOKEN: " tok ", LLM_API_KEY: "", WORKER_ID: "w" })).toEqual(["tok"]);
+    expect(secretValues({ FHARA_SERVICE_TOKEN: " tok ", LLM_API_KEY: "", WORKER_ID: "w" })).toEqual(["tok"]);
   });
 });

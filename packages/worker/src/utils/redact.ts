@@ -6,8 +6,8 @@
  *     out (LLM provider keys and other sensitive variables in its own env,
  *     the GitHub token of a push claim, MCP server env values). These are
  *     masked exactly, wherever they appear, whatever they look like.
- *  2. Shape patterns shared with the Convex side
- *     (`apps/api/convex/lib/secretPatterns.ts`): token prefixes, PEM
+ *  2. Shape patterns shared with the FharaRuntime side
+ *     (`apps/api/functions/lib/secretPatterns.ts`): token prefixes, PEM
  *     blocks, `key=value` with a sensitive key name, `Bearer …`.
  *
  * ANSI escapes can hide a secret from a `key=value` rule
@@ -20,7 +20,7 @@
  * openbot's `mcp-redaction.ts` (pattern only, no code copied: PolyForm
  * Noncommercial).
  */
-import { redactSecrets } from "@/api/convex/lib/secretPatterns";
+import { redactSecrets } from "@/api/functions/lib/secretPatterns";
 
 export const REDACTED = "[REDACTED]";
 

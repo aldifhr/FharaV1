@@ -1,18 +1,17 @@
-"use client";
 
 import { Suspense, useEffect, useMemo, useState, type FormEvent } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useMutation, useQuery } from "convex/react";
+import { useRouter, useSearchParams } from "@/lib/spaRouter";
+import { useMutation, useQuery } from "@fhara/runtime/react";
 import { Pin, Plus } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import Sidebar from "@/components/Sidebar";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import MemorySuggestions from "@/components/memory/MemorySuggestions";
 import Segmented from "@/components/ui/segmented";
 import { roleLabel } from "@/lib/agentRoles";
 import { relativeTime } from "@/lib/runFormat";
-import { MEMORY_CONTENT_MAX, MEMORY_PROMPT_BUDGET, MEMORY_TITLE_MAX, type MemoryScope } from "@/api/convex/lib/memory";
-import { RECALL_TOP_K } from "@/api/convex/lib/memoryRecall";
+import { MEMORY_CONTENT_MAX, MEMORY_PROMPT_BUDGET, MEMORY_TITLE_MAX, type MemoryScope } from "@/api/functions/lib/memory";
+import { RECALL_TOP_K } from "@/api/functions/lib/memoryRecall";
 
 type Memory = {
   _id: string;
@@ -69,7 +68,7 @@ export default function MemoryPage() {
  * Memory: notes agents carry between runs. Pinned memories are added to an
  * agent's prompt after its skills — shared, then the project's, then the
  * agent's own. Unpinned memories are recalled when they match a task or
- * message (Convex full-text search, plan L4).
+ * message (FharaRuntime full-text search, plan L4).
  */
 function MemoryInner() {
   const params = useSearchParams();

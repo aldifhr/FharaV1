@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { CONVEX_SYNC_KEYS, ENV_SCHEMA, type EnvVar, exampleValue, renderApiEnvExample, renderEnvExample, renderManifest, schemaDefault } from "@fhara/config";
+import { FHARA_SYNC_KEYS, ENV_SCHEMA, type EnvVar, exampleValue, renderApiEnvExample, renderEnvExample, renderManifest, schemaDefault } from "@fhara/config";
 import { ROOT_ENV_FILE } from "../../src/utils/rootEnv";
 
 /**
@@ -36,7 +36,7 @@ describe(".env.example content (E4)", () => {
 
   it("has one header, not two", () => {
     expect(text.match(/one \.env for the whole repo/gi)).toHaveLength(1);
-    expect(text).not.toMatch(/npx convex env set NAME value/);
+    expect(text).not.toMatch(/npx runtime env set NAME value/);
   });
 
   it("lists every current var once with its schema default, and every legacy name as a note", () => {
@@ -70,12 +70,12 @@ describe(".env.example content (E4)", () => {
     }
   });
 
-  it("marks exactly the env:sync keys as synced to Convex", () => {
+  it("marks exactly the env:sync keys as synced to FharaRuntime", () => {
     const synced = text
       .split("\n")
-      .map((line, i, lines) => (line.includes("synced to Convex by npm run dev") ? lines[i + 1]!.replace(/^# /, "").split("=")[0] : null))
+      .map((line, i, lines) => (line.includes("synced to FharaRuntime by npm run dev") ? lines[i + 1]!.replace(/^# /, "").split("=")[0] : null))
       .filter(Boolean);
-    expect(new Set(synced)).toEqual(new Set(CONVEX_SYNC_KEYS.filter((k) => !envVar(k)?.deprecated)));
+    expect(new Set(synced)).toEqual(new Set(FHARA_SYNC_KEYS.filter((k) => !envVar(k)?.deprecated)));
   });
 });
 

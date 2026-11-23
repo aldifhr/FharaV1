@@ -30,7 +30,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { wenv, wenvRaw, type EnvSource } from "@fhara/config/worker";
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
 
 export type SandboxMode = "workspace-write" | "read-only" | "off";
 export type SandboxSupport = "full" | "partial" | "off";

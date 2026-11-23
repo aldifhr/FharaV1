@@ -17,14 +17,14 @@ import { existsSync, promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ROLES, ROLE_KEYS, canWritePath } from "@/api/convex/lib/roles";
+import { ROLES, ROLE_KEYS, canWritePath } from "@/api/functions/lib/roles";
 import { buildOpencodePolicy, mergedPolicyViolation, opencodePermissionBlock, rulesetPolicyViolation, flattenPermissionBlock, evaluateOpencodeRule } from "@/execution/opencodePolicy";
 import { decideToolAccess, ROLE_OPERATION_POLICY } from "@/execution/opencodePermissions";
 import { nativeArgv, OPENCODE_KEY_ENV, opencodeRunAgentName, opencodeSafetyEnv, runNativeProvider, verifyLoadedPolicy } from "@/execution/nativeProvider";
 
 const FAKE_DEBUG = path.join(__dirname, "fixtures", "fakeOpencodeDebugAgent.cjs");
 const DEBUG_LINE = `if [ "$1" = debug ]; then exec node "${FAKE_DEBUG}" "$3"; fi`;
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
 
 const SECRET = "sk-layering-SECRET-987654";
 const LLM = { provider: "openai-compatible", model: "nous", baseUrl: "http://llm.local/v1", apiKey: SECRET };

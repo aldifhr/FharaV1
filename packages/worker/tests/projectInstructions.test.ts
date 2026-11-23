@@ -6,7 +6,7 @@ import {
   INSTRUCTION_BLOCK_HEADER,
   nestedInstructionDirs,
   TRUNCATION_NOTE,
-} from "@/api/convex/lib/projectInstructions";
+} from "@/api/functions/lib/projectInstructions";
 import { projectInstructionChain, projectInstructionsBlock } from "@/context/projectInstructions";
 import { turnUserContent } from "@/execution/turnContext";
 import { resetTimeContextForTest } from "@/context/timeContext";

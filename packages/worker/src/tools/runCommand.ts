@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
 import { isCommandAllowed } from "@/utils/commandAllowlist";
 import { redactText } from "@/utils/redact";
 import { shellGuardDecisionForArgv } from "@/utils/shellGuard";

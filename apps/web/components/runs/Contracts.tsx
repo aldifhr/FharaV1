@@ -1,8 +1,7 @@
-"use client";
 
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { ESCALATION_LABELS, type EscalationKind } from "@/api/convex/lib/subtaskContract";
+import { ESCALATION_LABELS, type EscalationKind } from "@/api/functions/lib/subtaskContract";
 
 /**
  * Plan 022: per-subtask contract and acceptance on /runs. Acceptance is

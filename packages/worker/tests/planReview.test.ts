@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { WorkerAgent, WorkerTask } from "@/workerApi";
-import { applyPlanEdits } from "@/api/convex/lib/planEdit";
+import { applyPlanEdits } from "@/api/functions/lib/planEdit";
 import { validatePlan } from "@/orchestrator/planValidator";
 
 /**

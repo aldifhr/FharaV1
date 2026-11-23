@@ -14,7 +14,7 @@
  */
 
 import { wenv } from "@fhara/config/worker";
-import { StickyRotationCursor } from "@/api/convex/lib/llmRotation";
+import { StickyRotationCursor } from "@/api/functions/lib/llmRotation";
 
 /** A rotation cursor: hands out the next index of a candidate list. */
 export interface RotationCursor {

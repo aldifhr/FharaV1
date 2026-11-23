@@ -18,7 +18,7 @@ import { wenv } from "@fhara/config/worker";
 import { promises as fs, constants as fsConstants } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
 import { defaultSpawn, nativeProviderCommand, runNativeProvider, type SpawnImpl } from "./nativeProvider";
 
 export interface OpencodeDetection {

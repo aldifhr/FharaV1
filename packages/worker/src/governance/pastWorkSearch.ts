@@ -1,9 +1,9 @@
 /**
- * D11: binds the governed `search_past_work` tool to the Convex API
+ * D11: binds the governed `search_past_work` tool to the FharaRuntime API
  * (`pastWork.forWorker`, service-token authenticated). Pass the result as
  * `ToolContext.searchPastWork`.
  */
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import type { WorkerApi } from "@/workerApi";
 import type { PastWorkSearchFn } from "./tools";
 

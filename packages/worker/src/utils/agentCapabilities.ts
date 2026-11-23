@@ -1,4 +1,4 @@
-import { ROLES } from "@/api/convex/lib/roles";
+import { ROLES } from "@/api/functions/lib/roles";
 import { CAPABILITY, type AgentDefinition } from "@/types";
 
 /**
@@ -7,7 +7,7 @@ import { CAPABILITY, type AgentDefinition } from "@/types";
  * orchestrator/capabilities, which re-exports these.
  *
  * Role patterns take their capabilities from the shared role registry
- * (apps/api/convex/lib/roles.ts `registryCapabilities`); the non-role
+ * (apps/api/functions/lib/roles.ts `registryCapabilities`); the non-role
  * patterns (security, github, shell) are worker-only heuristics.
  */
 

@@ -7,13 +7,13 @@ import {
 import { decryptApiKey } from "./crypto";
 import { providerHealth, type ProviderHealthRegistry } from "./health";
 import { fixedRotationCursor, rotationCursor, type RotationCursor } from "./roundRobin";
-import type { ModelTiers } from "@/api/convex/lib/modelTiers";
-import { orderChain, overrideModelFor } from "@/api/convex/lib/llmChain";
-import type { LlmSelectionMode } from "@/api/convex/lib/llmSelection";
-import { matchesModelPattern, orderPoolPairs } from "@/api/convex/lib/llmOrder";
-import { isNativeCliConnection, isOpencodeConnection, withoutNativeCli } from "@/api/convex/lib/opencodeProvider";
+import type { ModelTiers } from "@/api/functions/lib/modelTiers";
+import { orderChain, overrideModelFor } from "@/api/functions/lib/llmChain";
+import type { LlmSelectionMode } from "@/api/functions/lib/llmSelection";
+import { matchesModelPattern, orderPoolPairs } from "@/api/functions/lib/llmOrder";
+import { isNativeCliConnection, isOpencodeConnection, withoutNativeCli } from "@/api/functions/lib/opencodeProvider";
 import { registerSecretValues } from "@/utils/redact";
-import { isSafeApiKeyEnv } from "@/api/convex/lib/apiKeyEnv";
+import { isSafeApiKeyEnv } from "@/api/functions/lib/apiKeyEnv";
 
 export { matchesModelPattern };
 

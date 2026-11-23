@@ -20,7 +20,7 @@ import { runLlmCallWithFallback, usageMetaFor, type LlmConcurrencyGate } from "@
 import { providerHealth } from "@/llm/health";
 import { withSnapshotScope } from "@/llm/snapshots";
 import type { TaskLlmResolver } from "@/llm/resolver";
-import { looksLikeRawDiff, parseLearnings, type RoleLearning } from "@/api/convex/lib/roleMemory";
+import { looksLikeRawDiff, parseLearnings, type RoleLearning } from "@/api/functions/lib/roleMemory";
 import { buildRoleLearningsPrompt, roleLearningsSystemPrompt, type RoleWorkItem } from "@/prompts/roleLearnings";
 import type { AgentDefinition } from "@/types";
 import type { TokenUsageFn } from "@/types/llm";

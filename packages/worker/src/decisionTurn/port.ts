@@ -1,11 +1,11 @@
 /**
- * GOAT G13: the worker's side of apps/api/convex/decisionTurns.ts, through
+ * GOAT G13: the worker's side of apps/api/functions/decisionTurns.ts, through
  * the WorkerApi client (its `args()` adds the service token). An interface
  * so the runner tests can inject a fake.
  */
 import { wenv } from "@fhara/config/worker";
-import { api } from "@/api/convex/_generated/api";
-import type { FunctionArgs, FunctionReturnType } from "convex/server";
+import { api } from "@fhara/runtime/api";
+import type { FunctionArgs, FunctionReturnType } from "@fhara/runtime/server";
 import type { WorkerApi } from "@/workerApi";
 
 type Args<F extends Parameters<WorkerApi["client"]["mutation"]>[0]> = Omit<FunctionArgs<F>, "workerToken">;
@@ -24,7 +24,7 @@ export interface DecisionTurnPort {
   reviewCommand?(input: Relaxed<Args<typeof api.commandApprovals.review>>): Promise<FunctionReturnType<typeof api.commandApprovals.review>>;
 }
 
-export function convexDecisionTurnPort(workerApi: WorkerApi): DecisionTurnPort {
+export function runtimeDecisionTurnPort(workerApi: WorkerApi): DecisionTurnPort {
   const call = (fn: Parameters<WorkerApi["client"]["mutation"]>[0], input: object) =>
     workerApi.client.mutation(fn, workerApi.args(input as Record<string, unknown>));
   return {

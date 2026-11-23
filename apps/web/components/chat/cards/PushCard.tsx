@@ -1,10 +1,9 @@
-"use client";
 
 import { useState } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "@fhara/runtime/react";
 import { ArrowUp, Check, ExternalLink, GitPullRequest, Loader2, RefreshCw, RotateCcw } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
-import type { PushCardData } from "@/api/convex/cardTypes";
+import { api } from "@fhara/runtime/api";
+import type { PushCardData } from "@/api/functions/cardTypes";
 import { useToast } from "../../Toasts";
 import { useCardSurface } from "./CardContext";
 import {

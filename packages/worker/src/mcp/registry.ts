@@ -24,7 +24,7 @@ import {
   isForbiddenRoot,
   type AgentScope,
 } from "./permissions";
-import { mcpRoleAllowed } from "@/api/convex/lib/mcpPresets";
+import { mcpRoleAllowed } from "@/api/functions/lib/mcpPresets";
 import { redactSecrets, resolveMcpSpawn } from "./spawn";
 import { McpToolSchema } from "@/utils/schemas";
 import type { McpCallResult, McpEventFn, McpServerConfig, McpToolDefinition } from "./types";

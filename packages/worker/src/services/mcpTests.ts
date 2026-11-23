@@ -5,7 +5,7 @@ import { probeMcpServer, type McpProbeResult } from "@/mcp/probe";
 import type { McpServerConfig } from "@/mcp/types";
 
 /**
- * Integrations "Test connection", worker side. The web asks Convex
+ * Integrations "Test connection", worker side. The web asks FharaRuntime
  * (mcpServers.requestTest); an idle worker claims the request with a lease,
  * spawns the server once, lists its tools and reports the outcome. A
  * project server is tested in that project's workspace; a global one in the

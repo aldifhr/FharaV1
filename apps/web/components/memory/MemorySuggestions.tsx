@@ -1,12 +1,11 @@
-"use client";
 
 import { useState } from "react";
-import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { Link } from "@/lib/spaRouter";
+import { useMutation, useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import { relativeTime } from "@/lib/runFormat";
-import { MEMORY_CONTENT_MAX, MEMORY_TITLE_MAX, type MemoryScope } from "@/api/convex/lib/memory";
+import { MEMORY_CONTENT_MAX, MEMORY_TITLE_MAX, type MemoryScope } from "@/api/functions/lib/memory";
 
 /**
  * Plan L5: memories the team suggested after a task. Nothing is saved until

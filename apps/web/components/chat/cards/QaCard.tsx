@@ -1,7 +1,6 @@
-"use client";
 
 import { Check, Loader2, Minus, X } from "lucide-react";
-import type { QaCardData, QaCardRow } from "@/api/convex/cardTypes";
+import type { QaCardData, QaCardRow } from "@/api/functions/cardTypes";
 import { CARD_DIVIDER, CardShell, MUTED } from "./primitives";
 import { StatusTag } from "../../ui/status-tag";
 

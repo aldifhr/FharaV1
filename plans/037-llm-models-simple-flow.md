@@ -64,6 +64,6 @@ order, and the first insert or reorder materializes positions.
 
 ## Completion criteria
 
-- api / web / worker typecheck clean; `convex/llmModelFlow.test.ts`,
+- api / web / worker typecheck clean; `runtime/llmModelFlow.test.ts`,
   `tests/llmModelOrder.test.ts`, `tests/unit/llmModelList.test.mjs` pass.
 - Browser check of the Settings page against a real deployment (pending).

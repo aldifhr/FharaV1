@@ -1,9 +1,8 @@
-"use client";
 
 import { useState } from "react";
-import { useMutation } from "convex/react";
-import Link from "next/link";
-import { api } from "@/api/convex/_generated/api";
+import { useMutation } from "@fhara/runtime/react";
+import { Link } from "@/lib/spaRouter";
+import { api } from "@fhara/runtime/api";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toasts";
 

@@ -16,9 +16,9 @@
  * The CTO declining, or the turn expiring, sends the question to the user.
  * Expiry never picks an option.
  */
-import { classifyQuestion, USER_ONLY_CATEGORIES } from "@/api/convex/lib/questionPolicy";
-import { ESCALATION_LABELS, type Escalation, type EscalationKind } from "@/api/convex/lib/subtaskContract";
-import { normalizePermissionMode } from "@/api/convex/lib/permissionModes";
+import { classifyQuestion, USER_ONLY_CATEGORIES } from "@/api/functions/lib/questionPolicy";
+import { ESCALATION_LABELS, type Escalation, type EscalationKind } from "@/api/functions/lib/subtaskContract";
+import { normalizePermissionMode } from "@/api/functions/lib/permissionModes";
 import type { RunContext } from "@/services/runner/types";
 import { CTO_QUESTION_SPEC } from "./ctoQuestion";
 import { runDecisionTurn } from "./runDecisionTurn";

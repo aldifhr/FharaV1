@@ -1,5 +1,5 @@
-import { normalizeModelTiers } from "@/api/convex/lib/modelTiers";
-import type { LlmSelectionMode } from "@/api/convex/lib/llmSelection";
+import { normalizeModelTiers } from "@/api/functions/lib/modelTiers";
+import type { LlmSelectionMode } from "@/api/functions/lib/llmSelection";
 import { withSnapshotScope } from "@/llm/snapshots";
 import * as fs from "node:fs/promises";
 import { classifyCommand } from "@/orchestrator/classifier";

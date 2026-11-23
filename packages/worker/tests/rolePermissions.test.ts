@@ -17,7 +17,7 @@ import {
   writeDenial,
 } from "@/utils/rolePolicy";
 import { tool_call } from "@/governance/registry";
-import { ROLES, ROLE_KEYS, permissionsFromTools } from "@/api/convex/lib/roles";
+import { ROLES, ROLE_KEYS, permissionsFromTools } from "@/api/functions/lib/roles";
 import type { FallbackHandle } from "@/effects/llmCall";
 import type { GlobalLLMConfig, LLMProvider } from "@/llm";
 import type { AgentDefinition, PlanSubtask } from "@/types";

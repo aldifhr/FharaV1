@@ -1,4 +1,3 @@
-"use client";
 
 /**
  * Agent Sandbox (frontend only): run experiments isolated from production.
@@ -8,10 +7,10 @@
  * dispatched before it runs.
  */
 import { useMemo, useState } from "react";
-import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
+import { Link } from "@/lib/spaRouter";
+import { useMutation, useQuery } from "@fhara/runtime/react";
 import { FlaskConical, Play, ShieldCheck } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import { useToast } from "../Toasts";
 import { relativeTime } from "@/lib/runFormat";
 import {

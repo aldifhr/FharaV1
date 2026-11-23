@@ -1,12 +1,9 @@
 /**
- * NEXT_PUBLIC_* reads for client and server code. They must stay literal
- * `process.env.NEXT_PUBLIC_X` expressions: Next inlines only that exact
- * form into the bundles. No alias fallback (CONVEX_URL is never inlined).
- * The web env guard checks that every webClient var in @fhara/config is
- * read here and nowhere else.
+ * The browser talks to the local FharaRuntime. Vite has no server-side env
+ * inlining, so the backend URL comes from a global set at bootstrap (or the
+ * client falls back to its own default).
  */
-
-/** The Convex deployment URL the browser and the API routes talk to. */
-export function publicConvexUrl(): string | undefined {
-  return process.env.NEXT_PUBLIC_CONVEX_URL;
+export function publicFharaRuntimeUrl(): string | undefined {
+  const globalUrl = (globalThis as any).__FHARA_BACKEND_URL__;
+  return typeof globalUrl === "string" && globalUrl ? globalUrl : undefined;
 }

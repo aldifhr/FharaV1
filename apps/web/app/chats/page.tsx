@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "@/lib/spaRouter";
 import Sidebar from "@/components/Sidebar";
 
 export default function ChatPage() {

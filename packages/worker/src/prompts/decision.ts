@@ -1,4 +1,4 @@
-import { describeObservation, type ExecutionObservation } from "@/api/convex/lib/observations";
+import { describeObservation, type ExecutionObservation } from "@/api/functions/lib/observations";
 import type { ExecutionHistoryEntry, ExecutionPlan, OutstandingIssue } from "@/types";
 
 /** The decision-context fields the advisor prompt reads. */

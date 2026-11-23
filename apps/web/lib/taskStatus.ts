@@ -1,6 +1,6 @@
 import { CheckCircle2, Clock, Hand, Loader2, MinusCircle, XCircle, type LucideIcon } from "lucide-react";
 
-/** Task statuses from `apps/api/convex/schema.ts` `taskStatus`. */
+/** Task statuses from `apps/api/functions/schema.ts` `taskStatus`. */
 export const TASK_STATUSES = [
   "queued",
   "running",

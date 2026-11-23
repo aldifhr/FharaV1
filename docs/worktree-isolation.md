@@ -13,14 +13,14 @@ the project folder.
 ## What `auto` does
 
 Before a task starts, the worker looks at the project folder and at the
-Convex deployment it talks to:
+Fhara runtime deployment it talks to:
 
 | Situation | Isolation | Parallel steps |
 |---|---|---|
 | Git repository with at least one commit, clean checkout, local or self-hosted backend | on | `ORCHESTRATOR_PARALLEL_DEFAULT` (default 2) |
 | Not a git repository, or no commits yet | off | 1 |
 | Uncommitted changes (modified or untracked files) | off | 1 |
-| Convex cloud deployment (`*.convex.cloud`) | off | 1 |
+| Fhara runtime cloud deployment (`*.runtime.cloud`) | off | 1 |
 | Deployment URL missing or unreadable | off | 1 |
 
 - **Uncommitted changes.** A worktree starts from the base branch, so it would
@@ -28,7 +28,7 @@ Convex deployment it talks to:
   one System line in the task thread: "Running steps one at a time: the folder
   has uncommitted changes." Commit or stash to get isolation and parallel steps
   on the next task.
-- **Convex cloud.** The worktree is created by a Convex Node action, which on a
+- **Fhara runtime cloud.** The worktree is created by a Fhara runtime Node action, which on a
   cloud deployment cannot reach the worker's disk. `auto` stays sequential
   there; set `1` only when the backend runs where the worker's folders are.
 - **Explicit limits win.** `ORCHESTRATOR_MAX_CONCURRENCY` and

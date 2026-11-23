@@ -10,11 +10,11 @@
  * it. Unflagged plans are returned unchanged: no CTO call at all.
  */
 import { CAPABILITY, type AgentDefinition, type ArchitectureFlag, type ArchitectureReason, type ExecutionPlan, type PlanSubtask } from "@/types";
-import { ARCH_DECISION_KEY, parseArchitectureFlag } from "@/api/convex/lib/architectureFlag";
+import { ARCH_DECISION_KEY, parseArchitectureFlag } from "@/api/functions/lib/architectureFlag";
 import { capabilitiesOf, isAgentEnabled } from "./capabilities";
 import { PLAN_NODE_INSTRUCTIONS } from "@/prompts/planner";
 
-export { ARCH_DECISION_KEY } from "@/api/convex/lib/architectureFlag";
+export { ARCH_DECISION_KEY } from "@/api/functions/lib/architectureFlag";
 
 /** Plan note when a flagged plan has no CTO to decide (the work still runs). */
 export const NO_CTO_NOTE = "No CTO in the team: architecture decision skipped";

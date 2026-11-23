@@ -7,8 +7,8 @@ import {
   evaluateGates,
   routeEscalation,
   type Escalation,
-} from "@/api/convex/lib/subtaskContract";
-import { tierForRole } from "@/api/convex/lib/modelTiers";
+} from "@/api/functions/lib/subtaskContract";
+import { tierForRole } from "@/api/functions/lib/modelTiers";
 import { detectEscalation, escalationFromAnswer, isEscalatedError, escalatedError } from "@/execution/escalation";
 import { isPermanentSubtaskError } from "@/scheduler/dagScheduler";
 import { handleEscalation, seedAllowedEscalations } from "@/services/runner/escalation";
@@ -229,7 +229,7 @@ describe("gate evaluation mapping (plan 022)", () => {
 
   it("research: the deliverable must be non-empty and cite sources", () => {
     const gates = defaultGatesForKind("research");
-    const cited = evaluateGates({ kind: "research", gates, output: "The lease is renewed in apps/api/convex/orchestration.ts:301." });
+    const cited = evaluateGates({ kind: "research", gates, output: "The lease is renewed in apps/api/functions/orchestration.ts:301." });
     expect(cited.map((r) => r.status)).toEqual(["pass", "pass"]);
     const uncited = evaluateGates({ kind: "research", gates, output: "It is renewed by the heartbeat." });
     expect(uncited.map((r) => r.status)).toEqual(["pass", "fail"]);
@@ -263,14 +263,14 @@ describe("escalation (plan 022)", () => {
     expect(
       await detectEscalation({
         subtask: { ...subtask, allowedPaths: ["apps"] },
-        files: [{ filePath: "apps/api/convex/schema.ts", newContent: "" }],
+        files: [{ filePath: "apps/api/functions/schema.ts", newContent: "" }],
         currentContent: read,
       })
     ).toMatchObject({ kind: "schema_change" });
     expect(
       await detectEscalation({
-        subtask: { ...subtask, allowedPaths: ["apps/api/convex/schema.ts"] },
-        files: [{ filePath: "apps/api/convex/schema.ts", newContent: "" }],
+        subtask: { ...subtask, allowedPaths: ["apps/api/functions/schema.ts"] },
+        files: [{ filePath: "apps/api/functions/schema.ts", newContent: "" }],
         currentContent: read,
       })
     ).toBeNull();

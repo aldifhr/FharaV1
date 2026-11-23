@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Escalation } from "@/api/convex/lib/subtaskContract";
+import type { Escalation } from "@/api/functions/lib/subtaskContract";
 import { handleEscalation } from "@/services/runner/escalation";
 import { parseCtoVerdict, CTO_QUESTION_SPEC } from "@/decisionTurn/ctoQuestion";
 import { runDecisionTurn } from "@/decisionTurn/runDecisionTurn";

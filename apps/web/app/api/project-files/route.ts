@@ -1,8 +1,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { ConvexHttpClient } from "convex/browser";
-import { NextRequest, NextResponse } from "next/server";
-import { api } from "@/api/convex/_generated/api";
+import { FharaRuntimeHttpClient } from "@fhara/runtime/browser";
+import { NextRequest, NextResponse } from "@/lib/serverCompat";
+import { api } from "@fhara/runtime/api";
 import { rejectUnsafeRequest } from "@/lib/apiGuard";
 import {
   PathPolicyError,
@@ -10,12 +10,12 @@ import {
   resolveContainedFile,
   resolveWorkspaceBase,
 } from "@/lib/projectFilesPolicy";
-import { publicConvexUrl } from "@/lib/env.client";
+import { publicFharaRuntimeUrl } from "@/lib/env.client";
 
 /**
  * Read-only file listing / preview for a registered project (release audit
  * P0-2). The caller names a `projectId`; the workspace directory is looked
- * up server-side in Convex, never taken from the request. Every file is
+ * up server-side in FharaRuntime, never taken from the request. Every file is
  * realpath-contained under that directory and secret-shaped files
  * (.env*, .git internals, keys) are neither listed nor read.
  */
@@ -67,11 +67,11 @@ async function collectFiles(base: string, current = base, result: string[] = [])
 
 class NotFound extends Error {}
 
-/** The project's workspace directory, from Convex, realpath'd. */
+/** The project's workspace directory, from FharaRuntime, realpath'd. */
 async function projectBase(projectId: string): Promise<string> {
-  const convexUrl = publicConvexUrl();
-  if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL is not configured on the web server.");
-  const client = new ConvexHttpClient(convexUrl);
+  const runtimeUrl = publicFharaRuntimeUrl();
+  if (!runtimeUrl) throw new Error("FHARA_BACKEND_URL is not configured on the web server.");
+  const client = new FharaRuntimeHttpClient(runtimeUrl);
   let project: { workspacePath?: string } | null;
   try {
     project = (await client.query(api.projects.get, { projectId })) as { workspacePath?: string } | null;

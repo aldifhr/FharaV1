@@ -13,15 +13,15 @@ is published to an app store.
 
 | Piece | Path | Responsibility |
 | --- | --- | --- |
-| Web UI | `apps/web` | Next.js 16 (React 19, Tailwind 4): tasks, chats, diffs, approvals, settings |
-| Backend | `apps/api/convex` | Convex schema, queries/mutations/actions, authz, approvals, orchestration records |
+| Web UI | `apps/web` | Vite + React 19 SPA (React Router, Tailwind 4): tasks, chats, diffs, approvals, settings |
+| Backend | `apps/api/functions` | Fhara runtime schema, queries/mutations/actions, authz, approvals, orchestration records |
 | Worker | `packages/worker` | claims tasks, plans, runs the DAG, calls agents and LLMs, gates risky actions |
 | Desktop shell | `electron/` | optional Electron window around the dev server (`electron/main.cjs`) |
 
 ## Requirements
 
 - Node 24 (`.nvmrc`) and pnpm 12.21.0 (`packageManager` in `package.json`).
-- A Convex deployment: cloud (`npx convex dev`) or self-hosted.
+- A Fhara runtime deployment: cloud (`npx runtime dev`) or self-hosted.
 - An LLM provider: a connection in **Settings → LLM & Models**, or the `LLM_*`
   fallback in `.env`.
 - The agent CLIs you want Fhara to drive, installed and signed in on the same
@@ -30,19 +30,19 @@ is published to an app store.
 ## Setup
 
 1. `pnpm install`
-2. `cp .env.example .env` and fill the required values: `NEXT_PUBLIC_CONVEX_URL`,
-   `CONVEX_SERVICE_TOKEN` (`openssl rand -hex 32`) and `PROVIDER_ENCRYPTION_KEY`
-   (`openssl rand -base64 32`). The worker and the Convex deployment must use the
+2. `cp .env.example .env` and fill the required values: `FHARA_BACKEND_URL`,
+   `FHARA_SERVICE_TOKEN` (`openssl rand -hex 32`) and `PROVIDER_ENCRYPTION_KEY`
+   (`openssl rand -base64 32`). The worker and the Fhara runtime deployment must use the
    same `PROVIDER_ENCRYPTION_KEY`.
-3. `cp apps/api/.env.example apps/api/.env.local` and point the Convex CLI at a
-   deployment: `CONVEX_DEPLOYMENT`, or `CONVEX_SELF_HOSTED_URL` +
-   `CONVEX_SELF_HOSTED_ADMIN_KEY`.
-4. `pnpm run codegen:offline` (or `npx convex dev`) once.
-   `apps/api/convex/_generated/` is gitignored, so a fresh clone cannot typecheck
+3. `cp apps/api/.env.example apps/api/.env.local` and point the Fhara runtime CLI at a
+   deployment: `FHARA_DEPLOYMENT`, or `FHARA_BACKEND_URL` +
+   `FHARA_ADMIN_KEY`.
+4. `pnpm run codegen:offline` (or `npx runtime dev`) once.
+   `apps/api/functions/_generated/` is gitignored, so a fresh clone cannot typecheck
    until the client has been generated.
 5. `pnpm run doctor` — checks the local setup and prints a fix hint per problem;
    it never prints a secret value.
-6. `pnpm dev` — syncs env to the deployment, then runs Convex dev, the web app on
+6. `pnpm dev` — syncs env to the deployment, then runs Fhara runtime dev, the web app on
    port 3000 and the supervised worker.
 
 ## Commands
@@ -51,7 +51,7 @@ is published to an app store.
 | --- | --- |
 | Web UI + API + worker | `pnpm dev` |
 | Web UI only | `pnpm dev:web` |
-| Convex dev + worker | `pnpm convex` |
+| Fhara runtime dev + worker | `pnpm runtime` |
 | Worker only | `pnpm worker` |
 | Electron shell | `pnpm electron:dev` |
 | Setup check | `pnpm doctor` |
@@ -84,7 +84,7 @@ commands run without an OS sandbox there.
 
 ## Tests
 
-Backend tests use `convex-test` in memory (no deployment, no codegen); worker
+Backend tests use `local-test` in memory (no deployment, no codegen); worker
 tests are plain Vitest. Live-provider and Playwright suites are opt-in and not
 part of the default run. Never weaken a test to make a check pass.
 
@@ -95,7 +95,7 @@ part of the default run. Never weaken a test to make a check pass.
 - `docs/skills-import.md` — importing skills from GitHub.
 - `docs/worktree-isolation.md` — worktree isolation and parallel steps.
 - `plans/` — design plans and their state (`plans/README.md` is the index).
-- `AGENTS.md`, `apps/api/convex/AGENTS.md`, `packages/worker/AGENTS.md`,
+- `AGENTS.md`, `apps/api/functions/AGENTS.md`, `packages/worker/AGENTS.md`,
   `apps/web/AGENTS.md` — per-surface rules, checks and non-negotiables.
 
 ## Contributing

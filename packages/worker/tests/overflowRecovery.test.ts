@@ -4,8 +4,8 @@ import { callWithOverflowRecovery, pruneHeadTail } from "@/context/overflowRecov
 import { LlmContextOverflowError, isContextOverflowError } from "@/llm/errors";
 import { runToolLoop } from "@/tools/toolLoop";
 import { runLlmCallWithFallback, LlmConcurrencyGate, type FallbackHandle } from "@/effects/llmCall";
-import { cooldownForFailure } from "@/api/convex/lib/llmRotation";
-import { formatTimeoutLimit } from "@/api/convex/lib/llmWireErrors";
+import { cooldownForFailure } from "@/api/functions/lib/llmRotation";
+import { formatTimeoutLimit } from "@/api/functions/lib/llmWireErrors";
 import { PRUNE_MARKER, resolveConfig } from "@/vendor/deepseek-harness/prunerConfig";
 
 const overflow = (limit = 10_000) =>

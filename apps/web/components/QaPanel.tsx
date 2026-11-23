@@ -1,4 +1,3 @@
-"use client";
 import { CheckCircle2, MinusCircle, Monitor, Smartphone, Tablet, XCircle } from "lucide-react";
 import { clockTime } from "@/lib/format";
 

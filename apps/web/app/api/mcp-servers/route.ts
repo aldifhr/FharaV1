@@ -1,21 +1,21 @@
-import { ConvexHttpClient } from "convex/browser";
-import { NextRequest, NextResponse } from "next/server";
-import { api } from "@/api/convex/_generated/api";
+import { FharaRuntimeHttpClient } from "@fhara/runtime/browser";
+import { NextRequest, NextResponse } from "@/lib/serverCompat";
+import { api } from "@fhara/runtime/api";
 import { isStrictSameOrigin, rejectUnsafeRequest } from "@/lib/apiGuard";
 import { pickFields, readJsonObject } from "@/lib/proxyArgs";
 import { setsLocalCommand } from "@/lib/mcpPolicy";
-import { publicConvexUrl } from "@/lib/env.client";
+import { publicFharaRuntimeUrl } from "@/lib/env.client";
 import { serverEnv } from "@/lib/env.server";
 
 /**
  * Server-side route for MCP server config writes (Plan 007 Phase 1, and the
  * /integrations page: create / update / toggle / test / remove).
  *
- * The worker actions in Convex require the service token
- * (see apps/api/convex/worker.ts — addMcpServer / removeMcpServer).
+ * The worker actions in FharaRuntime require the service token
+ * (see apps/api/functions/worker.ts — addMcpServer / removeMcpServer).
  * The token must never reach the browser bundle, so the MCP page calls
- * this route instead; the route reads CONVEX_SERVICE_TOKEN from the web
- * server's own environment and injects it into the Convex call.
+ * this route instead; the route reads FHARA_SERVICE_TOKEN from the web
+ * server's own environment and injects it into the FharaRuntime call.
  * If the token is not configured, writes fail closed with a clear error.
  *
  * Release audit P0-3/P0-4:
@@ -60,20 +60,20 @@ export async function POST(request: NextRequest) {
   const rejected = rejectUnsafeRequest(request);
   if (rejected) return rejected;
 
-  const token = serverEnv("CONVEX_SERVICE_TOKEN");
-  const convexUrl = publicConvexUrl();
+  const token = serverEnv("FHARA_SERVICE_TOKEN");
+  const runtimeUrl = publicFharaRuntimeUrl();
   if (!token) {
     return NextResponse.json(
       {
         error:
-          "CONVEX_SERVICE_TOKEN is not configured on the web server; MCP server writes are disabled.",
+          "FHARA_SERVICE_TOKEN is not configured on the web server; MCP server writes are disabled.",
       },
       { status: 500 }
     );
   }
-  if (!convexUrl) {
+  if (!runtimeUrl) {
     return NextResponse.json(
-      { error: "NEXT_PUBLIC_CONVEX_URL is not configured on the web server." },
+      { error: "FHARA_BACKEND_URL is not configured on the web server." },
       { status: 500 }
     );
   }
@@ -107,9 +107,9 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const client = new ConvexHttpClient(convexUrl);
+  const client = new FharaRuntimeHttpClient(runtimeUrl);
   try {
-    // Convex validators enforce the argument types at runtime; the field
+    // FharaRuntime validators enforce the argument types at runtime; the field
     // names were fixed above. `workerToken` is the service token worker.ts
     // actions expect.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true });
       }
       // Integrations page. Secret env values pass through this server route
-      // to Convex, which encrypts them before storing; they are never
+      // to FharaRuntime, which encrypts them before storing; they are never
       // logged here and never returned.
       case "create": {
         const serverId = await client.action(api.worker.createMcpServerFromPreset, callArgs);

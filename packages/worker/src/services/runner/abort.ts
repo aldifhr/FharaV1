@@ -33,7 +33,7 @@ export function taskStatusReader(deps: { api: object }, taskId: string): (() => 
 /** True for errors/abort reasons that mean "this worker no longer owns the task". */
 export function isLeaseLostOrShutdown(reason: unknown): boolean {
   const message = reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "";
-  // Convex wraps server errors ("[CONVEX A(...)] Uncaught Error: Lease lost: ..."),
+  // FharaRuntime wraps server errors ("[FHARA A(...)] Uncaught Error: Lease lost: ..."),
   // so match anywhere in the message.
   return message.includes(`${LEASE_LOST_PREFIX}:`) || message.includes(LEASE_LOST_PREFIX + " ") ||
     message.startsWith(SHUTDOWN_ABORT_MESSAGE);

@@ -1,9 +1,9 @@
-import { ConvexHttpClient } from "convex/browser";
-import { NextRequest, NextResponse } from "next/server";
-import { api } from "@/api/convex/_generated/api";
+import { FharaRuntimeHttpClient } from "@fhara/runtime/browser";
+import { NextRequest, NextResponse } from "@/lib/serverCompat";
+import { api } from "@fhara/runtime/api";
 import { rejectUnsafeRequest } from "@/lib/apiGuard";
 import { readJsonObject } from "@/lib/proxyArgs";
-import { publicConvexUrl } from "@/lib/env.client";
+import { publicFharaRuntimeUrl } from "@/lib/env.client";
 import { serverEnv } from "@/lib/env.server";
 
 /**
@@ -17,17 +17,17 @@ export async function POST(request: NextRequest) {
   const rejected = rejectUnsafeRequest(request);
   if (rejected) return rejected;
 
-  const token = serverEnv("CONVEX_SERVICE_TOKEN");
-  const convexUrl = publicConvexUrl();
+  const token = serverEnv("FHARA_SERVICE_TOKEN");
+  const runtimeUrl = publicFharaRuntimeUrl();
   if (!token) {
     return NextResponse.json(
-      { error: "CONVEX_SERVICE_TOKEN is not configured on the web server." },
+      { error: "FHARA_SERVICE_TOKEN is not configured on the web server." },
       { status: 500 }
     );
   }
-  if (!convexUrl) {
+  if (!runtimeUrl) {
     return NextResponse.json(
-      { error: "NEXT_PUBLIC_CONVEX_URL is not configured." },
+      { error: "FHARA_BACKEND_URL is not configured." },
       { status: 500 }
     );
   }
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `Prompt is too long (max ${MAX_PROMPT} characters)` }, { status: 400 });
   }
 
-  const client = new ConvexHttpClient(convexUrl);
+  const client = new FharaRuntimeHttpClient(runtimeUrl);
   try {
     const enhanced = await client.action(api.llmProvidersNode.enhancePrompt, {
       token,

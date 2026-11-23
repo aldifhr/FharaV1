@@ -1,11 +1,11 @@
-import type { ConvexClient, ConvexHttpClient } from "convex/browser";
-import { api } from "@/api/convex/_generated/api";
-import type { FunctionArgs, FunctionReference, FunctionReturnType } from "convex/server";
-import type { Doc } from "@/api/convex/_generated/dataModel";
-import type { LibrarySkillRef, PromptSkill } from "@/api/convex/lib/skills";
+import type { FharaRuntimeClient, FharaRuntimeHttpClient } from "@fhara/runtime/browser";
+import { api } from "@fhara/runtime/api";
+import type { FunctionArgs, FunctionReference, FunctionReturnType } from "@fhara/runtime/server";
+import type { Doc } from "@fhara/runtime/data";
+import type { LibrarySkillRef, PromptSkill } from "@/api/functions/lib/skills";
 import { redactDeep } from "@/utils/redact";
 
-/** Convex document shapes returned by the worker API. */
+/** FharaRuntime document shapes returned by the worker API. */
 export type WorkerTask = Doc<"tasks">;
 export type WorkerProject = Doc<"projects">;
 export type WorkerAgent = Doc<"agents">;
@@ -32,7 +32,7 @@ export type WorkerAgentId = WorkerAgent["_id"];
 export type WorkerExecutionId = Doc<"executions">["_id"];
 
 /**
- * Relax Convex branded ID types to allow plain string IDs across the worker boundary.
+ * Relax FharaRuntime branded ID types to allow plain string IDs across the worker boundary.
  */
 type RelaxId<T> = T extends string & { __tableName?: any }
   ? string
@@ -46,7 +46,7 @@ type ActionInput<T extends FunctionReference<any, any, any, any>> = {
 
 export class WorkerApi {
   constructor(
-    readonly client: ConvexHttpClient,
+    readonly client: FharaRuntimeHttpClient,
     private readonly token: string,
     /**
      * Lease owner identity. Fenced writes (completeTask, updateSubtask,
@@ -57,7 +57,7 @@ export class WorkerApi {
   ) {}
 
   /**
-   * L2: text written to Convex from a run (events, messages, audit rows,
+   * L2: text written to FharaRuntime from a run (events, messages, audit rows,
    * cards, subtask output, live tails) is masked first: the worker's known
    * secret values and secret shapes never leave the process. File contents
    * (saveFileChange) and the plan structure are not touched.
@@ -325,12 +325,12 @@ export class WorkerApi {
   }
 
   /**
-   * Wake-up subscription (ConvexClient.onUpdate): fires `onChange` whenever
+   * Wake-up subscription (FharaRuntimeClient.onUpdate): fires `onChange` whenever
    * the oldest queued task or the newest unconsumed approval signal changes.
    * Returns the unsubscribe. The caller keeps a slow poll as the fallback.
    */
   subscribePendingWork(
-    subscriber: Pick<ConvexClient, "onUpdate">,
+    subscriber: Pick<FharaRuntimeClient, "onUpdate">,
     onChange: (result: FunctionReturnType<typeof api.worker.pendingWork>) => void,
     onError?: (error: Error) => void
   ): () => void {
@@ -694,7 +694,7 @@ export class WorkerApi {
     return await this.client.action(api.worker.completePushRequest, this.args(this.masked(input)));
   }
 
-  // L6: no-replay side-effect ledger (apps/api/convex/sideEffects.ts).
+  // L6: no-replay side-effect ledger (apps/api/functions/sideEffects.ts).
   async armSideEffect(
     input: ActionInput<typeof api.worker.armSideEffect>
   ): Promise<FunctionReturnType<typeof api.worker.armSideEffect>> {
@@ -733,7 +733,7 @@ export class WorkerApi {
     return await this.client.action(api.worker.getPerformanceScores, this.args(input));
   }
 
-  // Plan Inspector + Task Estimator (apps/api/convex/planReview.ts).
+  // Plan Inspector + Task Estimator (apps/api/functions/planReview.ts).
   async getEstimateSamples(
     input: ActionInput<typeof api.worker.getEstimateSamples>
   ): Promise<FunctionReturnType<typeof api.worker.getEstimateSamples>> {

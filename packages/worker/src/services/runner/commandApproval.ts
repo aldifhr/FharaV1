@@ -14,7 +14,7 @@
  * (the backend records the pause; the draining worker keeps its lease).
  * While waiting, the node's subtask-timeout and stall clocks are held
  * (`holdClock`), so a human wait can never fail the shell subtask. The
- * decision itself is a durable signal (apps/api/convex/taskSignals.ts); the
+ * decision itself is a durable signal (apps/api/functions/taskSignals.ts); the
  * waiter acks it so the one-time allow is not reused by a later replay.
  *
  * The exact-argv allowlist stays a hard deny BEFORE this runs (callers check
@@ -23,7 +23,7 @@
 import { wenv } from "@fhara/config/worker";
 import type { WorkerApi } from "@/workerApi";
 import type { CommandApprovalOutcome } from "@/execution/commandGate";
-import type { AutoReviewRequest } from "@/api/convex/lib/autoReview";
+import type { AutoReviewRequest } from "@/api/functions/lib/autoReview";
 
 export { commandDeniedOutput, type CommandApprovalOutcome } from "@/execution/commandGate";
 

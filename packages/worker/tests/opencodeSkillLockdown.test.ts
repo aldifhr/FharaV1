@@ -13,8 +13,8 @@ import { existsSync, promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ROLES, ROLE_KEYS } from "@/api/convex/lib/roles";
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { ROLES, ROLE_KEYS } from "@/api/functions/lib/roles";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
 import {
   buildOpencodePolicy,
   evaluateOpencodeRuleset,
@@ -55,7 +55,7 @@ describe("skill permission", () => {
       const block = opencodePermissionBlock(policy);
       expect(block.skill).toBe("deny");
       const rows = flattenPermissionBlock(block);
-      for (const name of ["*", "customize-opencode", "convex", "fhara-x"]) expect(evaluateOpencodeRuleset(rows, "skill", name)).toBe("deny");
+      for (const name of ["*", "customize-opencode", "runtime", "fhara-x"]) expect(evaluateOpencodeRuleset(rows, "skill", name)).toBe("deny");
     }
   });
 

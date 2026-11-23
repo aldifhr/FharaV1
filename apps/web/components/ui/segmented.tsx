@@ -1,4 +1,3 @@
-"use client";
 
 /**
  * Small neutral segmented control (Library tabs, Memory scopes). Theme

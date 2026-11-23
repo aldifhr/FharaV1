@@ -19,7 +19,7 @@ import {
   type CallRole,
   type SnapshotBody,
   type SnapshotMeta,
-} from "@/api/convex/lib/contextSnapshot";
+} from "@/api/functions/lib/contextSnapshot";
 import { maskStringSecrets } from "@/governance/tools";
 import type { LLMMessage, LLMResult } from "@/types/llm";
 

@@ -1,4 +1,3 @@
-"use client";
 
 /**
  * One scheduled task's webhook (GOAT G8). The token is shown once, right
@@ -6,8 +5,8 @@
  * to get a new one. Deliveries wait (503, retry) while automation is held.
  */
 import { useState } from "react";
-import { useAction, useMutation } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useAction, useMutation } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import { useToast } from "@/components/Toasts";
 import { BUTTON, errorText, INPUT, LINK_BUTTON, relativeTime } from "./controls";
 import type { ScheduledTaskRow } from "./scheduledTaskText";
@@ -62,7 +61,7 @@ export function ScheduledTaskWebhook({ row }: { row: ScheduledTaskRow }) {
           {row.webhookUrl ? (
             <CopyField label="Webhook URL" value={row.webhookUrl} />
           ) : (
-            <p className="text-[11.5px] text-ink-3">The backend has no CONVEX_SITE_URL, so the URL can't be shown. Use your Convex site URL followed by /hooks/scheduled/{row._id}.</p>
+            <p className="text-[11.5px] text-ink-3">The backend has no FHARA_SITE_URL, so the URL can't be shown. Use your FharaRuntime site URL followed by /hooks/scheduled/{row._id}.</p>
           )}
           {fresh && (
             <>

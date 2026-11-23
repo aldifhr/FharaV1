@@ -1,11 +1,10 @@
-"use client";
 
 import { useEffect, useState } from "react";
-import { useMutation } from "convex/react";
+import { useMutation } from "@fhara/runtime/react";
 import { Play } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
-import { holdNoticeText } from "@/api/convex/lib/providerHold";
-import { classifyRepoHold } from "@/api/convex/lib/repoReadiness";
+import { api } from "@fhara/runtime/api";
+import { holdNoticeText } from "@/api/functions/lib/providerHold";
+import { classifyRepoHold } from "@/api/functions/lib/repoReadiness";
 import GitInitNote from "./GitInitNote";
 import { useToast } from "./Toasts";
 

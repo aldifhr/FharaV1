@@ -7,7 +7,7 @@
  *   node scripts/push-smoke.mjs --repo owner/repo [--base main] [--out audit/push-smoke.json] [--proxy-auth]
  *
  * What it does, through the worker's own modules (tools/gitPush.ts,
- * tools/githubPr.ts, api/convex/lib/prChecks.ts):
+ * tools/githubPr.ts, api/runtime/lib/prChecks.ts):
  *  1. checks the push guard refuses the base branch and a force push;
  *  2. shallow-fetches the base branch into a temp repo and commits one file;
  *  3. pushes that commit to a throwaway branch `fhara-e2e-smoke-<ts>`;
@@ -71,7 +71,7 @@ const { defaultExecGit, gitChildEnv, githubAuthEnv, pushCommitToGithub, redactSe
   await worker("tools/gitPush.ts");
 const { openPullRequest } = await worker("tools/githubPr.ts");
 const { proxyAwareFetch } = await worker("tools/proxyFetch.ts");
-const { fetchCommitChecks } = await import(pathToFileURL(path.join(root, "apps/api/convex/lib/prChecks.ts")).href);
+const { fetchCommitChecks } = await import(pathToFileURL(path.join(root, "apps/api/functions/lib/prChecks.ts")).href);
 
 const fetchImpl = await proxyAwareFetch();
 const api = `https://api.github.com/repos/${owner}/${repo}`;

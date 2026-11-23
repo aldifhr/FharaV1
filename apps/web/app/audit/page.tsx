@@ -1,10 +1,9 @@
-"use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { useConvex, useMutation, useQuery } from "convex/react";
+import { useSearchParams } from "@/lib/spaRouter";
+import { useFharaRuntime, useMutation, useQuery } from "@fhara/runtime/react";
 import { ChevronRight, Download, ScrollText, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import Sidebar from "@/components/Sidebar";
 import { HEADER_ACTION, PageHeader } from "@/components/ui/page-header";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
@@ -126,7 +125,7 @@ function AuditPage() {
   const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState<"json" | "csv" | null>(null);
-  const convex = useConvex();
+  const runtime = useFharaRuntime();
   const remove = useMutation(api.auditLog.remove);
   const removeMany = useMutation(api.auditLog.removeMany);
   const toast = useToast();
@@ -153,7 +152,7 @@ function AuditPage() {
     if (nextCursor === null) return;
     setLoadingMore(true);
     try {
-      const page = await convex.query(api.auditLog.list, { ...base, limit: PAGE, cursor: nextCursor });
+      const page = await runtime.query(api.auditLog.list, { ...base, limit: PAGE, cursor: nextCursor });
       setOlder((prev) => [...prev, ...(page.items as Row[])]);
       setCursor(page.nextCursor);
     } catch (err) {
@@ -170,7 +169,7 @@ function AuditPage() {
     const collected: Row[] = [];
     let pageCursor: number | null = null;
     for (let page = 0; page < 40; page++) {
-      const result: { items: Row[]; nextCursor: number | null } = await convex.query(
+      const result: { items: Row[]; nextCursor: number | null } = await runtime.query(
         api.auditLog.list,
         pageCursor === null
           ? { ...base, limit: 100 }

@@ -1,4 +1,3 @@
-"use client";
 
 import { MessageCircle } from "lucide-react";
 import InitialAvatar from "@/components/InitialAvatar";

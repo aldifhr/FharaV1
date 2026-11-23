@@ -1,8 +1,7 @@
-"use client";
 
 import { forwardRef, useMemo, useState } from "react";
-import { useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import InitialAvatar from "../InitialAvatar";
 import TeamStatusSource, { useDraftingAgentIds } from "../agents/TeamStatusSource";
 import { agentName, agentRoleText, fixedAgentIds, roleLabel, teamInDisplayOrder } from "@/lib/agentRoles";

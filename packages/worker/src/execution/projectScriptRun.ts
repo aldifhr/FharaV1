@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
 import {
   HOST_CHECK_TIMEOUT_MS,
   SCRIPT_TAIL_CHARS,
@@ -7,7 +7,7 @@ import {
   isProjectScriptAllowed,
   projectScriptLine,
   type ProjectScriptKind,
-} from "@/api/convex/lib/projectScriptsSchema";
+} from "@/api/functions/lib/projectScriptsSchema";
 import { redactText } from "@/utils/redact";
 import { shellGuardDecisionForArgv } from "@/utils/shellGuard";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@/vendor/goat/projectScripts";

@@ -9,7 +9,7 @@
 - Priority: P2
 - Size: L
 - Risk: MEDIUM
-- Dependencies: 027 (the feature this removes), 031, 032
+- Dependencies: 031, 032 (plan 027 was rejected and its plan file retired)
 - Planned at: commit `2670c03`, 2026-11-10
 
 ## Why this is needed
@@ -32,16 +32,16 @@ would keep a hidden feature nobody can configure.
 ## Current state
 
 Backend:
-- `apps/api/convex/modelCapabilities.ts` — list/probe/upsert/clear overrides.
-- `apps/api/convex/lib/modelCapabilities.ts` — the pure resolution order
+- `apps/api/functions/modelCapabilities.ts` — list/probe/upsert/clear overrides.
+- `apps/api/functions/lib/modelCapabilities.ts` — the pure resolution order
   (project override → override → probe → registry → built-in → unknown) and
   `CALL_SITE_NEEDS`.
-- `apps/api/convex/lib/capabilityValidators.ts` — the schema validators.
-- `apps/api/convex/schema.ts:1047` — the `modelCapabilityOverrides` table.
-- `apps/api/convex/orchestration.ts:177,236,261` — the overrides cross to the
+- `apps/api/functions/lib/capabilityValidators.ts` — the schema validators.
+- `apps/api/functions/schema.ts:1047` — the `modelCapabilityOverrides` table.
+- `apps/api/functions/orchestration.ts:177,236,261` — the overrides cross to the
   worker in the run context.
-- `apps/api/convex/projects.ts:242` — cascade delete on project removal.
-- `apps/api/convex/lib/routing.ts:88-89,227-236,263-264` — the Routing
+- `apps/api/functions/projects.ts:242` — cascade delete on project removal.
+- `apps/api/functions/lib/routing.ts:88-89,227-236,263-264` — the Routing
   Inspector's model view (`satisfied` / `fallback` are capability fields).
 
 Web:
@@ -97,7 +97,7 @@ from `schema.ts`; drop the overrides from the run context and from the
 project cascade.
 
 **Check**: `npm run --workspace=@fhara/api typecheck` and
-`npx --workspace=@fhara/api vitest run convex/securityInvariants.test.ts`.
+`npx --workspace=@fhara/api vitest run runtime/securityInvariants.test.ts`.
 
 ### Step 3: Worker — remove the needs routing
 
@@ -118,7 +118,7 @@ project cascade.
 
 ### Step 4: Routing view + UI
 
-- `apps/api/convex/lib/routing.ts`: the model view keeps model, connection
+- `apps/api/functions/lib/routing.ts`: the model view keeps model, connection
   and reason.
 - `apps/web/components/runs/RoutingInspector.tsx`: drop the "Model fit"
   column.

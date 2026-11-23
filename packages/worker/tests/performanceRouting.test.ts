@@ -9,7 +9,7 @@ import {
   type PerfSubtaskInput,
   type PerformanceSample,
   type PerformanceScore,
-} from "@/api/convex/lib/agentPerformance";
+} from "@/api/functions/lib/agentPerformance";
 import { performanceRoutingEnabled, pickByPerformance } from "@/orchestrator/performanceRouting";
 import { routeCapability } from "@/orchestrator/capabilities";
 import { createRunContext } from "@/services/runner/runContext";

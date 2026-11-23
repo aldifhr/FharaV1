@@ -1,11 +1,10 @@
-"use client";
 
 import { useState } from "react";
-import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useQuery } from "convex/react";
+import { Link } from "@/lib/spaRouter";
+import { useParams } from "@/lib/spaRouter";
+import { useQuery } from "@fhara/runtime/react";
 import { ArrowLeft } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import Sidebar from "@/components/Sidebar";
 import { HEADER_ACTION, PageHeader } from "@/components/ui/page-header";
 import Segmented from "@/components/ui/segmented";

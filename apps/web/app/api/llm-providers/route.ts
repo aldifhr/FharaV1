@@ -1,19 +1,19 @@
-import { ConvexHttpClient } from "convex/browser";
-import { NextRequest, NextResponse } from "next/server";
-import { api } from "@/api/convex/_generated/api";
+import { FharaRuntimeHttpClient } from "@fhara/runtime/browser";
+import { NextRequest, NextResponse } from "@/lib/serverCompat";
+import { api } from "@fhara/runtime/api";
 import { rejectUnsafeRequest } from "@/lib/apiGuard";
 import { isHttpUrl, pickFields, readJsonObject } from "@/lib/proxyArgs";
-import { publicConvexUrl } from "@/lib/env.client";
+import { publicFharaRuntimeUrl } from "@/lib/env.client";
 import { serverEnv } from "@/lib/env.server";
 
 /**
  * Server-side admin route for LLM provider writes and model discovery.
  *
- * The provider mutations/actions in Convex require the service token
- * (see apps/api/convex/llmProviders.ts). The token must never reach the
+ * The provider mutations/actions in FharaRuntime require the service token
+ * (see apps/api/functions/llmProviders.ts). The token must never reach the
  * browser bundle, so the Settings UI calls this route instead; the route
- * reads CONVEX_SERVICE_TOKEN from the web server's own environment and
- * injects it into the Convex call. If the token is not configured on the
+ * reads FHARA_SERVICE_TOKEN from the web server's own environment and
+ * injects it into the FharaRuntime call. If the token is not configured on the
  * server, provider writes fail closed with a clear error.
  *
  * Release audit P0-3/P0-4: the route only answers same-origin requests on
@@ -66,20 +66,20 @@ export async function POST(request: NextRequest) {
   const rejected = rejectUnsafeRequest(request);
   if (rejected) return rejected;
 
-  const token = serverEnv("CONVEX_SERVICE_TOKEN");
-  const convexUrl = publicConvexUrl();
+  const token = serverEnv("FHARA_SERVICE_TOKEN");
+  const runtimeUrl = publicFharaRuntimeUrl();
   if (!token) {
     return NextResponse.json(
       {
         error:
-          "CONVEX_SERVICE_TOKEN is not configured on the web server; provider writes are disabled.",
+          "FHARA_SERVICE_TOKEN is not configured on the web server; provider writes are disabled.",
       },
       { status: 500 }
     );
   }
-  if (!convexUrl) {
+  if (!runtimeUrl) {
     return NextResponse.json(
-      { error: "NEXT_PUBLIC_CONVEX_URL is not configured on the web server." },
+      { error: "FHARA_BACKEND_URL is not configured on the web server." },
       { status: 500 }
     );
   }
@@ -98,9 +98,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Base URL must be an http(s) URL" }, { status: 400 });
   }
 
-  const client = new ConvexHttpClient(convexUrl);
+  const client = new FharaRuntimeHttpClient(runtimeUrl);
   try {
-    // Convex validators enforce the argument types at runtime; the field
+    // FharaRuntime validators enforce the argument types at runtime; the field
     // names were fixed above, so TS only loses the per-field types here.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const callArgs = { ...payload, token } as any;
@@ -181,14 +181,14 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * The backend error without the Convex wrapper ("[CONVEX M(...)] Server
+ * The backend error without the FharaRuntime wrapper ("[FHARA M(...)] Server
  * Error Uncaught Error: ..."), and a setup hint instead of the raw message
  * when the deployment has no PROVIDER_ENCRYPTION_KEY.
  */
 function friendlyError(error: unknown): string {
   const raw = error instanceof Error ? error.message : "Provider operation failed";
   if (/PROVIDER_ENCRYPTION_KEY/.test(raw) && /not configured|missing|not set/i.test(raw)) {
-    return "API keys can't be stored yet: PROVIDER_ENCRYPTION_KEY is not set on the Convex deployment. Run `npx convex env set PROVIDER_ENCRYPTION_KEY \"$(openssl rand -base64 32)\"`, put the same value in .env for the worker, then save again.";
+    return "API keys can't be stored yet: PROVIDER_ENCRYPTION_KEY is not set on the FharaRuntime deployment. Run `npx runtime env set PROVIDER_ENCRYPTION_KEY \"$(openssl rand -base64 32)\"`, put the same value in .env for the worker, then save again.";
   }
   const match = raw.match(/Uncaught Error:\s*([\s\S]*?)(?:\n\s+at |\n\s*Called by|$)/);
   return (match ? match[1] : raw).trim();

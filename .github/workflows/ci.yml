@@ -27,7 +27,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     env:
-      # No secrets in CI: no Convex deployment, no LLM keys. Live-LLM / e2e
+      # No secrets in CI: no Fhara runtime deployment, no LLM keys. Live-LLM / e2e
       # suites are gated on these and stay skipped.
       CI: "true"
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
@@ -46,7 +46,7 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Generate Convex _generated (offline, no deploy key)
+      - name: Generate Fhara runtime _generated (offline, no deploy key)
         run: pnpm run codegen:offline
 
       - name: Guards (code budget, UI rules, import cycles)

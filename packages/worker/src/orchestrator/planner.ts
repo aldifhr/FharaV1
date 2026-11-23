@@ -20,13 +20,13 @@ import type { RoutingHint } from "./planningHint";
 import { conversationReplyCapability, pickPlannerModelSource } from "./plannerAgent";
 import { researchFanoutPlan, researchFanoutRequest } from "@/prompts/research";
 import { wantsVisualQa } from "@/utils/qaIntent";
-import { defaultGatesForKind } from "@/api/convex/lib/subtaskContract";
+import { defaultGatesForKind } from "@/api/functions/lib/subtaskContract";
 import {
   extractRequirementsFallback,
   linkSubtasksToRequirements,
   normalizeLlmRequirements,
   type Requirement,
-} from "@/api/convex/lib/requirements";
+} from "@/api/functions/lib/requirements";
 
 // The visual-QA intent heuristic lives in `@/utils/qaIntent` (the executor
 // reads it too); re-exported for existing importers.

@@ -5,7 +5,7 @@ import { classifyCommand } from "@/orchestrator/classifier";
 import { loadPolicy } from "@/orchestrator/policy";
 import { ARCH_DECISION_KEY, applyArchitectureGate, detectArchitectureSignals, NO_CTO_NOTE } from "@/orchestrator/architecture";
 import { conversationReplyCapability, pickPlannerModelSource } from "@/orchestrator/plannerAgent";
-import { parseArchitectureFlag, parseArchVerdict } from "@/api/convex/lib/architectureFlag";
+import { parseArchitectureFlag, parseArchVerdict } from "@/api/functions/lib/architectureFlag";
 import { validateStoredPlan } from "@/orchestrator/planValidator";
 import type { TaskLlmResolver } from "@/llm/resolver";
 import type { AgentDefinition, ExecutionPlan } from "@/types";
@@ -118,7 +118,7 @@ describe("O1: a flagged plan inserts the CTO decision node before the gated work
       llmPlan(
         [
           node("research", { kind: "research", capability: "research" }),
-          node("backend", { capability: "backend-development", allowedPaths: ["apps/api/convex/orders.ts"] }),
+          node("backend", { capability: "backend-development", allowedPaths: ["apps/api/functions/orders.ts"] }),
           node("frontend", { dependencies: ["backend"], allowedPaths: ["apps/web/components/Order.tsx"] }),
         ],
         { needed: true, reasons: ["schema_change"], question: "Model order status as a state machine?", gatedKeys: ["backend"] }
@@ -150,9 +150,9 @@ describe("O1: a flagged plan inserts the CTO decision node before the gated work
 
   it("backstop: schema.ts / migrations / auth paths and auth work flag; a UI table column does not", () => {
     const signals = (command: string, paths: string[]) => detectArchitectureSignals(planOf([node("i", { allowedPaths: paths })]), command);
-    expect(signals("add order status", ["apps/api/convex/schema.ts"])).toEqual(["schema_change"]);
+    expect(signals("add order status", ["apps/api/functions/schema.ts"])).toEqual(["schema_change"]);
     expect(signals("add a column", ["db/migrations/002_status.sql"])).toEqual(["schema_change"]);
-    expect(signals("update checks", ["apps/api/convex/lib/auth/session.ts"])).toEqual(["auth_boundary"]);
+    expect(signals("update checks", ["apps/api/functions/lib/auth/session.ts"])).toEqual(["auth_boundary"]);
     expect(signals("Tambah login Google dan GitHub", ["apps/web"])).toEqual(["auth_boundary"]);
     expect(signals("split the API into its own service", ["Dockerfile.api", "infra/compose.yml"])).toEqual(["infra_deploy"]);
     expect(signals("tambah kolom tanggal di tabel", ["apps/web/components/Table.tsx"])).toEqual([]);
@@ -168,7 +168,7 @@ describe("O1: a flagged plan inserts the CTO decision node before the gated work
   it("no CTO in the team → plan note, flag kept, no decision node, the work still runs", async () => {
     const { result } = await plan(
       "Tambah login Google dan GitHub",
-      llmPlan([node("implement", { capability: "backend-development", allowedPaths: ["apps/api/convex/auth.ts"] })]),
+      llmPlan([node("implement", { capability: "backend-development", allowedPaths: ["apps/api/functions/auth.ts"] })]),
       [frontend, backend]
     );
     expect(result.notes).toContain(NO_CTO_NOTE);
@@ -230,7 +230,7 @@ describe("O1: planner through the mock LLM", () => {
           role: "planner",
           match: ["You plan work for a team of specialist roles"],
           reply: llmPlan(
-            [node("implement", { capability: "backend-development", allowedPaths: ["apps/api/convex/schema.ts", "apps/api/convex/orders.ts"] })],
+            [node("implement", { capability: "backend-development", allowedPaths: ["apps/api/functions/schema.ts", "apps/api/functions/orders.ts"] })],
             { needed: true, reasons: ["schema_change"], question: "Order status model", gatedKeys: ["implement"] }
           ),
         },

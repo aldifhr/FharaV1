@@ -34,17 +34,17 @@ your own until you wipe.
 ## Seeding
 
 The seeder calls the internal mutations `devFixtures:seed` / `devFixtures:wipe`
-through `npx convex run` (from `apps/api`), so it targets the deployment the
-Convex CLI would: `CONVEX_SELF_HOSTED_URL` + `CONVEX_SELF_HOSTED_ADMIN_KEY`, or
-`CONVEX_DEPLOYMENT`, from your shell or `apps/api/.env.local`.
+through `npx runtime run` (from `apps/api`), so it targets the deployment the
+Fhara runtime CLI would: `FHARA_BACKEND_URL` + `FHARA_ADMIN_KEY`, or
+`FHARA_DEPLOYMENT`, from your shell or `apps/api/.env.local`.
 
 It never writes to a real deployment by accident. Two guards:
 
 1. The script refuses unless the target is self-hosted/local
-   (`CONVEX_SELF_HOSTED_URL`, or `CONVEX_DEPLOYMENT=local:…|anonymous:…`), or
+   (`FHARA_BACKEND_URL`, or `FHARA_DEPLOYMENT=local:…|anonymous:…`), or
    `FHARA_FIXTURES=1` is set in your shell.
-2. The mutations refuse a `*.convex.cloud` deployment unless `FHARA_FIXTURES=1`
-   is set **on the deployment** (`npx convex env set FHARA_FIXTURES 1`). Set it
+2. The mutations refuse a `*.runtime.cloud` deployment unless `FHARA_FIXTURES=1`
+   is set **on the deployment** (`npx runtime env set FHARA_FIXTURES 1`). Set it
    only on a dev deployment.
 
 Every inserted row is recorded in the `devFixtureRows` table, so the wipe
@@ -54,9 +54,9 @@ again replaces it. Timestamps are shifted so each scenario ends "now".
 With the sandbox's self-hosted backend:
 
 ```bash
-export CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3299
-export CONVEX_SELF_HOSTED_ADMIN_KEY="$(cat /path/to/convexdata/adminkey)"
-(cd apps/api && npx convex deploy --yes)   # once, so devFixtures exists on the backend
+export FHARA_BACKEND_URL=http://127.0.0.1:3299
+export FHARA_ADMIN_KEY="$(cat /path/to/runtimedata/adminkey)"
+(cd apps/api && npx runtime deploy --yes)   # once, so devFixtures exists on the backend
 npm run fixtures:seed
 npm run fixtures:wipe
 ```
@@ -73,14 +73,14 @@ It prints its base URL and writes `{ baseUrl, token }` to
 `$TMPDIR/fhara-mock-llm/mock-llm.json` (mode 0600; `--data-dir` to move it).
 In Settings › LLM add a provider of kind `openai-compatible` with that base URL
 and the token as its API key, and the model `mock/default` (or
-`mock/<scenario>`). The Convex chat actions can use it too when the backend is
+`mock/<scenario>`). The Fhara runtime chat actions can use it too when the backend is
 local. It binds to loopback only.
 
 Replies come from `scripts/mock-llm/scripts/default.json` (`--script` or
 `MOCK_LLM_SCRIPT` for another file): rules matched in order on the request text,
 each recognising one worker role by its prompt wording (classifier, planner,
 decision advisor, research assistant and synthesis (plain, or as `{"answer": …}` when the web_reach tool loop is offered), reviewer, commit message,
-code change, memory and role learnings, and the Convex chat reply). A rule may be limited to a scenario
+code change, memory and role learnings, and the Fhara runtime chat reply). A rule may be limited to a scenario
 (`mock/<scenario>` model, `x-mock-scenario` header or `--scenario`), answer with
 an HTTP status (`429` twice for `held-resume`, `500` for RA-2 in
 `research-fanout`), play several replies in order, or stop after `times` uses.
@@ -117,7 +117,7 @@ way (`server-error`: the first three), then the default rules answer.
 `packages/worker/tests/mockLlmFaults.test.ts` checks each fault on the raw
 wire. `packages/worker/tests/llmWireFaults.test.ts` records how the worker
 handles each one (provider, `runLlmCall` retry). D2 classified each fault (typed errors in
-`apps/api/convex/lib/llmWireErrors.ts`, re-exported by `packages/worker/src/llm/errors.ts`;
+`apps/api/functions/lib/llmWireErrors.ts`, re-exported by `packages/worker/src/llm/errors.ts`;
 the backend chat client raises the same ones):
 
 - a dropped stream (undici's bare `terminated`) is an `LlmConnectionError`
@@ -164,8 +164,8 @@ TS2322 tail, RA-2 failed with the synthesis done, a working Delete on the person
 next to the shots.
 
 ```bash
-npm run fixtures:seed                       # CONVEX_SELF_HOSTED_URL + _ADMIN_KEY set
-NEXT_PUBLIC_CONVEX_URL=$CONVEX_SELF_HOSTED_URL npm run dev:web -- -p 3010
+npm run fixtures:seed                       # FHARA_BACKEND_URL + _ADMIN_KEY set
+FHARA_BACKEND_URL=$FHARA_BACKEND_URL npm run dev:web -- -p 3010
 FHARA_CHROMIUM=/path/to/chromium npm run test:fixtures-ui -- --base http://127.0.0.1:3010 --shots ./shots
 npm run test:fixtures-ui -- --only held-resume,planned-push
 ```
@@ -178,7 +178,7 @@ reply only offers it), polls the task's status until done/failed/paused, and
 shoots the chat and run page. Point the worker at the mock LLM (an
 `openai-compatible` provider row with the mock's base URL and token) and the
 project at a throwaway local git repo with no remote. The default mock script
-answers the Convex chat reply (`chat-reply`, matched on the project chat
+answers the Fhara runtime chat reply (`chat-reply`, matched on the project chat
 persona line; `chat-reply-personal` for personal chats): the CTO says it is a
 small change and to press Create task. A chat message never starts a task by
 itself (only the Create task button, an explicit command or a go-reply to an

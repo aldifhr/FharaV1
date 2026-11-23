@@ -4,7 +4,7 @@ import {
   autoApprovalDecision,
   normalizePermissionMode,
   projectDefaultPermissionMode,
-} from "@/api/convex/lib/permissionModes";
+} from "@/api/functions/lib/permissionModes";
 import { applyOrRequestFixApproval } from "@/services/runner/fixApply";
 import { mayAutoApproveEdits, tryAutoApprove } from "@/services/runner/autoApprove";
 import type { RunContext } from "@/services/runner/types";

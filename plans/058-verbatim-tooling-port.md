@@ -5,7 +5,7 @@
 - Priority: P1
 - Size: L
 - Risk: MEDIUM
-- Dependencies: 056, 057 (informs, does not block)
+- Dependencies: 057 (informs, does not block)
 - Planned at: `2026-11-16`
 
 ## Why this is needed

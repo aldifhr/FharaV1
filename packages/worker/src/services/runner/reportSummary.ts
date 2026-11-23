@@ -7,7 +7,7 @@
  * labels only: the report never @mentions an agent.
  */
 import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "@/types";
-import { ROLES, type RoleKey } from "@/api/convex/lib/roles";
+import { ROLES, type RoleKey } from "@/api/functions/lib/roles";
 import { resolveRoleKey } from "@/utils/rolePolicy";
 import { isGateNode, roleForSubtask } from "@/orchestrator/responseOwner";
 import type { RunState } from "./types";

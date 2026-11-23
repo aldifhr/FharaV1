@@ -1,8 +1,7 @@
-"use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import Segmented from "@/components/ui/segmented";
 import GraphCanvas from "@/components/graph/GraphCanvas";
 import { positionRing } from "@/lib/dagLayout";
@@ -115,7 +114,7 @@ export default function CollaborationSection() {
                 to: e.to,
                 weight: e.weight,
                 label: String(e.weight),
-                title: `${view.label.get(e.from)} → ${view.label.get(e.to)}: ${e.parts.join(", ")}`,
+                title: `${view.label.get(e.from) as any} → ${view.label.get(e.to) as any}: ${e.parts.join(", ")}`,
               }))}
               nodes={data.nodes.map((n) => ({
                 key: n.key,
@@ -134,7 +133,7 @@ export default function CollaborationSection() {
               {view.edges.slice(0, 12).map((e) => (
                 <li key={`${e.from}->${e.to}`} className="flex items-baseline gap-3 px-4 py-2">
                   <span className="w-44 shrink-0 truncate">
-                    {view.label.get(e.from)} <span className="text-ink-3">→</span> {view.label.get(e.to)}
+                    {view.label.get(e.from) as any} <span className="text-ink-3">→</span> {view.label.get(e.to) as any}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-ink-3">{e.parts.join(" · ")}</span>
                   <span className="shrink-0 tabular-nums">{e.weight}</span>

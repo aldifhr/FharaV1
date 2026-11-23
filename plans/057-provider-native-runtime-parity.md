@@ -9,7 +9,7 @@
 - Priority: P1
 - Size: L
 - Risk: HIGH
-- Dependencies: 014, 035, 038, 056
+- Dependencies: 014, 035, 038
 - Planned at: `2026-11-16`
 
 ## Why this is needed

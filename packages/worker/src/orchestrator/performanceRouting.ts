@@ -1,6 +1,6 @@
 import type { AgentDefinition } from "@/types";
 import { capabilitiesOf, normalizeCapability } from "@/utils/agentCapabilities";
-import { PRIOR_SCORE, type PerformanceScore } from "@/api/convex/lib/agentPerformance";
+import { PRIOR_SCORE, type PerformanceScore } from "@/api/functions/lib/agentPerformance";
 import { rankCapability } from "./capabilities";
 import { concurrencyLimit } from "./loadAwareRouting";
 

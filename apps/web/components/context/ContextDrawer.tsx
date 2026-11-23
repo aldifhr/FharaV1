@@ -1,10 +1,9 @@
-"use client";
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { useQuery } from "convex/react";
+import { useQuery } from "@fhara/runtime/react";
 import { X } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import ContextInspector, { SnapshotPicker } from "./ContextInspector";
 
 /** Right-side panel: the Context Inspector for one chat bubble's LLM calls. */

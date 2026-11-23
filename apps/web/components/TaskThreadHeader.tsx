@@ -1,6 +1,5 @@
-"use client";
 
-import Link from "next/link";
+import { Link } from "@/lib/spaRouter";
 import { ArrowLeft, ArrowUpRight, Minimize2 } from "lucide-react";
 import { InspectorHeader } from "@/components/ui/inspector";
 import { StatusTag } from "@/components/ui/status-tag";
@@ -11,7 +10,7 @@ import { taskStatusLabel } from "@/lib/taskStatus";
 import { taskStatusTone } from "@/lib/taskStatusTone";
 import { dueDateLabel, isOverdue } from "@/lib/runFormat";
 import { isWidePanel, toggledPanelWidth } from "@/lib/useResizablePanel";
-import { PERMISSION_MODE_LABELS, normalizePermissionMode } from "@/api/convex/lib/permissionModes";
+import { PERMISSION_MODE_LABELS, normalizePermissionMode } from "@/api/functions/lib/permissionModes";
 
 const HEADER_BUTTON =
   "flex h-8 w-8 shrink-0 items-center justify-center rounded-field text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30";

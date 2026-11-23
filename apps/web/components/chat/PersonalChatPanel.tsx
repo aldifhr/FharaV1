@@ -1,12 +1,11 @@
-"use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useMutation, useQuery } from "convex/react";
+import { Link } from "@/lib/spaRouter";
+import { useRouter } from "@/lib/spaRouter";
+import { useMutation, useQuery } from "@fhara/runtime/react";
 import { Menu, Trash2 } from "lucide-react";
 import { iconButtonClass } from "../shell/usePopover";
-import { api } from "@/api/convex/_generated/api";
-import { composeOfferedTask } from "@/api/convex/lib/chat/intent";
+import { api } from "@fhara/runtime/api";
+import { composeOfferedTask } from "@/api/functions/lib/chat/intent";
 import { newClientId, optimisticUserRow, reconcileOptimistic, withOptimisticRow } from "@/lib/optimisticChat";
 import { agentRoleText, roleLabel } from "@/lib/agentRoles";
 import { clockTime, isSameDay, shortDate } from "@/lib/format";

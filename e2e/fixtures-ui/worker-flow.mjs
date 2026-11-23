@@ -26,7 +26,7 @@ if (!project) throw new Error("--project <projectId> is required");
 fs.mkdirSync(shots, { recursive: true });
 
 function tasksOfProject() {
-  const out = execFileSync("npx", ["convex", "data", "tasks", "--limit", "200", "--format", "jsonl"], {
+  const out = execFileSync("npx", ["runtime", "data", "tasks", "--limit", "200", "--format", "jsonl"], {
     cwd: path.join(repo, "apps/api"), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
     env: { ...process.env, NO_PROXY: "127.0.0.1,localhost", no_proxy: "127.0.0.1,localhost" },
   });

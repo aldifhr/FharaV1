@@ -9,7 +9,7 @@
 - Priority: P2
 - Size: M
 - Risk: MEDIUM
-- Dependencies: 014 (provider-native runtime), 032 (global LLM selection mode), 034 (OpenCode model catalog)
+- Dependencies: 014 (provider-native runtime), 032 (global LLM selection mode)
 - Planned at: commit `4be16d4`, 2026-11-10
 
 ## Why this is needed
@@ -39,11 +39,11 @@ uses.
 
 - `apps/web/components/sidebar/AgentForms.tsx:531-546` - the agent form's
   Runtime block (execution runtime select + OpenCode model field).
-- `apps/api/convex/schema.ts:310-312` - `agents.executionRuntime` and
+- `apps/api/functions/schema.ts:310-312` - `agents.executionRuntime` and
   `agents.opencodeModel` (per agent).
-- `apps/api/convex/llmSelection.ts` - the pattern of an app-wide setting
+- `apps/api/functions/llmSelection.ts` - the pattern of an app-wide setting
   (one row, public get/set, read by the run context).
-- `apps/api/convex/orchestration.ts:175-178` - `llmSelectionMode` in the run
+- `apps/api/functions/orchestration.ts:175-178` - `llmSelectionMode` in the run
   context.
 - `packages/worker/src/services/runner/runNodes.ts:193-195` - the runtime and
   the native model are derived per agent.
@@ -73,7 +73,7 @@ uses.
 ### Step 1: backend setting + run context
 
 `opencodeSettings` table (one row: runtime, model, updatedAt),
-`apps/api/convex/opencodeSettings.ts` (public `get`, public `set`,
+`apps/api/functions/opencodeSettings.ts` (public `get`, public `set`,
 `loadOpencodeSettings`), and `getRunContext` gains `opencodeRuntime` and
 `opencodeModel` (both present only when a row exists).
 
@@ -99,7 +99,7 @@ app-wide runtime. Templates: no runtime/model on a new agent.
 ## Test plan
 
 - The setting is stored, read back, and an invalid model id is refused
-  (backend `convex-test`).
+  (backend `local-test`).
 - The run context carries the setting only when a row exists.
 - The worker precedence: the global wins, the legacy agent value is the
   fallback, the env is the last fallback (worker unit test).
@@ -117,7 +117,7 @@ app-wide runtime. Templates: no runtime/model on a new agent.
 
 - `npm run typecheck` (web + api + worker): clean.
 - `npm run --workspace=@fhara/api test`: 73 files / 756 tests pass, including
-  `convex/opencodeSettings.test.ts` (4). `convex/agentTemplates.test.ts` now
+  `runtime/opencodeSettings.test.ts` (4). `runtime/agentTemplates.test.ts` now
   asserts the new contract (a template keeps its runtime/model as legacy
   data; a new agent does not inherit them).
 - Worker: `tests/opencodeRuntime.test.ts` gained 3 cases for the precedence

@@ -16,7 +16,7 @@
 import * as path from "node:path";
 import { validateFilePath } from "@/governance/tools";
 import { resolveWithinRootsAsync } from "@/tools/sandbox";
-import { presetChecksPaths, presetToolAction } from "@/api/convex/lib/mcpPresets";
+import { presetChecksPaths, presetToolAction } from "@/api/functions/lib/mcpPresets";
 import type { McpToolAction, McpToolDefinition } from "./types";
 
 /** Tool → action map for the reference filesystem server's tool surface. */

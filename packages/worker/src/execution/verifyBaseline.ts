@@ -5,7 +5,7 @@
 // Rewritten in TypeScript for whole verification commands. See THIRD_PARTY_NOTICES.md.
 import { wenv } from "@fhara/config/worker";
 import { execFile } from "node:child_process";
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
 import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";

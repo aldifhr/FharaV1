@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { setSettingOverrides } from "@/api/convex/lib/appSettings";
-import { backendLocality } from "@/api/convex/lib/backendLocality";
+import { setSettingOverrides } from "@/api/functions/lib/appSettings";
+import { backendLocality } from "@/api/functions/lib/backendLocality";
 import { loadPolicy, type ExecutionPolicy } from "@/orchestrator/policy";
 import {
   DIRTY_CHECKOUT_LINE,
@@ -45,8 +45,8 @@ describe("ORCHESTRATOR_WORKTREE_ISOLATION=auto: the decision", () => {
   test("backend locality follows the deployment URL; anything unparseable is unknown", () => {
     expect(backendLocality("http://127.0.0.1:3210")).toBe("local");
     expect(backendLocality("http://localhost:3210")).toBe("local");
-    expect(backendLocality("https://happy-otter-123.convex.cloud")).toBe("cloud");
-    expect(backendLocality("https://convex.example.com")).toBe("self_hosted");
+    expect(backendLocality("https://happy-otter-123.runtime.cloud")).toBe("cloud");
+    expect(backendLocality("https://runtime.example.com")).toBe("self_hosted");
     expect(backendLocality(undefined)).toBe("unknown");
     expect(backendLocality("not a url")).toBe("unknown");
   });
@@ -108,7 +108,7 @@ describe("ORCHESTRATOR_WORKTREE_ISOLATION=auto: the worker-side probe", () => {
 
   test("cloud and unknown backends never run git", () => {
     const git = vi.fn(() => "");
-    expect(probeIsolation("/nowhere", "https://x.convex.cloud", git)).toEqual({ backend: "cloud" });
+    expect(probeIsolation("/nowhere", "https://x.runtime.cloud", git)).toEqual({ backend: "cloud" });
     expect(probeIsolation("/nowhere", undefined, git)).toEqual({ backend: "unknown" });
     expect(git).not.toHaveBeenCalled();
   });

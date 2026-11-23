@@ -1,9 +1,8 @@
-"use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { Link } from "@/lib/spaRouter";
+import { useMutation, useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import { useToast } from "../Toasts";
 import type { AgentDoc } from "../sidebar/AgentForms";
 import { INSPECTOR_INPUT, InspectorBody, InspectorField, InspectorFooter } from "../ui/inspector";

@@ -4,9 +4,9 @@ import { withAccessLog, type CommandRecorder } from "@/utils/accessLog";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
 import { UNTRUSTED_GIT_CONFIG, untrustedGitEnv } from "@/vendor/threadbear/safeGit";
-import { settingEnv } from "@/api/convex/lib/appSettings";
+import { settingEnv } from "@/api/functions/lib/appSettings";
 import { scanUnifiedDiff, secretFindingsSummary, type SecretFinding } from "@/utils/secretScan";
 
 /**

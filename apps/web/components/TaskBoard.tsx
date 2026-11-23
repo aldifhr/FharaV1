@@ -1,15 +1,14 @@
-"use client";
 
 import { useMemo, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { useSearchParams } from "next/navigation";
+import { useMutation, useQuery } from "@fhara/runtime/react";
+import { useSearchParams } from "@/lib/spaRouter";
 import { Loader2, Plus } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import { useToast } from "./Toasts";
 import { TASK_STATUSES, isClosedStatus, taskStatusLabel } from "@/lib/taskStatus";
 import { SectionLoading, useWorkspace } from "@/app/WorkspaceContext";
 import ConfirmDialog from "./ConfirmDialog";
-import { PR_LANES } from "@/api/convex/lib/prFeedback";
+import { PR_LANES } from "@/api/functions/lib/prFeedback";
 import BoardTaskCard from "./board/BoardTaskCard";
 import { PHASES, phaseOf, type PrLaneRow } from "./board/boardModel";
 
@@ -237,7 +236,7 @@ export default function TaskBoard({
                   // The user's own toggle wins; with none, the selected task starts open.
                   isOpen={expanded[t._id] ?? selectedTaskId === t._id}
                   agentById={agentNameById}
-                  contextPromptTokens={contextByTask.get(t._id)}
+                  contextPromptTokens={contextByTask.get(t._id) as number}
                   onSelect={() => onSelectTask(t._id)}
                   onToggle={() => setExpanded((prev) => ({ ...prev, [t._id]: !(prev[t._id] ?? selectedTaskId === t._id) }))}
                   onStop={() => stopTask({ _id: t._id, title: t.title })}

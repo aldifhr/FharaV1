@@ -41,7 +41,7 @@ Example (the reference filesystem server, workspace-scoped):
 
 The config crosses to the worker through `getRunContext` as config only —
 never credentials. The worker spawns the child with a filtered environment
-(`PATH`, `HOME`, …), so `CONVEX_SERVICE_TOKEN` and `PROVIDER_ENCRYPTION_KEY`
+(`PATH`, `HOME`, …), so `FHARA_SERVICE_TOKEN` and `PROVIDER_ENCRYPTION_KEY`
 cannot leak into the MCP process.
 
 ## How agents use the tools
@@ -106,6 +106,6 @@ material is ever included.
 | Permissions + path checks | `npx --workspace=@fhara/worker vitest run tests/mcpPermissions.test.ts` |
 | Client + registry (real stdio, fake server) | `npx --workspace=@fhara/worker vitest run tests/mcpClientAndRegistry.test.ts` |
 | Tool loop | `npx --workspace=@fhara/worker vitest run tests/mcpToolLoop.test.ts` |
-| Backend config | `npx --workspace=@fhara/api vitest run convex/mcpServers.test.ts` |
-| Scope, secrets, test connection | `npx --workspace=@fhara/api vitest run convex/mcpIntegrations.test.ts` and `npx --workspace=@fhara/worker vitest run tests/mcpIntegrations.test.ts` |
+| Backend config | `npx --workspace=@fhara/api vitest run runtime/mcpServers.test.ts` |
+| Scope, secrets, test connection | `npx --workspace=@fhara/api vitest run runtime/mcpIntegrations.test.ts` and `npx --workspace=@fhara/worker vitest run tests/mcpIntegrations.test.ts` |
 | End-to-end (official server, opt-in) | `RUN_MCP_E2E=1 npx --workspace=@fhara/worker vitest run tests/mcpFilesystem.e2e.test.ts` |

@@ -1,9 +1,8 @@
-"use client";
 
-import Link from "next/link";
-import { useQuery } from "convex/react";
+import { Link } from "@/lib/spaRouter";
+import { useQuery } from "@fhara/runtime/react";
 import { ArrowUpRight, GitPullRequest } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import Sidebar from "@/components/Sidebar";
 import { StatusTag, type StatusTone } from "@/components/ui/status-tag";
 import { projectHref } from "@/lib/threadTree";

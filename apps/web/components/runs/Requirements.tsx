@@ -1,14 +1,13 @@
-"use client";
 
 import { useState } from "react";
-import { useQuery } from "convex/react";
+import { useQuery } from "@fhara/runtime/react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import {
   REQUIREMENT_STATE_LABELS,
   type RequirementCoverage,
   type RequirementState,
-} from "@/api/convex/lib/requirements";
+} from "@/api/functions/lib/requirements";
 
 /**
  * Plan 025: requirement → subtasks → acceptance → evidence → state. The

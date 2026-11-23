@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { REPO_TOOL_CAPS, capToolOutput, normalizeRepoToolArgs, type RepoToolResult } from "@/api/convex/lib/chat/repoTools";
+import { REPO_TOOL_CAPS, capToolOutput, normalizeRepoToolArgs, type RepoToolResult } from "@/api/functions/lib/chat/repoTools";
 import { maskStringSecrets, validateFilePath } from "@/governance/tools";
 import { resolveSandboxPathAsync } from "./sandbox";
 import { listIndexedFiles } from "./workspaceIndex";
@@ -21,7 +21,7 @@ const SKIP_DIRS = new Set([
   "dist",
   "build",
   "out",
-  ".convex",
+  ".runtime",
   ".turbo",
   ".qa",
   "coverage",

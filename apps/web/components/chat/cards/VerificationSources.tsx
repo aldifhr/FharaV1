@@ -1,8 +1,7 @@
-"use client";
 
 import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import type { HostCheckCardData, VerificationCardData } from "@/api/convex/cardTypes";
+import type { HostCheckCardData, VerificationCardData } from "@/api/functions/cardTypes";
 import { CARD_DIVIDER, MUTED, StatusWord, formatDuration, type StepStatus } from "./primitives";
 
 /**

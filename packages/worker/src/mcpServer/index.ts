@@ -7,7 +7,7 @@
  */
 import { wenv } from "@fhara/config/worker";
 import type { WorkerApi } from "@/workerApi";
-import { convexMcpSource } from "./convexSource";
+import { runtimeMcpSource } from "./runtimeSource";
 import { MCP_MIN_TOKEN_LENGTH, startMcpHttpServer, type FharaMcpServer } from "./httpServer";
 import { webhookConfigFrom, withCompletionWebhook } from "./webhook";
 
@@ -27,7 +27,7 @@ export async function startFharaMcpFromEnv(workerApi: WorkerApi, ctoFirst?: { en
   try {
     const webhook = webhookConfigFrom(wenv("FHARA_MCP_WEBHOOK_URL"), wenv("FHARA_MCP_WEBHOOK_SECRET"));
     if (webhook.problem) console.warn(`[mcp-server] completion webhook off: ${webhook.problem}`);
-    const base = convexMcpSource(workerApi, ctoFirst?.enabled ? { ttlMs: ctoFirst.ttlMs } : undefined);
+    const base = runtimeMcpSource(workerApi, ctoFirst?.enabled ? { ttlMs: ctoFirst.ttlMs } : undefined);
     const source = webhook.config ? withCompletionWebhook(base, webhook.config) : base;
     const server = await startMcpHttpServer({ port, token, source });
     console.log(`[mcp-server] listening on ${server.url} (bearer token required${webhook.config ? ", completion webhook on" : ""})`);

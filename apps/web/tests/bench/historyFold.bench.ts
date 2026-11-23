@@ -8,8 +8,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
 
-import { mergeSequenced } from "../../../api/convex/lib/eventResume.ts";
-import { HISTORY_PAGE_SIZE, mergeHistory } from "../../../api/convex/lib/historyPaging.ts";
+import { mergeSequenced } from "../../../api/runtime/lib/eventResume.ts";
+import { HISTORY_PAGE_SIZE, mergeHistory } from "../../../api/runtime/lib/historyPaging.ts";
 import { groupActivity, groupByIndex } from "../../lib/activityGroups.ts";
 
 const EVENT_COUNT = 5000;

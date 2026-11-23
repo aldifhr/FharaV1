@@ -1,7 +1,6 @@
-"use client";
 
-import { useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 
 /**
  * G10: one plain line above the composer while a worker's host is under

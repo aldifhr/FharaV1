@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
-import { gitIdentityArgs } from "@/api/convex/lib/gitIdentity";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
+import { gitIdentityArgs } from "@/api/functions/lib/gitIdentity";
 
 const execFileAsync = promisify(execFile);
 

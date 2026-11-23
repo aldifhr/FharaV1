@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "@/lib/serverCompat";
 import { checkApiRequest } from "./lib/requestGuard";
 
 /**

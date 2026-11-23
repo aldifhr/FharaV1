@@ -1,4 +1,4 @@
-import { isSystemLine } from "@/api/convex/lib/systemLine";
+import { isSystemLine } from "@/api/functions/lib/systemLine";
 
 export const PROMPT_TAIL = 12;
 /** R10: the first messages (the task statement) are kept verbatim, never summarised. */

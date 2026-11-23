@@ -6,9 +6,9 @@
 //
 //   npm run test:fixtures-ui -- [--shots DIR] [--base http://127.0.0.1:3010] [--only held-resume,planned-push]
 //
-// Needs, already running: a local Convex backend with the fixtures seeded
-// (`npm run fixtures:seed`, CONVEX_SELF_HOSTED_URL + _ADMIN_KEY in the shell),
-// and the web app pointed at it (NEXT_PUBLIC_CONVEX_URL). Chromium comes from
+// Needs, already running: a local Fhara runtime backend with the fixtures seeded
+// (`npm run fixtures:seed`, FHARA_BACKEND_URL + _ADMIN_KEY in the shell),
+// and the web app pointed at it (FHARA_BACKEND_URL). Chromium comes from
 // FHARA_CHROMIUM (path to a chromium binary) or playwright's own install.
 // The personal-chat check deletes the seeded chat; reseed to run it again.
 import { execFileSync } from "node:child_process";
@@ -44,8 +44,8 @@ async function shot(page, name) {
 }
 
 // Fixture row ids, from the seeder's own ledger (devFixtureRows).
-function convexData(table) {
-  const out = execFileSync("npx", ["convex", "data", table, "--limit", "1000", "--format", "jsonl"], {
+function runtimeData(table) {
+  const out = execFileSync("npx", ["runtime", "data", table, "--limit", "1000", "--format", "jsonl"], {
     cwd: path.join(repo, "apps/api"),
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
@@ -53,9 +53,9 @@ function convexData(table) {
   });
   return out.split("\n").filter((l) => l.startsWith("{")).map((l) => JSON.parse(l));
 }
-const ledger = convexData("devFixtureRows");
+const ledger = runtimeData("devFixtureRows");
 const idOf = (fixture, table) => ledger.find((r) => r.fixture === fixture && r.table === table)?.rowId;
-const agents = convexData("agents");
+const agents = runtimeData("agents");
 const ctoId = agents.find((a) => a.role === "cto")?._id;
 
 const browser = await chromium.launch({

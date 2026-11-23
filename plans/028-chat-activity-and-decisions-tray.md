@@ -5,7 +5,7 @@
 - Priority: P1
 - Size: L
 - Risk: MEDIUM (touches non-negotiable rule 5: one new automatic-approval source)
-- State: IN PROGRESS (implemented with unit + convex-test coverage; browser check and live worker smoke pending)
+- State: IN PROGRESS (implemented with unit + local-test coverage; browser check and live worker smoke pending)
 
 ## Decision recorded (rule 5)
 

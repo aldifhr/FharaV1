@@ -1,9 +1,8 @@
-"use client";
 
 import { useMemo, useState } from "react";
-import { useMutation } from "convex/react";
+import { useMutation } from "@fhara/runtime/react";
 import { Square } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import ConfirmDialog from "./ConfirmDialog";
 import { useToast } from "./Toasts";
 import { TASK_STOP_CONFIRM, guardStop, isTaskStoppable, stopLabel } from "@/lib/stopControl";

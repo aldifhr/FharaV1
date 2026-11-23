@@ -1,9 +1,8 @@
-"use client";
 
-import Link from "next/link";
+import { Link } from "@/lib/spaRouter";
 import { useState } from "react";
-import { useMutation } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useMutation } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import { useToast } from "../Toasts";
 
 const ACTION =

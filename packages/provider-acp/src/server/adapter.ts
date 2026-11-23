@@ -6534,8 +6534,8 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               Effect.fail(
                 EffectAcpErrors.AcpRequestError.internalError(
                   disposition === "ask"
-                    ? `The active Fhara runtime policy requires approval for ${operation}. Request permission with session/request_permission before retrying.`
-                    : `The active Fhara runtime policy does not allow ${operation}.`,
+                    ? `The active FharaRuntime policy requires approval for ${operation}. Request permission with session/request_permission before retrying.`
+                    : `The active FharaRuntime policy does not allow ${operation}.`,
                 ),
               ),
             ),

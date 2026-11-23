@@ -7,7 +7,7 @@ import {
   type PastWorkSearchFn,
   type ToolContext,
 } from "@/governance/tools";
-import { pastWorkCapNote, type PastWorkHit } from "@/api/convex/lib/pastWork";
+import { pastWorkCapNote, type PastWorkHit } from "@/api/functions/lib/pastWork";
 
 const hit = (text: string, taskId: string): PastWorkHit => ({ kind: "result", taskId, title: "t", text, at: Date.UTC(2026, 10, 1) });
 

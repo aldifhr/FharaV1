@@ -27,15 +27,15 @@ seeing it.
 
 | Part | Where |
 | --- | --- |
-| Ledger table `decisions` (one row per decision: task, subtask, type, chosen, alternatives, reason, expected outcome = subtask objective / acceptance / requirement ids + texts, `snapshotId`, `sourceEventId`, `dedupeKey`, outcome + label) and `calibrationActions` (Apply / Dismiss) | `apps/api/convex/schema.ts` (end of file), validators in `apps/api/convex/lib/calibration/validators.ts` |
-| Capture: pure `decisionFromEvent` over the events the run already writes (`plan.created`, `subtask.routed` incl. `loadAware` / a future `performance` payload, `orchestrator.delegation`, `plan.replan_diff`, `subtask.escalated`, `qa.fix_started` / `review.fix_started`, `qa.loop_stopped` / `review.loop_stopped`, `stall.repeated_output`, `orchestrator.decision`) | `apps/api/convex/lib/calibration/capture.ts` |
-| One central hook: `orchestration.logEvent` (every worker event) plus the two backend inserts that bypass it (`plan.created` in `lib/planStore.ts:194`, `recordDelegation`) | `apps/api/convex/orchestration.ts:2050`, `:2689` |
+| Ledger table `decisions` (one row per decision: task, subtask, type, chosen, alternatives, reason, expected outcome = subtask objective / acceptance / requirement ids + texts, `snapshotId`, `sourceEventId`, `dedupeKey`, outcome + label) and `calibrationActions` (Apply / Dismiss) | `apps/api/functions/schema.ts` (end of file), validators in `apps/api/functions/lib/calibration/validators.ts` |
+| Capture: pure `decisionFromEvent` over the events the run already writes (`plan.created`, `subtask.routed` incl. `loadAware` / a future `performance` payload, `orchestrator.delegation`, `plan.replan_diff`, `subtask.escalated`, `qa.fix_started` / `review.fix_started`, `qa.loop_stopped` / `review.loop_stopped`, `stall.repeated_output`, `orchestrator.decision`) | `apps/api/functions/lib/calibration/capture.ts` |
+| One central hook: `orchestration.logEvent` (every worker event) plus the two backend inserts that bypass it (`plan.created` in `lib/planStore.ts:194`, `recordDelegation`) | `apps/api/functions/orchestration.ts:2050`, `:2689` |
 | Worker: the only new events are the loops' max-round stop (`qa.loop_stopped`, `review.loop_stopped`) | `packages/worker/src/services/runner/qaLoop.ts:306`, `reviewLoop.ts:119` |
-| Outcome: pure `buildTaskEvidence` + `labelDecision` (rules below) | `apps/api/convex/lib/calibration/outcome.ts` |
+| Outcome: pure `buildTaskEvidence` + `labelDecision` (rules below) | `apps/api/functions/lib/calibration/outcome.ts` |
 | Evaluation is scheduled (never awaited) when a task ends (`completeTask`, `tasks.cancel`, plan rejection) and, provisionally, when a subtask completes/fails; skipped for runs with no decision | `orchestration.ts:1689`, `:1835`, `tasks.ts:300`, `approvals.ts:77` |
-| Signals + recommendations (pure) | `apps/api/convex/lib/calibration/aggregate.ts` |
-| Queries / mutations: `calibration.forTask`, `calibration.summary`, `calibration.apply`, `calibration.dismiss`; internal `calibration.evaluateTask`, `calibration.backfill`, `calibration.backfillAll` | `apps/api/convex/calibration.ts` |
-| Estimator multiplier setting `projects.estimatorMultipliers[{role, complexity?, tokens?, duration?}]`, applied by `estimatePlan` (exact complexity, then role-wide, else 1), passed by the worker (`planning.ts:160`) and the plan-edit recompute | `apps/api/convex/lib/estimate.ts`, `packages/worker/src/services/runner/planReview.ts` |
+| Signals + recommendations (pure) | `apps/api/functions/lib/calibration/aggregate.ts` |
+| Queries / mutations: `calibration.forTask`, `calibration.summary`, `calibration.apply`, `calibration.dismiss`; internal `calibration.evaluateTask`, `calibration.backfill`, `calibration.backfillAll` | `apps/api/functions/calibration.ts` |
+| Estimator multiplier setting `projects.estimatorMultipliers[{role, complexity?, tokens?, duration?}]`, applied by `estimatePlan` (exact complexity, then role-wide, else 1), passed by the worker (`planning.ts:160`) and the plan-edit recompute | `apps/api/functions/lib/estimate.ts`, `packages/worker/src/services/runner/planReview.ts` |
 | UI: `/calibration` (Insights menu) and the Decisions section on `/runs/[taskId]` (decision → expected → label → factors, Inputs opens the Context Snapshot) | `apps/web/app/calibration/page.tsx`, `apps/web/components/runs/Decisions.tsx` |
 
 ## Labelling rules
@@ -87,7 +87,7 @@ meet the threshold on their own.
 
 ## Backfill
 
-`npx convex run calibration:backfillAll '{"days":30}'` (internal). Days ≤
+`npx runtime run calibration:backfillAll '{"days":30}'` (internal). Days ≤
 90, batches of ≤ 50 tasks, ≤ 1000 tasks per run, newest first with a
 creation-time cursor. Idempotent: rows are keyed by `dedupeKey`, and the
 evaluation patches only changed outcomes.
@@ -103,7 +103,7 @@ evaluation patches only changed outcomes.
 
 ## Checks
 
-- `apps/api/convex/calibration.test.ts` (labelling rules, aggregation,
+- `apps/api/functions/calibration.test.ts` (labelling rules, aggregation,
   thresholds, dismiss/apply resurfacing, no auto-apply + audit, backfill
   idempotence, live hook dedupe, terminal scheduling).
 - `packages/worker/tests/estimate.test.ts` (multiplier reaches the worker

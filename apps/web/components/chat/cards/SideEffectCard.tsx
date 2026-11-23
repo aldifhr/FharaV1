@@ -1,11 +1,10 @@
-"use client";
 
 import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "@fhara/runtime/react";
 import { AlertTriangle } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
-import type { Id } from "@/api/convex/_generated/dataModel";
-import type { SideEffectCardData } from "@/api/convex/cardTypes";
+import { api } from "@fhara/runtime/api";
+import type { Id } from "@fhara/runtime/data";
+import type { SideEffectCardData } from "@/api/functions/cardTypes";
 import { useToast } from "../../Toasts";
 import { BTN_OUTLINE, BTN_PRIMARY, BTN_TEXT, CardHeader, CardShell, IconTile, MUTED } from "./primitives";
 import { StatusTag } from "../../ui/status-tag";

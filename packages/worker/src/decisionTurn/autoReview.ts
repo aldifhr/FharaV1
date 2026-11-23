@@ -10,7 +10,7 @@
  * run (no Reviewer in this run, no model, budget, deadline) is reported as
  * such and the card goes to the user: nothing is allowed by default.
  */
-import { autoReviewPrompt, type AutoReviewRequest } from "@/api/convex/lib/autoReview";
+import { autoReviewPrompt, type AutoReviewRequest } from "@/api/functions/lib/autoReview";
 import type { CommandReviewFn } from "@/services/runner/commandApproval";
 import type { RunContext } from "@/services/runner/types";
 import { runDecisionTurn, type DecisionTurnSpec } from "./runDecisionTurn";

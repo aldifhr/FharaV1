@@ -10,7 +10,7 @@
  */
 import { chromium, type Browser } from "playwright";
 import { chromiumLaunchOptions, isLoopbackUrl } from "@/execution/qa";
-import { previewDocument } from "@/api/convex/lib/optionsReview";
+import { previewDocument } from "@/api/functions/lib/optionsReview";
 
 export const RENDER_VIEWPORT = { width: 1280, height: 800 } as const;
 /** Tallest render kept (px); taller pages are clipped. */

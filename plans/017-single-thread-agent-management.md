@@ -9,7 +9,7 @@
 - Priority: P2
 - Size: M
 - Risk: LOW
-- Dependencies: 007 (project agent registry and conversation participation)
+- Dependencies: none (plan 007 was completed and its plan file retired)
 - Planned at: commit `a6c7709`, `2026-11-08`
 
 ## Why this is needed
@@ -83,9 +83,9 @@ Management surface today:
 
 Backend (read-only from the UI, no schema change needed):
 
-- `apps/api/convex/agents.ts:49` — `agents.list` query.
-- `apps/api/convex/agents.ts:225` — `agents.create` mutation; `:284` — `agents.update`; `:378` — `agents.getDetail`.
-- `apps/api/convex/projects.ts` — `projects.updateTeam` (used by ChatPanel).
+- `apps/api/functions/agents.ts:49` — `agents.list` query.
+- `apps/api/functions/agents.ts:225` — `agents.create` mutation; `:284` — `agents.update`; `:378` — `agents.getDetail`.
+- `apps/api/functions/projects.ts` — `projects.updateTeam` (used by ChatPanel).
 
 ## Decisions that must not change during execution
 
@@ -103,7 +103,7 @@ Backend (read-only from the UI, no schema change needed):
   place that launches create/edit/detail/assign. Sidebar and Manage-project
   controls delegate to it (or are removed); do not keep two live edit forms
   for the same agent in two components.
-- **UI never executes work.** Per `apps/web/AGENTS.md`: the UI reads Convex
+- **UI never executes work.** Per `apps/web/AGENTS.md`: the UI reads Fhara runtime
   state and writes intent only. Status comes from the execution lease, never
   from persisted `agents.status`.
 
@@ -115,7 +115,7 @@ Add `apps/web/lib/agentGroups.ts` exporting
 `groupAgents(agents): { orchestrator: Agent[]; lead: Agent[]; executors: Agent[]; other: Agent[] }`
 where `orchestrator` = role `cto`, `lead` = role `lead`, `executors` =
 `frontend | backend | devops | qa | reviewer`, `other` = the rest. Sort each
-group by role label. No Convex import; operates on plain objects with a
+group by role label. No Fhara runtime import; operates on plain objects with a
 `role` field.
 
 **Check**: `npm run --workspace=@fhara/web typecheck` → exit 0.

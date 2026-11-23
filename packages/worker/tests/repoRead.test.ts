@@ -8,7 +8,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { REPO_TOOL_CAPS, runRepoToolLoop, toolResultMessage } from "@/api/convex/lib/chat/repoTools";
+import { REPO_TOOL_CAPS, runRepoToolLoop, toolResultMessage } from "@/api/functions/lib/chat/repoTools";
 import { guardRepoPath, runRepoReadTool } from "@/tools/repoRead";
 import { disposeAllWorkspaceIndexes } from "@/tools/workspaceIndex";
 import { processNextRepoToolCall } from "@/services/repoTools";

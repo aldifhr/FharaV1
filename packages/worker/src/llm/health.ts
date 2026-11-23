@@ -15,7 +15,7 @@
  * circuit at once for an exponential backoff (2s, 4s, … max 5 min) that
  * grows with each consecutive rate limit and resets on success.
  */
-import { cooldownForFailure } from "@/api/convex/lib/llmRotation";
+import { cooldownForFailure } from "@/api/functions/lib/llmRotation";
 
 export interface ProviderHealthSnapshot {
   consecutiveTransientFailures: number;

@@ -1,11 +1,11 @@
 import { execFile } from "node:child_process";
 import path from "node:path";
-import { ConvexHttpClient } from "convex/browser";
-import { NextRequest, NextResponse } from "next/server";
-import { api } from "@/api/convex/_generated/api";
-import type { Id } from "@/api/convex/_generated/dataModel";
+import { FharaRuntimeHttpClient } from "@fhara/runtime/browser";
+import { NextRequest, NextResponse } from "@/lib/serverCompat";
+import { api } from "@fhara/runtime/api";
+import type { Id } from "@fhara/runtime/data";
 import { rejectUnsafeRequest } from "@/lib/apiGuard";
-import { publicConvexUrl } from "@/lib/env.client";
+import { publicFharaRuntimeUrl } from "@/lib/env.client";
 import {
   LAUNCHERS,
   OpenInPolicyError,
@@ -32,9 +32,9 @@ type ProjectRow = { workspacePath?: string; worktreesPath?: string } | null;
 type TaskRow = { projectId?: string; worktreePath?: string } | null;
 
 async function lookupTarget(projectId: string, taskId: string | null): Promise<{ folder: string; roots: string[] }> {
-  const convexUrl = publicConvexUrl();
-  if (!convexUrl) throw new Error("NEXT_PUBLIC_CONVEX_URL is not configured on the web server.");
-  const client = new ConvexHttpClient(convexUrl);
+  const runtimeUrl = publicFharaRuntimeUrl();
+  if (!runtimeUrl) throw new Error("FHARA_BACKEND_URL is not configured on the web server.");
+  const client = new FharaRuntimeHttpClient(runtimeUrl);
   let project: ProjectRow;
   try {
     project = (await client.query(api.projects.get, { projectId })) as ProjectRow;

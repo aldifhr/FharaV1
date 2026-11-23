@@ -75,7 +75,7 @@ describe("worker context snapshots", () => {
     expect(sink).not.toHaveBeenCalled();
     vi.unstubAllEnvs();
     setSnapshotSink(async () => {
-      throw new Error("convex down");
+      throw new Error("runtime down");
     });
     const { result } = await withSnapshotScope({ taskId: "t1" }, () =>
       runLlmCallWithFallback([handle(ok)], [{ role: "user", content: "x" }], { gate })

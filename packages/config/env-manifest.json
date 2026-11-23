@@ -2,7 +2,7 @@
   "$comment": "Generated from packages/config/src/schema by `npm run env:example`. Do not edit.",
   "vars": [
     {
-      "name": "NEXT_PUBLIC_CONVEX_URL",
+      "name": "FHARA_BACKEND_URL",
       "type": "url",
       "group": "core",
       "runtimes": [
@@ -11,11 +11,11 @@
         "webClient",
         "scripts"
       ],
-      "doc": "Convex deployment URL (worker, web, scripts).",
+      "doc": "FharaRuntime deployment URL (worker, web, scripts).",
       "default": null,
       "parse": "nullish",
       "aliases": [
-        "CONVEX_URL"
+        "FHARA_BACKEND_URL"
       ],
       "required": [
         "worker",
@@ -23,49 +23,49 @@
       ]
     },
     {
-      "name": "CONVEX_URL",
+      "name": "FHARA_BACKEND_URL",
       "type": "url",
       "group": "core",
       "runtimes": [
         "worker",
         "scripts"
       ],
-      "doc": "Legacy alias of NEXT_PUBLIC_CONVEX_URL.",
+      "doc": "Legacy alias of FHARA_BACKEND_URL.",
       "default": null,
       "parse": "nullish",
-      "deprecated": "use NEXT_PUBLIC_CONVEX_URL"
+      "deprecated": "use FHARA_BACKEND_URL"
     },
     {
-      "name": "CONVEX_SERVICE_TOKEN",
+      "name": "FHARA_SERVICE_TOKEN",
       "type": "string",
       "group": "core",
       "runtimes": [
         "worker",
-        "convex",
+        "runtime",
         "webServer",
         "scripts"
       ],
-      "doc": "Shared service token; must be equal in the worker, Convex and the web server.",
+      "doc": "Shared service token; must be equal in the worker, FharaRuntime and the web server.",
       "default": null,
       "parse": "nullish",
       "secret": true,
       "required": [
         "worker",
-        "convex"
+        "runtime"
       ]
     },
     {
-      "name": "CONVEX_SITE_URL",
+      "name": "FHARA_SITE_URL",
       "type": "url",
       "group": "core",
       "runtimes": [
         "webServer",
-        "convex"
+        "runtime"
       ],
-      "doc": "Convex HTTP actions URL; a Convex system var, derived from NEXT_PUBLIC_CONVEX_URL on the web side.",
+      "doc": "FharaRuntime HTTP actions URL; a FharaRuntime system var, derived from FHARA_BACKEND_URL on the web side.",
       "default": null,
       "parse": "nullish",
-      "convexSystem": true
+      "runtimeSystem": true
     },
     {
       "name": "PROVIDER_ENCRYPTION_KEY",
@@ -73,9 +73,9 @@
       "group": "core",
       "runtimes": [
         "worker",
-        "convex"
+        "runtime"
       ],
-      "doc": "AES-256-GCM key (base64, 32 bytes) for stored provider credentials; worker and Convex must match.",
+      "doc": "AES-256-GCM key (base64, 32 bytes) for stored provider credentials; worker and FharaRuntime must match.",
       "default": null,
       "parse": "nullish",
       "secret": true
@@ -86,9 +86,9 @@
       "group": "core",
       "runtimes": [
         "worker",
-        "convex"
+        "runtime"
       ],
-      "doc": "Previous encryption key during a rotation: the Convex migration re-encrypts with it, the worker decrypts not-yet-migrated rows with it.",
+      "doc": "Previous encryption key during a rotation: the FharaRuntime migration re-encrypts with it, the worker decrypts not-yet-migrated rows with it.",
       "default": null,
       "parse": "nullish",
       "secret": true
@@ -99,7 +99,7 @@
       "group": "llm",
       "runtimes": [
         "worker",
-        "convex",
+        "runtime",
         "scripts"
       ],
       "doc": "Global LLM provider fallback: anthropic | openai | openai-compatible.",
@@ -112,7 +112,7 @@
       "group": "llm",
       "runtimes": [
         "worker",
-        "convex",
+        "runtime",
         "scripts"
       ],
       "doc": "Global fallback model; the default depends on LLM_PROVIDER.",
@@ -126,7 +126,7 @@
       "group": "llm",
       "runtimes": [
         "worker",
-        "convex",
+        "runtime",
         "scripts"
       ],
       "doc": "Global fallback base URL; the default depends on LLM_PROVIDER.",
@@ -140,7 +140,7 @@
       "group": "llm",
       "runtimes": [
         "worker",
-        "convex"
+        "runtime"
       ],
       "doc": "OpenAI-flavour base URL; wins over LLM_BASE_URL for that flavour.",
       "default": null,
@@ -152,7 +152,7 @@
       "group": "llm",
       "runtimes": [
         "worker",
-        "convex"
+        "runtime"
       ],
       "doc": "Anthropic-flavour base URL; wins over LLM_BASE_URL for that flavour.",
       "default": null,
@@ -164,7 +164,7 @@
       "group": "llm",
       "runtimes": [
         "worker",
-        "convex",
+        "runtime",
         "scripts"
       ],
       "doc": "Global fallback API key; also the default apiKeyEnv name.",
@@ -181,7 +181,7 @@
       "group": "llm",
       "runtimes": [
         "worker",
-        "convex",
+        "runtime",
         "scripts"
       ],
       "doc": "Legacy fallback for LLM_API_KEY.",
@@ -207,7 +207,7 @@
       "group": "llm",
       "runtimes": [
         "worker",
-        "convex"
+        "runtime"
       ],
       "doc": "1 puts the project's per-role model (planner, reviewer, workers) first, with the global model list as fallback; 0 (default) uses the global list for every call.",
       "default": "false",
@@ -269,7 +269,7 @@
       "type": "string",
       "group": "github",
       "runtimes": [
-        "convex",
+        "runtime",
         "scripts"
       ],
       "doc": "GitHub OAuth app client id.",
@@ -281,7 +281,7 @@
       "type": "string",
       "group": "github",
       "runtimes": [
-        "convex",
+        "runtime",
         "scripts"
       ],
       "doc": "GitHub OAuth app client secret.",
@@ -294,7 +294,7 @@
       "type": "url",
       "group": "github",
       "runtimes": [
-        "convex"
+        "runtime"
       ],
       "doc": "OAuth callback URL (default http://localhost:3000/api/integrations/github/callback).",
       "default": null,
@@ -305,7 +305,7 @@
       "type": "string",
       "group": "github",
       "runtimes": [
-        "convex"
+        "runtime"
       ],
       "doc": "Fallback webhook secret; without one webhooks answer 401.",
       "default": null,
@@ -317,7 +317,7 @@
       "type": "string",
       "group": "github",
       "runtimes": [
-        "convex"
+        "runtime"
       ],
       "doc": "HMAC secret for OAuth state; falls back to PROVIDER_ENCRYPTION_KEY.",
       "default": null,
@@ -329,7 +329,7 @@
       "type": "url",
       "group": "github",
       "runtimes": [
-        "convex"
+        "runtime"
       ],
       "doc": "Web app origin; defaults to the origin of GITHUB_OAUTH_CALLBACK_URL.",
       "default": null,
@@ -340,7 +340,7 @@
       "type": "int",
       "group": "usage",
       "runtimes": [
-        "convex"
+        "runtime"
       ],
       "doc": "Weekly token budget for the usage meter; unset = meter off.",
       "default": "0",
@@ -1665,7 +1665,7 @@
       "group": "exec",
       "runtimes": [
         "worker",
-        "convexNode"
+        "runtimeNode"
       ],
       "doc": "Extra parent env names forwarded to spawned processes (comma-separated).",
       "default": "",
@@ -1740,7 +1740,7 @@
       "group": "git",
       "runtimes": [
         "worker",
-        "convexNode"
+        "runtimeNode"
       ],
       "doc": "Commit author name.",
       "default": "Fhara",
@@ -1755,7 +1755,7 @@
       "group": "git",
       "runtimes": [
         "worker",
-        "convexNode"
+        "runtimeNode"
       ],
       "doc": "Commit author email.",
       "default": "fhara@users.noreply.github.com",
@@ -1808,7 +1808,7 @@
       "type": "int",
       "group": "git",
       "runtimes": [
-        "convex"
+        "runtime"
       ],
       "doc": "Automatic PR-feedback fix attempts (0–20).",
       "default": "3",
@@ -1824,7 +1824,7 @@
       "type": "int",
       "group": "git",
       "runtimes": [
-        "convex"
+        "runtime"
       ],
       "doc": "Supervised auto-merge: max diff lines.",
       "default": "400",
@@ -1840,10 +1840,10 @@
       "type": "string",
       "group": "git",
       "runtimes": [
-        "convex"
+        "runtime"
       ],
       "doc": "Supervised auto-merge: globs that always need a human (comma-separated).",
-      "default": ".github/**, **/.env*, **/*.env, **/*.pem, **/*.key, infra/**, apps/api/convex/schema.ts",
+      "default": ".github/**, **/.env*, **/*.env, **/*.pem, **/*.key, infra/**, apps/api/functions/schema.ts",
       "parse": "trimOr",
       "knob": {
         "reader": "api"
@@ -1854,7 +1854,7 @@
       "type": "enum",
       "group": "git",
       "runtimes": [
-        "convex"
+        "runtime"
       ],
       "doc": "Supervised auto-merge method.",
       "default": "squash",
@@ -1872,8 +1872,8 @@
       "type": "int",
       "group": "git",
       "runtimes": [
-        "convex",
-        "convexNode"
+        "runtime",
+        "runtimeNode"
       ],
       "doc": "Hours a finished task's worktree is kept.",
       "default": "72",
@@ -1962,7 +1962,7 @@
       "group": "snapshots",
       "runtimes": [
         "worker",
-        "convex"
+        "runtime"
       ],
       "doc": "0 turns off context snapshots.",
       "default": "true",
@@ -1975,7 +1975,7 @@
       "type": "int",
       "group": "snapshots",
       "runtimes": [
-        "convex"
+        "runtime"
       ],
       "doc": "Days a context snapshot is kept.",
       "default": "14",
@@ -1991,7 +1991,7 @@
       "type": "int",
       "group": "threads",
       "runtimes": [
-        "convex"
+        "runtime"
       ],
       "doc": "When an unfinished chat reply counts as stale (ms, at least 11 min).",
       "default": "900000",
@@ -2007,7 +2007,7 @@
       "type": "int",
       "group": "threads",
       "runtimes": [
-        "convex"
+        "runtime"
       ],
       "doc": "A chat reply stops when the model sends nothing for this long (ms). Covers the wait for the first byte and every gap between chunks.",
       "default": "180000",
@@ -2020,9 +2020,9 @@
       "type": "int",
       "group": "threads",
       "runtimes": [
-        "convex"
+        "runtime"
       ],
-      "doc": "Total cap for one streamed chat reply (ms), kept under Convex's 10 min action limit. The text so far is kept and can be continued.",
+      "doc": "Total cap for one streamed chat reply (ms), kept under FharaRuntime's 10 min action limit. The text so far is kept and can be continued.",
       "default": "540000",
       "parse": "clampBlank",
       "min": 30000,
@@ -2033,7 +2033,7 @@
       "type": "int",
       "group": "threads",
       "runtimes": [
-        "convex"
+        "runtime"
       ],
       "doc": "When a running task without progress counts as stuck (ms, 0 = off).",
       "default": "1800000",
@@ -2047,7 +2047,7 @@
       "runtimes": [
         "worker",
         "webServer",
-        "convexNode"
+        "runtimeNode"
       ],
       "doc": "Where project workspaces live; a relative path is measured from packages/worker.",
       "default": "./workspaces",
@@ -2157,44 +2157,44 @@
       "type": "bool",
       "group": "scripts",
       "runtimes": [
-        "convex",
+        "runtime",
         "scripts"
       ],
-      "doc": "1 allows fixtures:seed / fixtures:wipe on a non-local Convex deployment (dev only; local and self-hosted need no flag).",
+      "doc": "1 allows fixtures:seed / fixtures:wipe on a non-local FharaRuntime deployment (dev only; local and self-hosted need no flag).",
       "default": "false",
       "parse": "bool"
     },
     {
-      "name": "CONVEX_CLOUD_URL",
+      "name": "FHARA_BACKEND_URL",
       "type": "url",
       "group": "core",
       "runtimes": [
-        "convex"
+        "runtime"
       ],
-      "doc": "The deployment's own URL; a Convex system var. The fixtures guard reads it to tell a local/self-hosted backend from Convex cloud.",
+      "doc": "The deployment's own URL; a FharaRuntime system var. The fixtures guard reads it to tell a local/self-hosted backend from FharaRuntime cloud.",
       "default": null,
       "parse": "nullish",
-      "convexSystem": true
+      "runtimeSystem": true
     },
     {
-      "name": "CONVEX_SELF_HOSTED_URL",
+      "name": "FHARA_BACKEND_URL",
       "type": "url",
       "group": "scripts",
       "runtimes": [
         "scripts"
       ],
-      "doc": "Self-hosted Convex backend URL used by the Convex CLI (fixtures:seed targets it when set).",
+      "doc": "Self-hosted FharaRuntime backend URL used by the FharaRuntime CLI (fixtures:seed targets it when set).",
       "default": null,
       "parse": "nullish"
     },
     {
-      "name": "CONVEX_DEPLOYMENT",
+      "name": "FHARA_DEPLOYMENT",
       "type": "string",
       "group": "scripts",
       "runtimes": [
         "scripts"
       ],
-      "doc": "Convex CLI deployment selector (\"local:…\", \"anonymous:…\", \"dev:…\"); fixtures:seed refuses a cloud one without FHARA_FIXTURES=1.",
+      "doc": "FharaRuntime CLI deployment selector (\"local:…\", \"anonymous:…\", \"dev:…\"); fixtures:seed refuses a cloud one without FHARA_FIXTURES=1.",
       "default": null,
       "parse": "nullish"
     },
@@ -2248,8 +2248,8 @@
       "off"
     ]
   },
-  "convexSync": [
-    "CONVEX_SERVICE_TOKEN",
+  "runtimeSync": [
+    "FHARA_SERVICE_TOKEN",
     "PROVIDER_ENCRYPTION_KEY",
     "PROVIDER_ENCRYPTION_KEY_OLD",
     "LLM_PROVIDER",
@@ -2280,7 +2280,7 @@
   ],
   "secrets": {
     "schema": [
-      "CONVEX_SERVICE_TOKEN",
+      "FHARA_SERVICE_TOKEN",
       "PROVIDER_ENCRYPTION_KEY",
       "PROVIDER_ENCRYPTION_KEY_OLD",
       "LLM_API_KEY",
@@ -2296,9 +2296,9 @@
       "GH_TOKEN"
     ],
     "extraPlatform": [
-      "CONVEX_SELF_HOSTED_ADMIN_KEY",
-      "CONVEX_ADMIN_KEY",
-      "CONVEX_DEPLOY_KEY",
+      "FHARA_ADMIN_KEY",
+      "FHARA_ADMIN_KEY",
+      "FHARA_DEPLOY_KEY",
       "AUTH_GITHUB_SECRET",
       "JWT_PRIVATE_KEY"
     ],
@@ -2325,14 +2325,14 @@
   },
   "required": {
     "worker": [
-      "NEXT_PUBLIC_CONVEX_URL",
-      "CONVEX_SERVICE_TOKEN"
+      "FHARA_BACKEND_URL",
+      "FHARA_SERVICE_TOKEN"
     ],
     "webClient": [
-      "NEXT_PUBLIC_CONVEX_URL"
+      "FHARA_BACKEND_URL"
     ],
-    "convex": [
-      "CONVEX_SERVICE_TOKEN"
+    "runtime": [
+      "FHARA_SERVICE_TOKEN"
     ]
   }
 }

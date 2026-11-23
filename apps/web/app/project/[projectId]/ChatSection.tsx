@@ -1,7 +1,6 @@
-"use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams } from "@/lib/spaRouter";
 import ChatPanel from "@/components/ChatPanel";
 import { useWorkspace } from "@/app/WorkspaceContext";
 

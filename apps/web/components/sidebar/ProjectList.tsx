@@ -1,10 +1,9 @@
-"use client";
 
-import Link from "next/link";
+import { Link } from "@/lib/spaRouter";
 import { useState } from "react";
-import { useQuery } from "convex/react";
+import { useQuery } from "@fhara/runtime/react";
 import { Trash2 } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import ProjectAvatar from "../shell/ProjectAvatar";
 import QueryBoundary from "../shell/QueryBoundary";
 import { SectionToggle } from "./SectionToggle";

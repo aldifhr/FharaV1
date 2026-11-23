@@ -1,10 +1,9 @@
-"use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useQuery } from "convex/react";
+import { Link } from "@/lib/spaRouter";
+import { useRouter } from "@/lib/spaRouter";
+import { useQuery } from "@fhara/runtime/react";
 import { ArrowUp, FileDiff, GitMerge, GitPullRequest, HelpCircle, ShieldCheck, Terminal, type LucideIcon } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import { roleLabel } from "@/lib/agentRoles";
 import { useOptionalWorkspace } from "@/app/WorkspaceContext";
 import { SectionToggle } from "./SectionToggle";

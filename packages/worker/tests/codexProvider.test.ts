@@ -42,8 +42,8 @@ describe("parseCodexEvent", () => {
       parseCodexEvent(line({ type: "item.completed", item: { type: "mcp_tool_call", server: "fs", tool: "read" } }))
     ).toMatchObject({ kind: "tool", tool: "mcp:fs/read", status: "completed" });
     expect(
-      parseCodexEvent(line({ type: "item.completed", item: { type: "web_search", query: "convex docs" } }))
-    ).toMatchObject({ kind: "tool", tool: "web_search", target: "convex docs" });
+      parseCodexEvent(line({ type: "item.completed", item: { type: "web_search", query: "runtime docs" } }))
+    ).toMatchObject({ kind: "tool", tool: "web_search", target: "runtime docs" });
   });
 
   it("treats input tokens as total (cached is a subset) like Codex reports them", () => {

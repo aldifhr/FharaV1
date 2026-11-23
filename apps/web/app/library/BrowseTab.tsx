@@ -1,4 +1,3 @@
-"use client";
 
 /**
  * Library → Browse: the skill marketplace. Lists the catalog
@@ -8,9 +7,9 @@
  * Theme tokens only, divide-y list, no pills.
  */
 import { useEffect, useMemo, useState } from "react";
-import { useAction, useQuery } from "convex/react";
+import { useAction, useQuery } from "@fhara/runtime/react";
 import { RefreshCw } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import Modal from "@/components/Modal";
 import { useToast } from "@/components/Toasts";
 import {
@@ -23,7 +22,7 @@ import {
   type CatalogEntry,
   type CatalogStatus,
   type UpdateCheck,
-} from "@/api/convex/lib/skillCatalog";
+} from "@/api/functions/lib/skillCatalog";
 import { ImportFromGithubModal } from "./ImportFromGithub";
 import { errorText, type LibrarySkill } from "./SkillsV2";
 
@@ -234,16 +233,16 @@ export function BrowseTab({ tabs, skills }: { tabs: React.ReactNode; skills: Lib
             <li key={catalogKey(entry.repo, entry.path)} className="flex items-center gap-3 pr-3 transition hover:bg-hover">
               <button
                 type="button"
-                onClick={() => setDetail(entry)}
+                onClick={() => setDetail(entry as any)}
                 className="min-w-0 flex-1 px-4 py-3 text-left outline-none focus-visible:bg-hover"
               >
                 <p className="truncate text-[14px] font-medium text-ink">{entry.name}</p>
                 {entry.description && <p className="truncate text-[12.5px] text-ink-2">{entry.description}</p>}
                 <p className="truncate text-[12px] text-ink-3">
-                  {entry.repo} · {licenseText(entry)}
+                  {entry.repo} · {licenseText(entry as any)}
                 </p>
               </button>
-              {action(entry)}
+              {action(entry as any)}
             </li>
           ))}
         </ul>
@@ -328,7 +327,7 @@ function SkillDetailModal({
       <div className="mt-4 grid gap-1">
         {entry.description && <p className="text-[14px] text-ink-2">{entry.description}</p>}
         <p className="text-[12.5px] text-ink-3">
-          {[entry.category, entry.author ? `by ${entry.author}` : "", licenseText(entry)].filter(Boolean).join(" · ")}
+          {[entry.category, entry.author ? `by ${entry.author}` : "", licenseText(entry as any)].filter(Boolean).join(" · ")}
         </p>
         <a
           href={githubUrl}

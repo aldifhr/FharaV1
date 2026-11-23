@@ -1,16 +1,15 @@
-"use client";
 
 /**
  * Building blocks for the Settings tabs: one section per topic, one row
  * per setting. Theme tokens only (canvas/panel/hover, line, ink), no
  * tinted cards. Server knobs go through `useKnob`, which reads and writes
- * the Convex `appSettings` row.
+ * the FharaRuntime `appSettings` row.
  */
 import { useEffect, useState, type ReactNode } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useMutation, useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import { useToast } from "@/components/Toasts";
-import type { SettingKey } from "@/api/convex/lib/appSettings";
+import type { SettingKey } from "@/api/functions/lib/appSettings";
 
 export const errorText = (err: unknown) =>
   err instanceof Error ? err.message.replace(/^.*Uncaught Error: /s, "").split("\n")[0] : "Please try again.";
@@ -214,7 +213,7 @@ export function useAppSettings() {
 }
 
 /**
- * One server knob: its effective value (UI override, else the Convex env
+ * One server knob: its effective value (UI override, else the FharaRuntime env
  * for API knobs, else the default), whether it is overridden, and a saver.
  */
 function useKnob(key: SettingKey) {

@@ -1,12 +1,12 @@
 /**
  * ui-g13: the quiet System line for a task's CTO decision turn (G13,
- * apps/api/convex/decisionTurns.ts). While the question waits on the CTO it
+ * apps/api/functions/decisionTurns.ts). While the question waits on the CTO it
  * says so with the time left; an answer shows its summary; an expired or
  * declined turn says the question went to the user. Never an @name.
  *
  * Pure, so tests/unit/ctoTurnLine.test.mjs can run it under node:test.
  */
-import { normalizeSystemLine } from "@/api/convex/lib/systemLine";
+import { normalizeSystemLine } from "@/api/functions/lib/systemLine";
 
 export type CtoTurn = {
   status: "open" | "answered" | "escalated" | "expired";

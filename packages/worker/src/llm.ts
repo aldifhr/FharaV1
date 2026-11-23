@@ -6,7 +6,7 @@ import { emitObservation } from "@/effects/observationContext";
 
 export type { LLMMessage, LLMResult } from "@/types/llm";
 import { firstTokenClock, mergeRawUsage, normalizeAnthropicUsage, normalizeOpenAiUsage } from "@/llm/usage";
-import { contextLimitFromText, formatTimeoutLimit, isContextOverflowText } from "@/api/convex/lib/llmWireErrors";
+import { contextLimitFromText, formatTimeoutLimit, isContextOverflowText } from "@/api/functions/lib/llmWireErrors";
 import { asDroppedConnection, LlmContextOverflowError, LlmIncompleteResponseError, LlmMalformedResponseError } from "@/llm/errors";
 
 export interface LLMCallOptions {
@@ -36,7 +36,7 @@ export interface GlobalLLMConfig {
 }
 
 export function getGlobalLLMConfig(env?: Record<string, string | undefined>): GlobalLLMConfig {
-  // B5: one fallback for the worker and Convex (@fhara/config llmFallbackConfig).
+  // B5: one fallback for the worker and FharaRuntime (@fhara/config llmFallbackConfig).
   return llmFallbackConfig(env);
 }
 
@@ -456,7 +456,7 @@ export function createGlobalLLMProvider(config?: GlobalLLMConfig): LLMProvider {
   // Only Anthropic speaks the Messages API; every other kind ("openai",
   // "openai-compatible", and free-form ones like "openrouter", "groq",
   // "ollama") speaks OpenAI chat completions — same routing as the backend
-  // (apps/api/convex/lib/chat/llmEndpoint.ts).
+  // (apps/api/functions/lib/chat/llmEndpoint.ts).
   if (provider === "anthropic" || provider === "claude" || provider.startsWith("anthropic")) {
     return new AnthropicProvider(apiKey, cfg.model, cfg.baseUrl);
   }

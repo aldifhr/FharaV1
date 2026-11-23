@@ -1,4 +1,3 @@
-"use client";
 // Paradev A4 (plan audit/paradev-plan-2026-11-11.md, P-A): the footer of the
 // Changes pane that holds the draft count and sends every draft as one
 // review round. Refusals are shown as plain sentences, never as a badge.

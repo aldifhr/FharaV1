@@ -22,7 +22,7 @@ import { wenv } from "@fhara/config/worker";
 import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { SCOPED_HOME_DIRS, scopedHome } from "@/api/convex/lib/childEnv";
+import { SCOPED_HOME_DIRS, scopedHome } from "@/api/functions/lib/childEnv";
 
 /** Providers OpenCode can run without any stored login. */
 const KEYLESS_PROVIDERS = new Set(["opencode", "ollama", "lmstudio", "llama.cpp", "llamacpp"]);

@@ -1,5 +1,5 @@
 /**
- * Mock LLM: an OpenAI-compatible stub so the worker (and the Convex chat
+ * Mock LLM: an OpenAI-compatible stub so the worker (and the FharaRuntime chat
  * actions) run end-to-end in seconds instead of minutes, with no provider
  * quota. `npm run mock:llm` (docs/mock-fixtures.md).
  *

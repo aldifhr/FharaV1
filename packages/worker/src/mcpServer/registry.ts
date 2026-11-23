@@ -5,7 +5,7 @@
  * summary, a zod input schema (the JSON Schema `describe` returns is derived
  * from it) and a handler over `McpSource`. Every write tool takes a
  * `clientRequestId` (a repeat returns the first result) and is bound by the
- * permission modes in apps/api/convex/lib/mcpWritePolicy.ts. The MCP `tools/list` never lists these
+ * permission modes in apps/api/functions/lib/mcpWritePolicy.ts. The MCP `tools/list` never lists these
  * directly: it shows the two-tool core listing (`describe`, `call`, see
  * protocol.ts), so an agent pays for a tool's schema only when it asks.
  *

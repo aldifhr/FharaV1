@@ -1,4 +1,3 @@
-"use client";
 
 import { useEffect, useState } from "react";
 import { avatarInitial, dicebearBackgroundFor, memoizeUntilFailure } from "@/lib/dicebearAvatar";
@@ -85,9 +84,7 @@ export default function DicebearAvatar({
       className={`relative inline-flex shrink-0 items-center justify-center overflow-hidden ${rounded} ${className}`}
       style={{ width: size, height: size, backgroundColor: `#${dicebearBackgroundFor(seed)}` }}
     >
-      {uri ? (
-        // eslint-disable-next-line @next/next/no-img-element -- inline SVG data URI, next/image cannot optimize it
-        <img
+      {uri ? (        <img
           src={uri}
           alt=""
           aria-hidden="true"

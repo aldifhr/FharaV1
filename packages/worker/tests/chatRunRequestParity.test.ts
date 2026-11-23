@@ -1,13 +1,13 @@
 /**
  * Parity: the chat copy of run-request detection
- * (apps/api/convex/lib/chat/runRequest.ts — Convex cannot import worker code)
+ * (apps/api/functions/lib/chat/runRequest.ts — FharaRuntime cannot import worker code)
  * must agree with the worker classifier (detectRunCommands) and the command
  * allowlist (ALLOWED_ARGV). When this fails, update the api mirror.
  */
 import { describe, expect, it } from "vitest";
 import { detectRunCommands } from "../src/orchestrator/classifier";
 import { ALLOWED_ARGV } from "../src/utils/commandAllowlist";
-import { CHAT_ALLOWED_ARGV, detectChatRunCommands } from "../../../apps/api/convex/lib/chat/runRequest";
+import { CHAT_ALLOWED_ARGV, detectChatRunCommands } from "../../../apps/api/functions/lib/chat/runRequest";
 
 const CORPUS = [
   // run requests

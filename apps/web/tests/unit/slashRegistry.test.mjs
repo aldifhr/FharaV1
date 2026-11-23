@@ -1,10 +1,10 @@
 // Paradev C1 drift test: the composer's slash commands and useProjectSlash's
 // runSlash stay in step with the shared registry
-// (apps/api/convex/lib/slashCommands.ts).
+// (apps/api/functions/lib/slashCommands.ts).
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { FHARA_BUILTIN_COMMANDS, builtinCommandsForScope } from "../../../api/convex/lib/slashCommands.ts";
+import { FHARA_BUILTIN_COMMANDS, builtinCommandsForScope } from "../../../api/runtime/lib/slashCommands.ts";
 import { personalSlashNames } from "../../lib/personalChat.ts";
 import {
   committedUsage,

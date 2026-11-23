@@ -1,8 +1,7 @@
-"use client";
 
 import { Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useRouter, useSearchParams } from "@/lib/spaRouter";
+import { useAction, useMutation, useQuery } from "@fhara/runtime/react";
 import { Download, MoreHorizontal, Plus } from "lucide-react";
 import { ImportFromGithubModal } from "./ImportFromGithub";
 import { useToast } from "@/components/Toasts";
@@ -17,8 +16,8 @@ import {
   usedByText,
   type LibrarySkill,
 } from "./SkillsV2";
-import { SKILL_PERMISSIONS, SKILL_PERMISSION_LABELS } from "@/api/convex/lib/skillGraph";
-import { api } from "@/api/convex/_generated/api";
+import { SKILL_PERMISSIONS, SKILL_PERMISSION_LABELS } from "@/api/functions/lib/skillGraph";
+import { api } from "@fhara/runtime/api";
 import Sidebar from "@/components/Sidebar";
 import Modal from "@/components/Modal";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
@@ -29,7 +28,7 @@ import {
   SKILL_NAME_MAX,
   SKILL_STORED_MAX,
   SKILLS_PROMPT_BUDGET,
-} from "@/api/convex/lib/skills";
+} from "@/api/functions/lib/skills";
 
 type Skill = LibrarySkill;
 

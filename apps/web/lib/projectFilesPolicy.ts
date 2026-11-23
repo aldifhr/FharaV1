@@ -15,7 +15,7 @@ import { serverEnv } from "@fhara/config/web-server";
  *    private keys and certificates, credential stores.
  */
 
-const DENIED_DIRS = new Set([".git", ".hg", ".svn", ".ssh", ".gnupg", ".aws", ".docker", ".kube", ".convex"]);
+const DENIED_DIRS = new Set([".git", ".hg", ".svn", ".ssh", ".gnupg", ".aws", ".docker", ".kube", ".runtime"]);
 
 const DENIED_NAMES = new Set([
   ".npmrc",
@@ -37,7 +37,7 @@ const DENIED_NAMES = new Set([
   "secrets.json",
   "secrets.yml",
   "secrets.yaml",
-  ".convex-local.sqlite3",
+  ".runtime-local.sqlite3",
 ]);
 
 const DENIED_EXT = new Set([".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".asc", ".gpg", ".kdbx", ".ppk"]);

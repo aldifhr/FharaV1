@@ -1,4 +1,3 @@
-"use client";
 
 import { roleLabel } from "@/lib/agentRoles";
 import type { StatusMap, TeamStatusEntry } from "@/lib/teamStatus";

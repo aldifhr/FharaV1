@@ -1,7 +1,6 @@
-"use client"; // Error boundaries must be Client Components
 
 import { useEffect } from "react";
-import Link from "next/link";
+import { Link } from "@/lib/spaRouter";
 
 export default function ProjectError({
   error,

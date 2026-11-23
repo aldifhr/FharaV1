@@ -236,7 +236,7 @@ export const EXEC_VARS = [
     type: "csv",
     parse: "nullish",
     default: "",
-    runtimes: ["worker", "convexNode"],
+    runtimes: ["worker", "runtimeNode"],
     group: "exec",
     doc: "Extra parent env names forwarded to spawned processes (comma-separated).",
   },

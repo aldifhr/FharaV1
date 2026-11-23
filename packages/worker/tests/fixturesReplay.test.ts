@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildDecisionTray } from "@/api/convex/lib/decisionTray";
-import { hasGap, highWater, mergeSequenced } from "@/api/convex/lib/eventResume";
-import { holdNoticeText } from "@/api/convex/lib/providerHold";
-import { buildReplaySteps } from "@/api/convex/lib/replay";
+import { buildDecisionTray } from "@/api/functions/lib/decisionTray";
+import { hasGap, highWater, mergeSequenced } from "@/api/functions/lib/eventResume";
+import { holdNoticeText } from "@/api/functions/lib/providerHold";
+import { buildReplaySteps } from "@/api/functions/lib/replay";
 import { groupActivity } from "../../../apps/web/lib/activityGroups";
 import { buildAll, type BuiltFixture } from "../../../scripts/fixtures/make-synthetic.mjs";
 

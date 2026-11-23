@@ -10,7 +10,7 @@
  * the executor's layout matches the planner's and chat's.
  */
 import path from "node:path";
-import { appendVolatile, assemblePrompt } from "@/api/convex/lib/assemblePrompt";
+import { appendVolatile, assemblePrompt } from "@/api/functions/lib/assemblePrompt";
 import { projectInstructionsBlock } from "@/context/projectInstructions";
 import { timeContextLine } from "@/context/timeContext";
 import type { LLMMessage } from "@/types/llm";

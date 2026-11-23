@@ -48,7 +48,7 @@ not routed.
 
 1. Backend: `githubPush.ts`, `cardTypes.ts`, `crons.ts`, `http.ts`;
    worker wrappers; integration repo picker + validation. Tests:
-   `convex/githubPush.test.ts`.
+   `runtime/githubPush.test.ts`.
 2. Worker: `services/runner/cards.ts`, emission in runNodes / verifyLoop /
    qaLoop / taskRunner; `services/pushRequests.ts`, `tools/gitPush.ts`,
    `tools/githubPr.ts`; poll in `index.ts`. Tests:

@@ -3,7 +3,7 @@ import type { FailureKind } from "@/orchestrator/decisionEngine";
 import type { WorkerProject, WorkerTask } from "@/workerApi";
 import type { RunnerDeps } from "./types";
 import { isLeaseLostOrShutdown } from "./abort";
-import { classifyProviderHold } from "@/api/convex/lib/providerHold";
+import { classifyProviderHold } from "@/api/functions/lib/providerHold";
 // P1b phase 2: the replan trigger facts live with the replan decision.
 export {
   alreadyDoneFiles,

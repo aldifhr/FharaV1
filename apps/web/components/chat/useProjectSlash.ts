@@ -1,4 +1,3 @@
-"use client";
 
 /**
  * Project chat slash commands (Paradev C2/C3, plan audit/paradev-plan-2026-11-11.md
@@ -12,12 +11,12 @@
  * the composer's "/" menu: project builtins, then this team's skills.
  */
 import { useMemo } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { useRouter } from "next/navigation";
-import { api } from "@/api/convex/_generated/api";
+import { useMutation, useQuery } from "@fhara/runtime/react";
+import { useRouter } from "@/lib/spaRouter";
+import { api } from "@fhara/runtime/api";
 import { roleLabel } from "@/lib/agentRoles";
 import { skillInvocation, skillsUsedBy, slashMenuEntries } from "@/lib/slashMenu";
-import type { PermissionMode } from "@/api/convex/lib/permissionModes";
+import type { PermissionMode } from "@/api/functions/lib/permissionModes";
 import { useToast } from "../Toasts";
 
 type TeamAgent = { _id: string; role: string };

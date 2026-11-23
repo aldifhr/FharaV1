@@ -24,7 +24,7 @@ const PLAN: ExecutionPlan = {
 const SUBTASK: PlanSubtask = {
   key: "research",
   title: "Research",
-  description: "Find public information about Convex",
+  description: "Find public information about FharaRuntime",
   kind: "research",
   capability: "research",
   dependencies: [],
@@ -37,7 +37,7 @@ const ENVELOPE = JSON.stringify({
   ok: true,
   channel: "web",
   action: "search",
-  items: [{ title: "Convex docs", url: "https://docs.convex.dev", text: "The reactive backend." }],
+  items: [{ title: "FharaRuntime docs", url: "https://docs.runtime.dev", text: "The reactive backend." }],
   error: null,
 });
 
@@ -84,7 +84,7 @@ describe("executeSubtask with the web_reach tool", () => {
   function input(agent: AgentDefinition, extra: Partial<SubtaskExecutionInput> = {}): SubtaskExecutionInput {
     return {
       workspacePath: ws,
-      command: "What does Convex do?",
+      command: "What does FharaRuntime do?",
       plan: PLAN,
       subtask: SUBTASK,
       agent,
@@ -108,8 +108,8 @@ describe("executeSubtask with the web_reach tool", () => {
       supportedTools: ["read_file", "web_reach"],
     };
     const { handle } = fakeHandle([
-      JSON.stringify({ tool: "web_reach", arguments: { channel: "web", action: "search", query: "convex", limit: 3 } }),
-      JSON.stringify({ answer: "Convex is a reactive backend." }),
+      JSON.stringify({ tool: "web_reach", arguments: { channel: "web", action: "search", query: "runtime", limit: 3 } }),
+      JSON.stringify({ answer: "FharaRuntime is a reactive backend." }),
     ]);
     const events: string[] = [];
 
@@ -131,15 +131,15 @@ describe("executeSubtask with the web_reach tool", () => {
     );
 
     expect(result.status).toBe("completed");
-    expect(argv).toEqual([["web", "search", "convex", "--limit", "3"]]);
-    expect(result.status === "completed" ? result.output : "").toContain("Convex is a reactive backend");
+    expect(argv).toEqual([["web", "search", "runtime", "--limit", "3"]]);
+    expect(result.status === "completed" ? result.output : "").toContain("FharaRuntime is a reactive backend");
     expect(events).toContain("tool.web_reach");
   });
 
   // Fixall: a web loop that ends without a JSON answer was marked complete
   // with a "Stopped early" / "Tool findings" dump as its result.
   const RESEARCHER: AgentDefinition = { _id: "a3", name: "Researcher", role: "research-agent", supportedTools: ["read_file", "web_reach"] };
-  const SEARCH = JSON.stringify({ tool: "web_reach", arguments: { channel: "web", action: "search", query: "convex", limit: 3 } });
+  const SEARCH = JSON.stringify({ tool: "web_reach", arguments: { channel: "web", action: "search", query: "runtime", limit: 3 } });
   const webReach = (maxIterations: number) => ({
     command: "agent-reach",
     timeoutMs: 5_000,
@@ -149,11 +149,11 @@ describe("executeSubtask with the web_reach tool", () => {
   });
 
   it("uses the plain-text answer when the loop ends without JSON", async () => {
-    const { handle } = fakeHandle([SEARCH, "Convex is a reactive backend with live queries."]);
+    const { handle } = fakeHandle([SEARCH, "FharaRuntime is a reactive backend with live queries."]);
     const result = await executeSubtask(input(RESEARCHER, { llmHandles: [handle], webReach: webReach(2) }));
     expect(result.status).toBe("completed");
     const output = result.status === "completed" ? result.output ?? "" : "";
-    expect(output).toBe("Convex is a reactive backend with live queries.");
+    expect(output).toBe("FharaRuntime is a reactive backend with live queries.");
     expect(output).not.toMatch(/Stopped early|Tool findings/);
   });
 

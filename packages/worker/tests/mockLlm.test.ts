@@ -5,7 +5,7 @@ import { parseIntentResult } from "@/router/semantic";
 import { parseFileBlocks } from "@/utils/draftLenient";
 import { parseReview } from "@/utils/json";
 import { chunkText, loadScript, pickRule, startMockLlm } from "../../../scripts/mock-llm/server";
-import { buildChatPersonaLines, buildTurnContextSection } from "../../../apps/api/convex/lib/prompts/chat";
+import { buildChatPersonaLines, buildTurnContextSection } from "../../../apps/api/functions/lib/prompts/chat";
 
 /**
  * The mock LLM (scripts/mock-llm, `npm run mock:llm`) driven through the
@@ -99,7 +99,7 @@ describe("default mock script matches the worker's parsers", () => {
     expect(parseIntentResult(replyFor("You are an intent classifier"))?.intent).toBe("task");
   });
 
-  it("the Convex chat reply (project CTO chat) has its own rule, not the fallback", () => {
+  it("the FharaRuntime chat reply (project CTO chat) has its own rule, not the fallback", () => {
     const system = [
       ...buildChatPersonaLines({ name: "CTO", role: "cto" } as any, "Demo", [], null),
       buildTurnContextSection({}),

@@ -1,10 +1,9 @@
-"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery } from "convex/react";
+import { Link } from "@/lib/spaRouter";
+import { useRouter, useSearchParams } from "@/lib/spaRouter";
+import { useQuery } from "@fhara/runtime/react";
 import {
   Database,
   Download,
@@ -18,14 +17,14 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import {
   MCP_PRESETS,
   fieldsFromArgs,
   getMcpPreset,
   type McpPreset,
-} from "@/api/convex/lib/mcpPresets";
-import { ROLE_KEYS, roleLabel } from "@/api/convex/lib/roles";
+} from "@/api/functions/lib/mcpPresets";
+import { ROLE_KEYS, roleLabel } from "@/api/functions/lib/roles";
 import GithubWebhookSetup from "@/components/GithubWebhookSetup";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toasts";
@@ -627,7 +626,7 @@ function ServerModal({
  * project (`?project=<id>`). A run uses global + its project's enabled
  * servers; each server can be limited to some roles. Writes go through
  * /api/mcp-servers (service token stays server-side); secrets are sealed
- * by Convex and only their key names come back.
+ * by FharaRuntime and only their key names come back.
  *
  * Content only (no app shell): `app/integrations/page.tsx` puts it beside the
  * sidebar and Settings embeds it as the Integrations tab (`embedded`). Only

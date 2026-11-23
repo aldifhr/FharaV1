@@ -1,4 +1,3 @@
-"use client";
 
 import { Check, CheckCircle2, ExternalLink, Loader2, XCircle, Bell, Clock } from "lucide-react";
 import type { ChatOption, LayoutRow } from "@/lib/options";

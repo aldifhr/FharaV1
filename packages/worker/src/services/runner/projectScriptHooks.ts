@@ -1,4 +1,4 @@
-import type { HostCheckCardData, VerificationCardData } from "@/api/convex/cardTypes";
+import type { HostCheckCardData, VerificationCardData } from "@/api/functions/cardTypes";
 import { runProjectScript, type ProjectScriptOutcome } from "@/execution/projectScriptRun";
 import { checkProjectScript, setupProjectScript } from "@/vendor/goat/projectScripts";
 import type { WorkerApi } from "@/workerApi";

@@ -4,14 +4,14 @@ import { existsSync } from "node:fs";
 import * as path from "node:path";
 import * as net from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
 import { createHash } from "node:crypto";
 import { chromium, type Browser } from "playwright";
 import { killTree } from "./verification";
 import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 import type { QaCheck, QaReport } from "@/types/qa";
-import { settingEnv } from "@/api/convex/lib/appSettings";
+import { settingEnv } from "@/api/functions/lib/appSettings";
 
 export type { QaCheck, QaReport } from "@/types/qa";
 

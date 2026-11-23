@@ -1,13 +1,12 @@
-"use client";
 // Paradev A4 (plan audit/paradev-plan-2026-11-11.md, P-A): line comments on
 // the Changes pane. Owns the gutter selection, the open composer, the draft
 // mutations and the review round; ChangesPane only spreads `fileProps` onto
 // each DiffCard and renders the DraftCommentsBar. Idea from Paradev's
 // useDiffCommentComposer/useDiffAnnotations; the code is Fhara's.
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
-import type { ChangesForTask } from "@/api/convex/changes";
+import { useMutation, useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
+import type { ChangesForTask } from "@/api/functions/changes";
 import {
   annotationRow,
   parseDiff,

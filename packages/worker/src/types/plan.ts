@@ -1,9 +1,9 @@
 import type { PlanSubtask } from "./subtask";
-import type { Requirement } from "@/api/convex/lib/requirements";
-import type { ArchitectureFlag } from "@/api/convex/lib/architectureFlag";
+import type { Requirement } from "@/api/functions/lib/requirements";
+import type { ArchitectureFlag } from "@/api/functions/lib/architectureFlag";
 
-export type { Requirement } from "@/api/convex/lib/requirements";
-export type { ArchitectureFlag, ArchitectureReason } from "@/api/convex/lib/architectureFlag";
+export type { Requirement } from "@/api/functions/lib/requirements";
+export type { ArchitectureFlag, ArchitectureReason } from "@/api/functions/lib/architectureFlag";
 
 export const CAPABILITY = {
   COORDINATION: "project-coordination",

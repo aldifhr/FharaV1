@@ -5,8 +5,8 @@
  */
 import { describe, expect, test } from "vitest";
 import { COMPLETION_CONTRACT, COMPLETION_CONTRACT_LINES, buildNativePrompt, codeChangePrompt } from "@/prompts";
-import { AGENT_SEED_PROMPTS } from "@/api/convex/lib/prompts/agents";
-import { builtinSkillKeysForRole } from "@/api/convex/lib/builtinSkills";
+import { AGENT_SEED_PROMPTS } from "@/api/functions/lib/prompts/agents";
+import { builtinSkillKeysForRole } from "@/api/functions/lib/builtinSkills";
 
 const CODE_ROLES = ["frontend", "backend"] as const;
 

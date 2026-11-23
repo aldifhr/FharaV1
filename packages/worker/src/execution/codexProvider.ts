@@ -1,7 +1,7 @@
 import { schemaDefault } from "@fhara/config";
 import { wenv } from "@fhara/config/worker";
 import { spawn } from "node:child_process";
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
 import { NATIVE_PROMPT_MESSAGE, workspaceHeader } from "@/prompts/native";
 import { addNativeUsage, type NativeEvent, type NativeRunResult, type NativeUsage } from "./nativeProvider";
 import { opencodeAllowUnisolated } from "./opencodeDetect";

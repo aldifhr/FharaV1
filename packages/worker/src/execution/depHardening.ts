@@ -5,7 +5,7 @@
  * lockfiles, CI workflows) and reports findings in the Reviewer severity
  * scale. A "high" finding never lets the change be auto-approved and marks
  * the push's dependencyCheck "failed", which blocks supervised auto-merge
- * (apps/api/convex/lib/autoMerge.ts). No network: `npm audit` runs only when
+ * (apps/api/functions/lib/autoMerge.ts). No network: `npm audit` runs only when
  * a runner is injected, and its absence is an "info" finding, never a failure.
  *
  * Written for Fhara (no code copied). The known-bad list is public incident
@@ -84,7 +84,7 @@ export const POPULAR_PACKAGES: readonly string[] = [
   "react", "react-dom", "next", "vue", "angular", "svelte", "express", "koa", "fastify", "lodash", "underscore",
   "axios", "request", "node-fetch", "chalk", "commander", "yargs", "debug", "dotenv", "moment", "dayjs", "uuid",
   "typescript", "eslint", "prettier", "webpack", "vite", "rollup", "esbuild", "babel-core", "jest", "vitest",
-  "mocha", "chai", "zod", "convex", "electron", "socket.io", "mongoose", "mysql", "pg", "redis", "ioredis",
+  "mocha", "chai", "zod", "runtime", "electron", "socket.io", "mongoose", "mysql", "pg", "redis", "ioredis",
   "jsonwebtoken", "bcrypt", "cors", "body-parser", "cross-env", "rimraf", "glob", "minimist", "semver",
   "colors", "async", "bluebird", "classnames", "tailwindcss", "postcss", "autoprefixer", "sharp", "openai",
   "puppeteer", "playwright", "nodemon", "ws", "graphql", "prisma", "sequelize", "knex", "ethers", "web3",

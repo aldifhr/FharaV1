@@ -23,8 +23,8 @@ const cto: AgentDefinition = { _id: "c", name: "CTO", role: "cto", capabilities:
 
 describe("research fan-out", () => {
   it("is explicit only", () => {
-    expect(researchFanoutRequest("/research compare Convex vs Supabase vs Firebase")).toEqual({
-      question: "compare Convex vs Supabase vs Firebase",
+    expect(researchFanoutRequest("/research compare FharaRuntime vs Supabase vs Firebase")).toEqual({
+      question: "compare FharaRuntime vs Supabase vs Firebase",
       angles: 4,
     });
     expect(researchFanoutRequest("/research 3 compare X and Y")).toEqual({ question: "compare X and Y", angles: 3 });
@@ -78,7 +78,7 @@ describe("research fan-out", () => {
 
   it("createPlan uses the fan-out with no planner LLM call, and only for /research", async () => {
     const provider = vi.fn();
-    const command = "/research compare Convex vs Supabase vs Firebase for a solo dev";
+    const command = "/research compare FharaRuntime vs Supabase vs Firebase for a solo dev";
     const result = await createPlan({
       command,
       classification: classifyCommand(command),
@@ -91,7 +91,7 @@ describe("research fan-out", () => {
     expect(provider).not.toHaveBeenCalled();
     expect(result.createdBy).toBe("orchestrator");
     expect(result.plan.subtasks.map((s) => s.key)).toEqual(["ra-1", "ra-2", "ra-3", "ra-4", "synthesis"]);
-    expect(result.plan.goal).toBe("compare Convex vs Supabase vs Firebase for a solo dev");
+    expect(result.plan.goal).toBe("compare FharaRuntime vs Supabase vs Firebase for a solo dev");
     expect(result.notes.some((n) => n.startsWith("research fan-out"))).toBe(true);
 
     const plain = await createPlan({ command: "fix the button", classification: classifyCommand("fix the button"), agents: [cto, researcher, frontend], policy });

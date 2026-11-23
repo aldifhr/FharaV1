@@ -78,7 +78,7 @@ export function legacyLoadPolicy(get: Get, rawEnv: Env): Record<string, unknown>
   function loadPolicy(): Record<string, unknown> {
     const maxReplans = intFromEnv("ORCHESTRATOR_MAX_REPLANS", 1, 0, 3);
     // Off by default: isolation fails tasks whose workspace is not a git
-    // repo, and needs the Convex node action to share the worker's disk.
+    // repo, and needs the FharaRuntime node action to share the worker's disk.
     const isolationSetting = l3Isolation(get("ORCHESTRATOR_WORKTREE_ISOLATION"));
     const worktreeIsolation = isolationSetting === true;
     const parallelism = defaultParallelism(worktreeIsolation);
@@ -223,7 +223,7 @@ export function legacyLoadPolicy(get: Get, rawEnv: Env): Record<string, unknown>
 
 // ── Non-policy readers, verbatim (env/get passed in) ──────────────────────
 
-/** B5 reference: the one LLM fallback (worker and Convex). */
+/** B5 reference: the one LLM fallback (worker and FharaRuntime). */
 export function b5GlobalLLMConfig(e: Env) {
   const provider = (e.LLM_PROVIDER ?? "anthropic").toLowerCase();
   const openai = provider === "openai-compatible" || provider === "openai";
@@ -275,14 +275,14 @@ export function legacyIndexConstants(env: Env) {
     REPO_TOOL_IDLE_POLL_MS: b3Int(env.WORKER_REPO_TOOL_POLL_MS, 1000, 250),
     OPENCODE_CATALOG_POLL_MS: b3Int(env.WORKER_OPENCODE_CATALOG_POLL_MS, 15_000, 5_000),
     WORKER_ID: env.WORKER_ID,
-    CONVEX_SERVICE_TOKEN: env.CONVEX_SERVICE_TOKEN,
-    // The startup log shows the CONVEX_URL alias too.
-    LOG_CONVEX_URL: env.NEXT_PUBLIC_CONVEX_URL ?? env.CONVEX_URL,
+    FHARA_SERVICE_TOKEN: env.FHARA_SERVICE_TOKEN,
+    // The startup log shows the FHARA_BACKEND_URL alias too.
+    LOG_FHARA_BACKEND_URL: env.FHARA_BACKEND_URL ?? env.FHARA_BACKEND_URL,
   };
 }
 
-/** convexClient.ts */
-export const legacyConvexUrl = (env: Env) => env.NEXT_PUBLIC_CONVEX_URL ?? env.CONVEX_URL;
+/** runtimeClient.ts */
+export const legacyFharaRuntimeUrl = (env: Env) => env.FHARA_BACKEND_URL ?? env.FHARA_BACKEND_URL;
 export const legacySubscribe = (env: Env) => b2Bool(env.WORKER_SUBSCRIBE, true);
 
 /** effects/llmCall.ts workerGateLimitFromEnv */

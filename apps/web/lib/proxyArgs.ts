@@ -1,7 +1,7 @@
 /**
  * Helpers for the service-token proxy routes (llm-providers, mcp-servers,
  * magic-prompt). Release audit P0-3: those routes used to spread the whole
- * request body into the Convex call next to CONVEX_SERVICE_TOKEN, so the
+ * request body into the FharaRuntime call next to FHARA_SERVICE_TOKEN, so the
  * caller decided every argument of an admin call. Now each operation names
  * the exact fields it forwards; anything else (including a caller-supplied
  * `token`/`workerToken`) is dropped before the token is attached.

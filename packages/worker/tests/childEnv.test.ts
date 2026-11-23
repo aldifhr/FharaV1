@@ -7,7 +7,7 @@ import {
   CHILD_ENV_PASSTHROUGH_VAR,
   DEFAULT_DENIED_SECRET_ENV_KEYS,
   WORKER_SECRET_ENV_KEYS,
-} from "@/api/convex/lib/childEnv";
+} from "@/api/functions/lib/childEnv";
 import { runNativeProvider, type SpawnOptions, type SpawnImpl } from "@/execution/nativeProvider";
 import { runCommand } from "@/tools/runCommand";
 import { runVerification } from "@/execution/verification";
@@ -26,9 +26,9 @@ const SECRET_NAMES = [
   "DATABASE_URL",
 ];
 const MUST_INCLUDE = [
-  "CONVEX_SERVICE_TOKEN",
+  "FHARA_SERVICE_TOKEN",
   "PROVIDER_ENCRYPTION_KEY",
-  "CONVEX_SELF_HOSTED_ADMIN_KEY",
+  "FHARA_ADMIN_KEY",
   "GITHUB_CLIENT_SECRET",
   "GITHUB_TOKEN",
   "GH_TOKEN",
@@ -122,11 +122,11 @@ describe("buildChildEnv denylist", () => {
 
   it("adds explicit per-run vars, but never worker secrets", () => {
     const env = buildChildEnv(
-      { MOAGENT_OPENCODE_API_KEY: "agent-key", CONVEX_SERVICE_TOKEN: "smuggled", PROVIDER_ENCRYPTION_KEY: "x" },
+      { MOAGENT_OPENCODE_API_KEY: "agent-key", FHARA_SERVICE_TOKEN: "smuggled", PROVIDER_ENCRYPTION_KEY: "x" },
       { source: poisonedEnv() }
     );
     expect(env.MOAGENT_OPENCODE_API_KEY).toBe("agent-key");
-    expect(env.CONVEX_SERVICE_TOKEN).toBeUndefined();
+    expect(env.FHARA_SERVICE_TOKEN).toBeUndefined();
     expect(env.PROVIDER_ENCRYPTION_KEY).toBeUndefined();
   });
 
@@ -140,7 +140,7 @@ describe("buildChildEnv denylist", () => {
       ...poisonedEnv(),
       MY_TOOL_HOME: "/opt/tool",
       [CHILD_ENV_PASSTHROUGH_VAR]:
-        " MY_TOOL_HOME, OPENAI_API_KEY ,CONVEX_SERVICE_TOKEN,PROVIDER_ENCRYPTION_KEY,CONVEX_SELF_HOSTED_ADMIN_KEY,,bad name",
+        " MY_TOOL_HOME, OPENAI_API_KEY ,FHARA_SERVICE_TOKEN,PROVIDER_ENCRYPTION_KEY,FHARA_ADMIN_KEY,,bad name",
     };
     const env = buildChildEnv(undefined, { source });
     expect(env.MY_TOOL_HOME).toBe("/opt/tool");

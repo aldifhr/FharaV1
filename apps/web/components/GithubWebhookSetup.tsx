@@ -1,9 +1,8 @@
-"use client";
 
 import { useState } from "react";
-import { useAction, useQuery } from "convex/react";
+import { useAction, useQuery } from "@fhara/runtime/react";
 import { Copy, Webhook } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import { useToast } from "./Toasts";
 
 const errorText = (err: unknown) =>
@@ -100,7 +99,7 @@ export default function GithubWebhookSetup({ integrationId }: { integrationId: s
       </div>
       {!setup.canEncrypt && !setup.hasSecret && (
         <p className="text-[12.5px] text-ink-3">
-          Set PROVIDER_ENCRYPTION_KEY on the Convex deployment to store a per-project secret, or use GITHUB_WEBHOOK_SECRET.
+          Set PROVIDER_ENCRYPTION_KEY on the FharaRuntime deployment to store a per-project secret, or use GITHUB_WEBHOOK_SECRET.
         </p>
       )}
       {setup.webhookUrl ? (

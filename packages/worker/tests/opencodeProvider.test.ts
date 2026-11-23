@@ -14,8 +14,8 @@ import type { SpawnImpl } from "@/execution/nativeProvider";
 import { resolveForAgent, TaskLlmResolver, type PoolConnection, type PoolModel } from "@/llm/resolver";
 import { ProviderHealthRegistry } from "@/llm/health";
 import { fixedRotationCursor, InMemoryRotationCursor } from "@/llm/roundRobin";
-import { orderedChatPairs } from "@/api/convex/lib/chat/llm";
-import type { PoolConnectionPayload } from "@/api/convex/lib/llmResolver";
+import { orderedChatPairs } from "@/api/functions/lib/chat/llm";
+import type { PoolConnectionPayload } from "@/api/functions/lib/llmResolver";
 import { refreshOpencodeCatalog, pollOpencodeCatalog } from "@/services/opencodeCatalog";
 
 /**

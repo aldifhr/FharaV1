@@ -8,7 +8,7 @@
  *   the worker's PROVIDER_ENCRYPTION_KEY, and handed to the child only.
  *
  * `secretValues` lets callers redact those values from any error or stderr
- * text before it is reported back to Convex.
+ * text before it is reported back to FharaRuntime.
  */
 
 import { decryptApiKey } from "@/llm/crypto";

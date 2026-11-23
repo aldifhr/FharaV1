@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse } from "@/lib/serverCompat";
 
 /**
  * Plan 067: a random display name for agents, fetched from a public

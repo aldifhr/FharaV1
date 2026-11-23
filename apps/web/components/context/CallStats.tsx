@@ -1,4 +1,4 @@
-import { cacheHitPercent, tokensPerSecond, type CallStatsInput } from "@/api/convex/lib/callStats";
+import { cacheHitPercent, tokensPerSecond, type CallStatsInput } from "@/api/functions/lib/callStats";
 import { formatDuration } from "@/lib/runFormat";
 
 /**

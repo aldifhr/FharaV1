@@ -5,7 +5,7 @@
  * `git push` / `git remote` and had no edit rule at all, so an OpenCode run
  * could edit any file in the worktree and read credential files with
  * `cat`. `buildOpencodePolicy` derives the rules for ONE run from the
- * agent's role permissions (apps/api/convex/lib/roles.ts) and the subtask's
+ * agent's role permissions (apps/api/functions/lib/roles.ts) and the subtask's
  * ownership scope (`allowedPaths`):
  *
  *  - `edit` (OpenCode's write/edit/patch tools): denied unless the subtask
@@ -23,7 +23,7 @@
  * Written from scratch for Fhara. The sensitive-path list restates
  * well-known credential locations; it is not copied from any source.
  */
-import type { RoleKey, RolePermissions } from "@/api/convex/lib/roles";
+import type { RoleKey, RolePermissions } from "@/api/functions/lib/roles";
 import { decideToolAccess, ROLE_WRITE_SCOPE } from "./opencodePermissions";
 
 export type OpencodeAction = "allow" | "deny" | "ask";

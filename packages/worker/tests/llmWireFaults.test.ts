@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { OpenAICompatibleProvider, type LLMProvider } from "@/llm";
 import { isTransientLlmError, LlmConcurrencyGate, runLlmCall } from "@/effects/llmCall";
 import { classifyProviderError } from "@/utils/stallDetector";
-import { cooldownForFailure } from "@/api/convex/lib/llmRotation";
+import { cooldownForFailure } from "@/api/functions/lib/llmRotation";
 import { isContextOverflowError, isIncompleteResponseError, LlmConnectionError, LlmMalformedResponseError, partialTextOf } from "@/llm/errors";
 import { startMockLlm, type MockRule } from "../../../scripts/mock-llm/server";
 

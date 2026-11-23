@@ -1,4 +1,3 @@
-"use client";
 
 import { KnobSelect } from "./controls";
 

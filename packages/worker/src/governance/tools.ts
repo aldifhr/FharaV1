@@ -1,4 +1,4 @@
-import { clampPastWorkLimit, formatPastWorkResult, PAST_WORK_TOOL, type PastWorkSearchResult } from "@/api/convex/lib/pastWork";
+import { clampPastWorkLimit, formatPastWorkResult, PAST_WORK_TOOL, type PastWorkSearchResult } from "@/api/functions/lib/pastWork";
 
 export const REASON_FILE_ESCAPES_WORKSPACE = "file-escapes-workspace";
 export const REASON_FILE_PATH_FORBIDDEN = "file-path-forbidden";
@@ -36,7 +36,7 @@ export interface ToolContext {
   audit?: (entry: AuditInput) => Promise<void> | void;
   /** Agent role ("researcher", "cto", "frontend", …) — the permission broker reads this. */
   agentRole?: string;
-  /** D11: runs a past-work search for a project (the worker binds it to the Convex API). */
+  /** D11: runs a past-work search for a project (the worker binds it to the FharaRuntime API). */
   searchPastWork?: PastWorkSearchFn;
 }
 

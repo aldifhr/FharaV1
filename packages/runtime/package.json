@@ -1,0 +1,39 @@
+{
+  "name": "@fhara/runtime",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./api": "./src/compat/api.ts",
+    "./values": "./src/compat/values.ts",
+    "./server": "./src/compat/server.ts",
+    "./data": "./src/compat/dataModel.ts",
+    "./test": "./src/compat/test.ts",
+    "./react": "./src/clients/react.tsx",
+    "./browser": "./src/clients/browser.ts",
+    "./functions": "./src/runtime/server.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "generate:types": "tsx scripts/generate-datamodel.mts",
+    "build:functions": "tsx scripts/generate-datamodel.mts && node scripts/build-functions.mjs",
+    "start": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.2.0",
+    "dotenv": "^18.0.10",
+    "drizzle-orm": "^0.45.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "esbuild": "^0.27.7",
+    "react": "^19.3.1",
+    "tsx": "^4.23.15",
+    "typescript": "5.5",
+    "vitest": "^5.1.0"
+  }
+}

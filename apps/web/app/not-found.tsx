@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "@/lib/spaRouter";
 
 /**
  * Unmatched URL or an explicit `notFound()` from a segment: the route exists in

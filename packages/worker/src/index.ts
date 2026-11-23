@@ -4,7 +4,7 @@ import { wenv } from "@fhara/config/worker";
 import { sweepSpill } from "@/context/toolOutputSpill";
 import { sandboxCapability, sandboxStatus } from "@/tools/osSandbox";
 import os from "node:os";
-import { createConvexClient, createConvexSubscriber } from "./convexClient";
+import { createFharaRuntimeClient, createFharaRuntimeSubscriber } from "./runtimeClient";
 import { WorkerApi, type WorkerTask } from "./workerApi";
 import { loadPolicy } from "./orchestrator/policy";
 import { setWorkerLlmConcurrencyLimit } from "./effects/llmCall";
@@ -19,10 +19,10 @@ import { processNextMcpTest } from "./services/mcpTests";
 import { processNextRepoToolCall } from "./services/repoTools";
 import { pollOpencodeCatalog } from "./services/opencodeCatalog";
 import { effectiveWorkspaceRoot, reportKnobEnv, syncAppSettings } from "./services/appSettings";
-import { REPO_TOOLS_CAPABILITY } from "@/api/convex/lib/chat/repoTools";
+import { REPO_TOOLS_CAPABILITY } from "@/api/functions/lib/chat/repoTools";
 import { installConsoleRedaction, registerEnvSecrets } from "./utils/redact";
 import { startFharaMcpFromEnv } from "./mcpServer";
-import { convexDecisionTurnPort, ctoFirstFromEnv } from "./decisionTurn/port";
+import { runtimeDecisionTurnPort, ctoFirstFromEnv } from "./decisionTurn/port";
 import { processNextDecisionTurn } from "./decisionTurn/poller";
 import { claimUnlessPressured, createHostPressureMonitor, pressureCapability } from "./utils/hostPressure";
 import { disposeAllWorkspaceIndexes } from "./tools/workspaceIndex";
@@ -70,14 +70,14 @@ function log(...args: unknown[]) {
 }
 
 async function main() {
-  const client = createConvexClient();
+  const client = createFharaRuntimeClient();
   // D6: probe the command sandbox once. A non-off mode without bwrap is
   // reported loudly (SANDBOX_UNAVAILABLE); commands then ask before running
   // unconfined instead of running unconfined silently.
   const sandbox = sandboxStatus();
   (sandbox.code ? console.warn : console.log)(`[worker:${workerId}] ${sandbox.note}`);
   const sandboxTag = sandboxCapability(sandbox);
-  const api = new WorkerApi(client, wenv("CONVEX_SERVICE_TOKEN")!, workerId);
+  const api = new WorkerApi(client, wenv("FHARA_SERVICE_TOKEN")!, workerId);
   // O5: git/gh commands without their own recorder (network git from
   // safeGit) still leave one sanitized `cmd` audit row.
   setCommandSink(async (entry) => {
@@ -149,7 +149,7 @@ async function main() {
     log,
     shutdownSignal: shutdownController.signal,
     // GOAT G13: CTO-first questions (FHARA_CTO_QUESTIONS, default on).
-    decisionTurns: convexDecisionTurnPort(api),
+    decisionTurns: runtimeDecisionTurnPort(api),
     ctoFirst: CTO_FIRST,
   };
 
@@ -168,10 +168,10 @@ async function main() {
   setInterval(sweepSpills, 3_600_000).unref();
 
   log(
-    `listening: convex=${wenv("NEXT_PUBLIC_CONVEX_URL")} root=${workspaceRoot} concurrency=${CONCURRENCY}`
+    `listening: runtime=${wenv("FHARA_BACKEND_URL")} root=${workspaceRoot} concurrency=${CONCURRENCY}`
   );
 
-  // Retry recover until Convex is reachable (cloud or local dev)
+  // Retry recover until FharaRuntime is reachable (cloud or local dev)
   let recovery: { recoveredTasks: number; recoveredExecutions: number } | null = null;
   let lastErr: unknown = null;
   for (let attempt = 1; attempt <= 30; attempt++) {
@@ -181,12 +181,12 @@ async function main() {
     } catch (err) {
       lastErr = err;
       if (attempt === 1 || attempt === 5 || attempt === 10 || attempt === 15 || attempt === 20 || attempt === 25 || attempt === 30) {
-        log(`Convex not ready yet, retrying (${attempt}/30)...`, err instanceof Error ? err.message : err);
+        log(`FharaRuntime not ready yet, retrying (${attempt}/30)...`, err instanceof Error ? err.message : err);
       }
       await sleep(1000);
     }
   }
-  if (!recovery) throw new Error(`Convex did not become ready in time: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`);
+  if (!recovery) throw new Error(`FharaRuntime did not become ready in time: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`);
   if (recovery.recoveredTasks > 0 || recovery.recoveredExecutions > 0) {
     log(
       `recovered ${recovery.recoveredTasks} stale task(s) and ${recovery.recoveredExecutions} execution(s)`
@@ -242,7 +242,7 @@ async function main() {
     }
   }, HEARTBEAT_MS);
 
-  // Wake-up subscription (convex-orchestrator pattern, re-implemented):
+  // Wake-up subscription (runtime-orchestrator pattern, re-implemented):
   // a new queued task or approval signal wakes the loop at once; the poll
   // below drops to FALLBACK_POLL_MS while the subscription is live.
   let wake: (() => void) | null = null;
@@ -250,7 +250,7 @@ async function main() {
   let subscribed = false;
   const subscriber = (() => {
     try {
-      return createConvexSubscriber();
+      return createFharaRuntimeSubscriber();
     } catch (error) {
       log("subscription unavailable, polling only:", error instanceof Error ? error.message : String(error));
       return null;
@@ -284,7 +284,7 @@ async function main() {
     // MCP are still alive; 4) only then stop heartbeat, dispose MCP and
     // mark offline. Interrupted tasks are not failed: their leases lapse
     // and recovery hands them to another worker.
-    // Hard cap: Ctrl+C must always end the worker, even when Convex is
+    // Hard cap: Ctrl+C must always end the worker, even when FharaRuntime is
     // already down (npm run dev stops api first) and markOffline or an MCP
     // dispose never settles. Leases lapse on their own anyway.
     setTimeout(() => {

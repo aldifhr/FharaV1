@@ -34,7 +34,7 @@ What a user can do after the change:
 - `packages/worker/src/llm/resolver.ts`: priority/weighted/model-pattern/health provider selection.
 - `packages/worker/src/orchestrator/roles.ts`: role definitions, capabilities, and system prompt hints.
 - `packages/worker/src/orchestrator/policy.ts`: execution bounds and timeouts.
-- `apps/api/convex/schema.ts`: persisted schema for tasks/subtasks/executions/provider state.
+- `apps/api/functions/schema.ts`: persisted schema for tasks/subtasks/executions/provider state.
 
 ## Decisions that must not change during execution
 

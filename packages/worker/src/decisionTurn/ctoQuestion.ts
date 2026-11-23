@@ -5,10 +5,10 @@
  * says so, and the parser holds it there: an option outside the offered
  * ones, an unparseable reply, or an answer that touches secrets, push or a
  * destructive action is escalated to the user instead of delivered. The
- * Convex side re-checks the same ceiling (decisionTurns.answer).
+ * FharaRuntime side re-checks the same ceiling (decisionTurns.answer).
  */
 import { extractJson } from "@/utils/json";
-import { answerCrossesCeiling } from "@/api/convex/lib/questionPolicy";
+import { answerCrossesCeiling } from "@/api/functions/lib/questionPolicy";
 import type { DecisionTurnSpec, DecisionVerdict } from "./runDecisionTurn";
 
 export interface CtoQuestion {

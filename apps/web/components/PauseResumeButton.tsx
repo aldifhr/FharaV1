@@ -1,9 +1,8 @@
-"use client";
 
 import { useState } from "react";
-import { useMutation } from "convex/react";
+import { useMutation } from "@fhara/runtime/react";
 import { Pause, Play } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import { useToast } from "./Toasts";
 
 /** Statuses Pause applies to (plan 022); waiting states already wait on the user. */

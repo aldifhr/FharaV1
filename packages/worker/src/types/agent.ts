@@ -1,4 +1,4 @@
-import type { LibrarySkillRef, PromptSkill } from "@/api/convex/lib/skills";
+import type { LibrarySkillRef, PromptSkill } from "@/api/functions/lib/skills";
 /** Agent definitions as the worker routes and executes them. */
 
 export interface AgentDefinition {

@@ -9,7 +9,7 @@
  *  - support (Operations)
  *
  * The role list, titles, capabilities, tools and hints come from the shared
- * registry apps/api/convex/lib/roles.ts (also read by the Convex seed and the
+ * registry apps/api/functions/lib/roles.ts (also read by the FharaRuntime seed and the
  * web app); this module only adds worker-side lookup and selection.
  *
  * Roles are configuration (capabilities + tool defaults) executed by the
@@ -20,11 +20,11 @@
  * as researcher, router tie-break always picked it first), ui-ux (duplicate
  * of designer — normalizeRole maps ui-ux to designer).
  */
-import { ROLES, ROLE_KEYS, type RoleKey } from "@/api/convex/lib/roles";
+import { ROLES, ROLE_KEYS, type RoleKey } from "@/api/functions/lib/roles";
 import { capabilitiesOf } from "./capabilities";
 import type { AgentDefinition } from "@/types";
 
-/** The nine fixed-team roles — the shared `RoleKey` (apps/api/convex/lib/roles.ts). */
+/** The nine fixed-team roles — the shared `RoleKey` (apps/api/functions/lib/roles.ts). */
 export type AgentRole = RoleKey;
 
 export interface RoleDefinition {
@@ -39,7 +39,7 @@ export interface RoleDefinition {
 
 /**
  * Worker view of the shared role registry. Derived, never hand-edited: change
- * a role in apps/api/convex/lib/roles.ts and the web, Convex seed and worker
+ * a role in apps/api/functions/lib/roles.ts and the web, FharaRuntime seed and worker
  * all follow.
  */
 export const ROLE_DEFINITIONS: Record<AgentRole, RoleDefinition> = Object.fromEntries(

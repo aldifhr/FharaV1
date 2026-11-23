@@ -1,4 +1,4 @@
-import { settingEnv } from "@/api/convex/lib/appSettings";
+import { settingEnv } from "@/api/functions/lib/appSettings";
 import { wenv, type EnvSource } from "@fhara/config/worker";
 
 /**

@@ -2,7 +2,7 @@
  * Plan 040: enforced role permissions in the worker.
  *
  * The permission table lives in the shared role registry
- * (apps/api/convex/lib/roles.ts `ROLES[k].permissions`). This module maps a
+ * (apps/api/functions/lib/roles.ts `ROLES[k].permissions`). This module maps a
  * stored agent (free-text role, declared tools) onto it, so the executor
  * refuses a write, a command or a web call the role may not make, whatever
  * the row's `supportedTools` or prompt say.
@@ -18,13 +18,13 @@ import {
   ROLE_KEYS,
   type RoleKey,
   type RolePermissions,
-} from "@/api/convex/lib/roles";
+} from "@/api/functions/lib/roles";
 
 type AgentRole = RoleKey;
 
 
-export type { RolePermissions } from "@/api/convex/lib/roles";
-export { canWritePath } from "@/api/convex/lib/roles";
+export type { RolePermissions } from "@/api/functions/lib/roles";
+export { canWritePath } from "@/api/functions/lib/roles";
 
 /** Free-text role names (legacy rows, LLM output) that are not a key or title. */
 /**

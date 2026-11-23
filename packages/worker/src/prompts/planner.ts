@@ -1,6 +1,6 @@
 import type { Classification } from "@/types";
-import { isReadOnlyTaskKind } from "@/api/convex/lib/planValidation";
-import { assemblePrompt } from "@/api/convex/lib/assemblePrompt";
+import { isReadOnlyTaskKind } from "@/api/functions/lib/planValidation";
+import { assemblePrompt } from "@/api/functions/lib/assemblePrompt";
 import { routingHintPromptLines, type RoutingHintFacts } from "./routingHint";
 
 /** What the planning prompt is built from (neutral planner, no persona). */
@@ -64,7 +64,7 @@ export function planningPromptParts(input: PlanningPromptInput): PlanningPromptP
     "- CTO (architecture): decides architecture-level questions only, through the architecture flag below. Never give the CTO implementation, review, QA or coordination subtasks. Read-only.",
     "- Technical-debt findings must include evidence, root cause, impact, and a durable remediation owner. The implementer agent coordinates cross-agent fixes; do not hide debt behind a local patch or add a second orchestration path.",
     "- Frontend (frontend-development): UI components, tokens, styling, client implementation, and browser app code including src/lib types and utils. A plain lib/ file with TypeScript types is frontend unless it holds server routes or data access.",
-    "- Backend (backend-development): server-side work in any language — API routes, services, data access, database schema, auth and background jobs. Convex is one backend stack, not the definition; use it only when the repo already uses it or the request names it. Node/TypeScript, Python, Go, Java, Rust, PHP, Ruby, .NET and SQL all belong here.",
+    "- Backend (backend-development): server-side work in any language — API routes, services, data access, database schema, auth and background jobs. FharaRuntime is one backend stack, not the definition; use it only when the repo already uses it or the request names it. Node/TypeScript, Python, Go, Java, Rust, PHP, Ruby, .NET and SQL all belong here.",
     "- Backend also owns the work that used to have its own role, scoped by allowedPaths: CI and infra files (.github/**, Dockerfile*, docker-compose*, infra/**, deploy configs), and documentation (Markdown such as README.md, docs/**, release notes, changelog).",
     "- QA (browser-testing): perform only the verification explicitly requested. Structural QA checks HTML, browser reachability, console, and network errors. Responsive viewport and screenshot-baseline checks are opt-in only; never add them when the user says not to.",
     "- CTO (research, architecture): technical research, evidence gathering, fact vs assumption separation, alongside architecture decisions. Read-only.",

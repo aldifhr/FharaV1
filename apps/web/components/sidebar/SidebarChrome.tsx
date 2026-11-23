@@ -1,6 +1,5 @@
-"use client";
 
-import Link from "next/link";
+import { Link } from "@/lib/spaRouter";
 import { useEffect, useState } from "react";
 import { Moon, PanelLeftClose, PanelLeftOpen, Search, Settings, Share2, Sun } from "lucide-react";
 import { formatChord, matchesChord, useKeybindings } from "@/lib/keybindings";

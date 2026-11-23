@@ -5,7 +5,7 @@
  * notes for the project (no approval), so the prompt is strict about
  * durability, secrets and size.
  */
-import { ROLE_LEARNINGS_MAX, ROLE_LEARNING_CONTENT_MAX, ROLE_LEARNING_TITLE_MAX } from "@/api/convex/lib/roleMemory";
+import { ROLE_LEARNINGS_MAX, ROLE_LEARNING_CONTENT_MAX, ROLE_LEARNING_TITLE_MAX } from "@/api/functions/lib/roleMemory";
 
 export function roleLearningsSystemPrompt(role: string): string {
   return `You are the ${role} of a software team. You just finished your part of one task in a project.

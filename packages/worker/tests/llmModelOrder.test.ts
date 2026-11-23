@@ -10,16 +10,16 @@ import {
   orderPoolPairs,
   positionsFromOrder,
   sortModelRows,
-} from "@/api/convex/lib/llmOrder";
+} from "@/api/functions/lib/llmOrder";
 import {
   cooldownForFailure,
   isEmptyCompletion,
   rateLimitCooldownMs,
   rotateFrom,
   StickyRotationCursor,
-} from "@/api/convex/lib/llmRotation";
-import { orderedChatPairs } from "@/api/convex/lib/chat/llm";
-import type { PoolConnectionPayload } from "@/api/convex/lib/llmResolver";
+} from "@/api/functions/lib/llmRotation";
+import { orderedChatPairs } from "@/api/functions/lib/chat/llm";
+import type { PoolConnectionPayload } from "@/api/functions/lib/llmResolver";
 
 /**
  * The one model list (Settings → LLM & Models): its order is the fallback

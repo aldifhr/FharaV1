@@ -11,7 +11,7 @@ import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { initializeRepo } from "@/api/convex/lib/gitInit";
+import { initializeRepo } from "@/api/functions/lib/gitInit";
 import {
   checkRepoReadiness,
   NO_COMMITS_MESSAGE,
@@ -21,9 +21,9 @@ import {
   worktreesBaseFor,
   worktreesExcludePattern,
   withExcludeLine,
-} from "@/api/convex/lib/repoReadiness";
-import { gitIdentityArgs } from "@/api/convex/lib/gitIdentity";
-import { makeTaskBranchName, resolveMainBranch } from "@/api/convex/lib/taskBranch";
+} from "@/api/functions/lib/repoReadiness";
+import { gitIdentityArgs } from "@/api/functions/lib/gitIdentity";
+import { makeTaskBranchName, resolveMainBranch } from "@/api/functions/lib/taskBranch";
 import { makeTempDir, removeTempDir } from "./helpers/tempRepo";
 
 // No global/system config: the identity must come from the repo or the Fhara default.

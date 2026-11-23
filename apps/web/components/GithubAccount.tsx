@@ -1,9 +1,8 @@
-"use client";
 
 import { useEffect, useState } from "react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "@fhara/runtime/react";
 import { GitBranch } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import { useToast } from "./Toasts";
 
@@ -63,7 +62,7 @@ export default function GithubAccountRow({
       const url = await getOAuthUrl({ returnTo });
       if (!url) {
         popup?.close();
-        toast("error", "GitHub OAuth is not configured", "Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET on the Convex deployment.");
+        toast("error", "GitHub OAuth is not configured", "Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET on the FharaRuntime deployment.");
         return;
       }
       if (popup) popup.location.href = url;
@@ -118,7 +117,7 @@ export default function GithubAccountRow({
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden />
         {account?.canManage &&
           (!account.configured && !account.connected ? (
-            <span className="text-[12.5px] text-ink-3" title="Set GITHUB_CLIENT_ID on the Convex deployment">
+            <span className="text-[12.5px] text-ink-3" title="Set GITHUB_CLIENT_ID on the FharaRuntime deployment">
               OAuth app not configured
             </span>
           ) : (

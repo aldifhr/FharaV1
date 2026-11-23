@@ -8,7 +8,7 @@ import {
 } from "@/utils/redact";
 import { StreamRedactor, holdIndex } from "@/utils/redactStream";
 import { LiveOutputCoalescer } from "@/services/runner/liveOutput";
-import { redactSecrets } from "@/api/convex/lib/contextSnapshot";
+import { redactSecrets } from "@/api/functions/lib/contextSnapshot";
 
 const KEY = "sk-proj-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const OPAQUE = "zq81-opaque-provider-key-7731"; // no known shape: only known-value masking catches it

@@ -5,7 +5,7 @@ import { wenv } from "@fhara/config/worker";
 import type { WorkerApi } from "@/workerApi";
 import type { ExecutionPolicy } from "@/orchestrator/policy";
 import { loadPolicy } from "@/orchestrator/policy";
-import { SETTING_KNOBS, setChildEnvOverrides, setSettingOverrides, settingEnv } from "@/api/convex/lib/appSettings";
+import { SETTING_KNOBS, setChildEnvOverrides, setSettingOverrides, settingEnv } from "@/api/functions/lib/appSettings";
 import { setUserTimeZone } from "@/context/timeContext";
 
 /**

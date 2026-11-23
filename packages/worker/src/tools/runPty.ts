@@ -1,6 +1,6 @@
 import { spawn as spawnChild } from "node:child_process";
 import type { IPty } from "@lydell/node-pty";
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
 import { isCommandAllowed } from "@/utils/commandAllowlist";
 import { resolveSandboxPathAsync } from "@/tools/sandbox";
 import { isSandboxDenial, SandboxUnavailableError, sandboxStatus, wrapCommand } from "@/tools/osSandbox";

@@ -1,5 +1,5 @@
 // Module-local declaration (no node types needed). It refers to the real
-// global at runtime: Node, the Convex V8 and "use node" runtimes, and Next's
+// global at runtime: Node, the FharaRuntime V8 and "use node" runtimes, and Next's
 // server all define `process.env`.
 declare const process: { env?: Record<string, string | undefined> } | undefined;
 

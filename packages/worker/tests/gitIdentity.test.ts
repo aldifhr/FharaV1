@@ -2,20 +2,20 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
 import {
   DEFAULT_GIT_AUTHOR_EMAIL,
   DEFAULT_GIT_AUTHOR_NAME,
   gitIdentity,
   gitIdentityArgs,
-} from "@/api/convex/lib/gitIdentity";
+} from "@/api/functions/lib/gitIdentity";
 import {
   isTaskBranch,
   makeTaskBranchName,
   parseTaskBranch,
   taskBranchPrefixes,
   taskWorktreesFromPorcelain,
-} from "@/api/convex/lib/taskBranch";
+} from "@/api/functions/lib/taskBranch";
 import { commitWorktree } from "@/tools/gitWorktree";
 import { createTempGitRepo, makeTempDir, removeTempDir } from "./helpers/tempRepo";
 

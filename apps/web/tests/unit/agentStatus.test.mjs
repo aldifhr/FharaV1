@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { AGENT_STATUS_LABEL, agentStatusView, statusFromLeases, teamStatusLabel } from "../../lib/teamStatus.ts";
 import { orderTeam } from "../../lib/agentIdentity.ts";
-import { FIXED_TEAM_DISPLAY_ORDER, FIXED_TEAM_SEED_ORDER } from "../../../api/convex/lib/roles.ts";
+import { FIXED_TEAM_DISPLAY_ORDER, FIXED_TEAM_SEED_ORDER } from "../../../api/runtime/lib/roles.ts";
 
 const entry = (status, extra = {}) => ({ status, taskId: "t", taskTitle: "Task", projectName: null, subtaskKey: null, ...extra });
 

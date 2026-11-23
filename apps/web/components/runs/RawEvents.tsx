@@ -1,9 +1,8 @@
-"use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useConvex } from "convex/react";
+import { useFharaRuntime } from "@fhara/runtime/react";
 import { ChevronDown, ChevronRight, ChevronUp, Loader2 } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import { clockTime } from "@/lib/format";
 import { mergeRawEvents, oldestSequence, toRawEvent, type RawEvent } from "@/lib/runEvents";
 import { useToast } from "@/components/Toasts";
@@ -14,7 +13,7 @@ import { useToast } from "@/components/Toasts";
  * events through taskEvents.pageEarlier (D12) by the oldest sequence held.
  */
 export default function RawEvents({ taskId, events, truncated }: { taskId: string; events: RawEvent[]; truncated: boolean }) {
-  const convex = useConvex();
+  const runtime = useFharaRuntime();
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [earlier, setEarlier] = useState<RawEvent[]>([]);
@@ -34,7 +33,7 @@ export default function RawEvents({ taskId, events, truncated }: { taskId: strin
     if (cursor === null || loading) return;
     setLoading(true);
     try {
-      const page = await convex.query(api.taskEvents.pageEarlier, { taskId: taskId as never, beforeSequence: cursor });
+      const page = await runtime.query(api.taskEvents.pageEarlier, { taskId: taskId as never, beforeSequence: cursor });
       setEarlier((held) => mergeRawEvents(page.rows.map((row) => toRawEvent(row as never)), held));
       setHasMore(page.hasMore);
     } catch (err) {

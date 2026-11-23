@@ -33,16 +33,16 @@ An exact entry never matches a command that is dangerous or push-like, and push 
 
 ## Current state
 
-- `apps/api/convex/lib/commandRules.ts:38-60` `commandHead`; `:145-157` `matchCommandAllowRule` (head equality,
+- `apps/api/functions/lib/commandRules.ts:38-60` `commandHead`; `:145-157` `matchCommandAllowRule` (head equality,
   dangerous commands never match); `:170-190` `commandApprovalPolicy` (danger → ask, no "always"; rule → auto;
   full access → auto; else ask); `:197-199` `effectiveCommandDecision` (server downgrades "always" when the card
   did not offer it); `:202-212` `addCommandAllowRule`.
-- `apps/api/convex/commandApprovals.ts:44-174` `request` (server-side policy; an auto decision inserts an
+- `apps/api/functions/commandApprovals.ts:44-174` `request` (server-side policy; an auto decision inserts an
   approved row with `decidedBy: "auto"`, a `history` entry, an `approval.auto_approved` event and an audit row);
   `:261-325` `resolveCommandApproval` (writes the head rule on "always"); `:333-344` `respond`;
   `:391-411` `removeRule`.
-- `apps/api/convex/schema.ts:267-275` `projects.commandAllowRules`.
-- `apps/api/convex/lib/decisionTray.ts:103-123` builds the card actions (allow / always / deny).
+- `apps/api/functions/schema.ts:267-275` `projects.commandAllowRules`.
+- `apps/api/functions/lib/decisionTray.ts:103-123` builds the card actions (allow / always / deny).
 - Web: `components/ApprovalCard.tsx:34` `CommandDecision`; `components/ChatPanel.tsx:591` action dispatch;
   `components/chat/MessageList.tsx:109`; `app/inbox/page.tsx:58`; `components/chat/ManageProjectModal.tsx:180-195`.
 - Worker: `packages/worker/src/tools/runCommand.ts` exact-argv allowlist runs before any approval (rule 4).
@@ -76,7 +76,7 @@ Add `CommandAllowExact`, `matchCommandAllowExact`, `addCommandAllowExact`, `remo
 The worker's waiter (`packages/worker/src/services/runner/commandApproval.ts`) maps `always_exact` to its
 existing `via: "always"` outcome; `api.worker.getCommandApproval` widens its return type.
 
-**Check**: `npx --workspace=@fhara/api vitest run convex/lib/commandRules.test.ts` → new cases pass.
+**Check**: `npx --workspace=@fhara/api vitest run runtime/lib/commandRules.test.ts` → new cases pass.
 
 ### Step 2: schema + backend
 
@@ -84,7 +84,7 @@ existing `via: "always"` outcome; `api.worker.getCommandApproval` widens its ret
 details. `resolveCommandApproval` writes the entry on `always_exact` (audited `command_exact.add`). `respond`
 accepts `always_exact`. New `removeExactRule` mutation (project access + audit `command_exact.remove`).
 
-**Check**: `npm run --workspace=@fhara/api typecheck`; `npx --workspace=@fhara/api vitest run convex/commandApprovals.test.ts convex/securityInvariants.test.ts`.
+**Check**: `npm run --workspace=@fhara/api typecheck`; `npx --workspace=@fhara/api vitest run runtime/commandApprovals.test.ts runtime/securityInvariants.test.ts`.
 
 ### Step 3: UI
 

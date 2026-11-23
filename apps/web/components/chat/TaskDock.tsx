@@ -1,10 +1,9 @@
-"use client";
 
 import { useEffect, useState } from "react";
-import { useQuery } from "convex/react";
+import { useQuery } from "@fhara/runtime/react";
 import { ChevronDown, ChevronUp, GripVertical, LoaderCircle } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
-import { holdNoticeText } from "@/api/convex/lib/providerHold";
+import { api } from "@fhara/runtime/api";
+import { holdNoticeText } from "@/api/functions/lib/providerHold";
 import { roleLabel } from "@/lib/agentRoles";
 import { dueDateLabel, formatTokens, isOverdue } from "@/lib/runFormat";
 import { taskStatusLabel } from "@/lib/taskStatus";
@@ -105,12 +104,12 @@ export default function TaskDock({
                   </span>
                 )}
                 {/* Plan 064: context this task fed the LLM, when any. */}
-                {(contextByTask.get(task._id) ?? 0) > 0 && (
+                {((contextByTask.get(task._id) as number) ?? 0) > 0 && (
                   <span
                     className="flex shrink-0 items-center gap-1 text-[12px] text-ink-3"
                     title="Prompt tokens sent to the LLM for this task"
                   >
-                    <LoaderCircle size={12} aria-hidden="true" />~{formatTokens(contextByTask.get(task._id))}
+                    <LoaderCircle size={12} aria-hidden="true" />~{formatTokens(contextByTask.get(task._id) as number)}
                   </span>
                 )}
                 {task.hold && task.status === "paused" && task.pausedBy === "held" ? (

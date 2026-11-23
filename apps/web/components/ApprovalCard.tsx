@@ -1,4 +1,3 @@
-"use client";
 import { useState } from "react";
 import { Bell, Check } from "lucide-react";
 import { useToast } from "./Toasts";
@@ -16,7 +15,7 @@ import {
 } from "./chat/cards/primitives";
 import { clockTime } from "@/lib/format";
 import PlanCard from "./chat/cards/PlanCard";
-import { approvalTrayItem } from "@/api/convex/lib/decisionTray";
+import { approvalTrayItem } from "@/api/functions/lib/decisionTray";
 import { TRAY_BTN_PRIMARY, TRAY_BTN_SECONDARY, TRAY_BTN_TEXT } from "./chat/DecisionsTray";
 import { StatusTag } from "./ui/status-tag";
 

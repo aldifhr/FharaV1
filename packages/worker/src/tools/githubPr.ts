@@ -1,7 +1,7 @@
 import { wenv } from "@fhara/config/worker";
 import { redactSecret } from "./gitPush";
 import { proxyAwareFetch, type FetchLike } from "./proxyFetch";
-import { settingEnv } from "@/api/convex/lib/appSettings";
+import { settingEnv } from "@/api/functions/lib/appSettings";
 import { withAccessLog, type CommandRecorder } from "@/utils/accessLog";
 
 /**

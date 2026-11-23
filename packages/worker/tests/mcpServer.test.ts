@@ -3,7 +3,7 @@ import os from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MCP_LOOPBACK_HOST, startMcpHttpServer, type FharaMcpServer, type McpSource } from "@/mcpServer";
 import { bearerMatches } from "@/mcpServer/httpServer";
-import { convexMcpSource } from "@/mcpServer/convexSource";
+import { runtimeMcpSource } from "@/mcpServer/runtimeSource";
 import { MCP_TOOLS } from "@/mcpServer/registry";
 import type { McpMemorySearchResult, McpTaskListResult, McpTaskStatusResult } from "@/mcpServer/types";
 import type { WorkerApi } from "@/workerApi";
@@ -244,10 +244,10 @@ describe("tool contracts", () => {
     expect(res.content[0].text).toBe("task.list failed: backend error");
   });
 
-  it("convexMcpSource sends each read to its mcpRead query with the worker token", async () => {
+  it("runtimeMcpSource sends each read to its mcpRead query with the worker token", async () => {
     const query = vi.fn(async () => ({ tasks: [] }));
     const workerApi = { client: { query }, args: (v: object) => ({ ...v, workerToken: "svc" }) } as unknown as WorkerApi;
-    const src = convexMcpSource(workerApi);
+    const src = runtimeMcpSource(workerApi);
     await src.taskStatus({ taskId: "t1" });
     await src.taskList({ status: "done" });
     await src.memorySearch({ text: "x" });

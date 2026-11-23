@@ -1,8 +1,7 @@
-"use client";
 
 import { useState } from "react";
 import { ChevronDown, ChevronRight, ShieldCheck } from "lucide-react";
-import type { VerificationCardData } from "@/api/convex/cardTypes";
+import type { VerificationCardData } from "@/api/functions/cardTypes";
 import { CARD_DIVIDER, CardHeader, CardShell, IconTile, MUTED, StatusWord, formatDuration } from "./primitives";
 import VerificationSources from "./VerificationSources";
 import { StatusTag } from "../../ui/status-tag";

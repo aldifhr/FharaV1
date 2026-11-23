@@ -5,7 +5,7 @@
  * empty title before a round trip and show the new title at once.
  */
 
-/** Same cap as `TITLE_MAX` in apps/api/convex/lib/threadIndex.ts. */
+/** Same cap as `TITLE_MAX` in apps/api/functions/lib/threadIndex.ts. */
 export const RENAME_TITLE_MAX = 200;
 
 export type RenameRef = { taskId: string } | { conversationId: string };

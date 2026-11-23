@@ -17,8 +17,8 @@ import { randomUUID } from "node:crypto";
 import { copyFile, rm } from "node:fs/promises";
 import * as path from "node:path";
 import { promisify } from "node:util";
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
-import { checkpointNumber, checkpointRefName, checkpointRefPrefix } from "@/api/convex/lib/checkpointRefs";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
+import { checkpointNumber, checkpointRefName, checkpointRefPrefix } from "@/api/functions/lib/checkpointRefs";
 import { parseTurnDiffFilesFromNumstat, type TurnDiffFileSummary } from "@/vendor/goat/diffs";
 
 const execFileAsync = promisify(execFile);

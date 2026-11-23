@@ -1,10 +1,9 @@
-"use client";
 
 import { useEffect, useState } from "react";
-import { useMutation } from "convex/react";
+import { useMutation } from "@fhara/runtime/react";
 import { BookmarkPlus, Dices, Wand2 } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
-import { AGENT_TOOL_OPTIONS } from "@/api/convex/lib/toolNames";
+import { api } from "@fhara/runtime/api";
+import { AGENT_TOOL_OPTIONS } from "@/api/functions/lib/toolNames";
 import { AGENT_ROLES, roleDefaultTools, roleLabel, roleTemplateFor } from "@/lib/agentRoles";
 import { DICEBEAR_STYLE, dicebearAvatarArgs, randomDicebearSeed } from "@/lib/dicebearAvatar";
 import AgentAvatar from "../AgentAvatar";

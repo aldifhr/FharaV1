@@ -1,4 +1,3 @@
-"use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -239,7 +238,6 @@ export default function FilesView({ project }: { project: any }) {
               <p className="min-w-0 flex-1 truncate font-mono text-xs text-ink-3">{selected}</p>
             </div>
             {imageSrc ? (
-              // eslint-disable-next-line @next/next/no-img-element -- a local file preview (blob/data URL), not an optimizable asset
               <img src={imageSrc} alt={selected} className="h-[calc(100%-41px)] w-full object-contain bg-panel-2" />
             ) : content === "" && binaryNote ? (
               <p className="flex h-[calc(100%-41px)] items-center justify-center text-sm text-ink-3">{binaryNote}</p>

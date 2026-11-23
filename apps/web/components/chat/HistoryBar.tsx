@@ -1,4 +1,3 @@
-"use client";
 
 import { useLayoutEffect, useRef } from "react";
 import { ChevronUp, ListTree, Loader2 } from "lucide-react";

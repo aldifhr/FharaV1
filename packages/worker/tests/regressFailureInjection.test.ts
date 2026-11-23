@@ -17,7 +17,7 @@ import { existsSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { WorkerAgent, WorkerTask } from "@/workerApi";
-import { classifyProviderHold } from "@/api/convex/lib/providerHold";
+import { classifyProviderHold } from "@/api/functions/lib/providerHold";
 import { createFakeApi, createRunnerDeps, testPolicy, testTask } from "./helpers";
 
 const RATE_LIMIT = "LLM request failed (429) for model m: Too Many Requests (stream cut after 120 chars)";

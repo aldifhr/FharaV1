@@ -1,6 +1,6 @@
-import { useMutation } from "convex/react";
+import { useMutation } from "@fhara/runtime/react";
 import { useState } from "react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import { roleLabel } from "@/lib/agentRoles";
 import { ArrowUpRight, Bell, Check, CheckCircle2, Loader2, RotateCcw, XCircle } from "lucide-react";
 import OptionCards from "./OptionCards";
@@ -9,7 +9,7 @@ import { PanelCard, PanelCardBody, PanelCardFooter, PanelCardHeader } from "../u
 import { StatusTag, type StatusTone } from "../ui/status-tag";
 import { useToast } from "../Toasts";
 import { isClosedStatus } from "@/lib/taskStatus";
-import { normalizePermissionMode } from "@/api/convex/lib/permissionModes";
+import { normalizePermissionMode } from "@/api/functions/lib/permissionModes";
 import { refusalCopy } from "@/lib/taskInput";
 import { dueDateLabel, isOverdue } from "@/lib/runFormat";
 import { taskRef } from "@/lib/taskDock";

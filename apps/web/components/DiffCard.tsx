@@ -1,6 +1,5 @@
-"use client";
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
-import dynamic from "next/dynamic";
+import { dynamic } from "@/lib/spaRouter";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useUiPref } from "@/lib/uiPrefs";
 import { parseDiff } from "@/lib/lineComments";

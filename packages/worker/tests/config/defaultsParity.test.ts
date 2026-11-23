@@ -2,7 +2,7 @@ import fc from "fast-check";
 import { afterEach, describe, expect, it } from "vitest";
 import { ENV_SCHEMA, schemaDefault, setEnvIssueSink, type EnvVar } from "@fhara/config";
 import { wenv, wenvRaw, type WorkerVarName } from "@fhara/config/worker";
-import { setSettingOverrides, settingEnv } from "@/api/convex/lib/appSettings";
+import { setSettingOverrides, settingEnv } from "@/api/functions/lib/appSettings";
 import { loadPolicy, DEFAULT_SUBTASK_TIMEOUT_MS } from "@/orchestrator/policy";
 import { getGlobalLLMConfig, llmMaxTokens, llmTimeoutMs, DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_TIMEOUT_MS } from "@/llm";
 import { stallThresholdsFromEnv } from "@/utils/stallDetector";
@@ -148,8 +148,8 @@ const RECORD_CASES: Array<[string, (env: Env) => unknown, (env: Env) => unknown]
   ["FHARA_COMMIT_MESSAGE_LLM", (e) => wenv("FHARA_COMMIT_MESSAGE_LLM", e), (e) => L.legacyNeq0(e, "FHARA_COMMIT_MESSAGE_LLM")],
   ["FHARA_MEMORY_SUGGESTIONS", (e) => wenv("FHARA_MEMORY_SUGGESTIONS", e), (e) => L.legacyNeq0(e, "FHARA_MEMORY_SUGGESTIONS")],
   ["FHARA_ROLE_MEMORY", (e) => wenv("FHARA_ROLE_MEMORY", e), (e) => L.legacyNeq0(e, "FHARA_ROLE_MEMORY")],
-  ["NEXT_PUBLIC_CONVEX_URL", (e) => wenv("NEXT_PUBLIC_CONVEX_URL", e), L.legacyConvexUrl],
-  ["CONVEX_URL", (e) => wenv("NEXT_PUBLIC_CONVEX_URL", e), L.legacyConvexUrl],
+  ["FHARA_BACKEND_URL", (e) => wenv("FHARA_BACKEND_URL", e), L.legacyFharaRuntimeUrl],
+  ["FHARA_BACKEND_URL", (e) => wenv("FHARA_BACKEND_URL", e), L.legacyFharaRuntimeUrl],
   ["QA_BASE_URL", (e) => wenv("QA_BASE_URL", e), L.legacyQaBaseUrl],
   ["STAGEHAND_MODEL", (e) => wenv("STAGEHAND_MODEL", e), L.legacyStagehandModel],
   ["STAGEHAND_API_KEY", (e) => wenv("STAGEHAND_API_KEY", e), L.legacyStagehandKey],
@@ -176,8 +176,8 @@ function indexConstants(env: Env) {
     REPO_TOOL_IDLE_POLL_MS: wenv("WORKER_REPO_TOOL_POLL_MS", env),
     OPENCODE_CATALOG_POLL_MS: wenv("WORKER_OPENCODE_CATALOG_POLL_MS", env),
     WORKER_ID: wenv("WORKER_ID", env),
-    CONVEX_SERVICE_TOKEN: wenv("CONVEX_SERVICE_TOKEN", env),
-    LOG_CONVEX_URL: wenv("NEXT_PUBLIC_CONVEX_URL", env),
+    FHARA_SERVICE_TOKEN: wenv("FHARA_SERVICE_TOKEN", env),
+    LOG_FHARA_BACKEND_URL: wenv("FHARA_BACKEND_URL", env),
   };
 }
 const INDEX_NAMES = [
@@ -192,9 +192,9 @@ const INDEX_NAMES = [
   "WORKER_REPO_TOOL_POLL_MS",
   "WORKER_OPENCODE_CATALOG_POLL_MS",
   "WORKER_ID",
-  "CONVEX_SERVICE_TOKEN",
-  "NEXT_PUBLIC_CONVEX_URL",
-  "CONVEX_URL",
+  "FHARA_SERVICE_TOKEN",
+  "FHARA_BACKEND_URL",
+  "FHARA_BACKEND_URL",
 ];
 
 /** Knob-aware readers (settingEnv): [var, new, legacy(get)]. */
@@ -237,7 +237,7 @@ describe("worker reader parity (E1)", () => {
   it("alias chains keep `??` order (an empty primary wins over the alias)", () => {
     silence();
     const pairs: Array<[string, string, (env: Env) => unknown, (env: Env) => unknown]> = [
-      ["NEXT_PUBLIC_CONVEX_URL", "CONVEX_URL", (e) => wenv("NEXT_PUBLIC_CONVEX_URL", e), L.legacyConvexUrl],
+      ["FHARA_BACKEND_URL", "FHARA_BACKEND_URL", (e) => wenv("FHARA_BACKEND_URL", e), L.legacyFharaRuntimeUrl],
       ["ORCHESTRATOR_EXECUTION_RUNTIME", "ORCHESTRATOR_RUNTIME", (e) => executionRuntimeFromEnv(e), L.legacyExecutionRuntime],
       ["LLM_API_KEY", "OPENAI_API_KEY", (e) => getGlobalLLMConfig(e), L.legacyGlobalLLMConfig],
       ["WORKER_LLM_MAX_CONCURRENCY", "ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", (e) => wenv("WORKER_LLM_MAX_CONCURRENCY", e), L.legacyWorkerGateLimit],

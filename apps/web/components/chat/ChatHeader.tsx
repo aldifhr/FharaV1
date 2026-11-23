@@ -1,8 +1,7 @@
-"use client";
 
 import { Bell, Check, Copy, GitBranch, LoaderCircle, Menu, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
-import { useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import { useState } from "react";
 import InitialAvatar from "../InitialAvatar";
 import OpenInMenu from "./OpenInMenu";

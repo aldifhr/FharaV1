@@ -1,8 +1,7 @@
-"use client";
 
 import { useState } from "react";
-import { useMutation } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useMutation } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import { useToast } from "../Toasts";
 import {
   PROJECT_SCRIPT_ARGV,
@@ -12,7 +11,7 @@ import {
   configuredProjectScript,
   projectScriptLine,
   type ProjectScriptKind,
-} from "@/api/convex/lib/projectScriptsSchema";
+} from "@/api/functions/lib/projectScriptsSchema";
 
 const field = "rounded-lg border border-line bg-panel px-3 py-2 font-mono text-[13px] text-ink outline-none focus:border-ink/30 focus:ring-2 focus:ring-ink/10";
 

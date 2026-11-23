@@ -1,12 +1,12 @@
 /**
- * The generated apps/api/convex/lib/builtinSkills.data.ts must match
+ * The generated apps/api/functions/lib/builtinSkills.data.ts must match
  * skills/builtin/<key>/SKILL.md (run `npm run skills:builtin` after editing
  * a SKILL.md), and Apache-2.0 skills carry their LICENSE.txt and NOTICE.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
-import { readBuiltinSkillSources, renderBuiltinSkillData } from "@/api/convex/lib/builtinSkillSource";
+import { readBuiltinSkillSources, renderBuiltinSkillData } from "@/api/functions/lib/builtinSkillSource";
 
 const ROOT = resolve(__dirname, "../../..");
 const DIR = join(ROOT, "skills/builtin");
@@ -18,7 +18,7 @@ describe("built-in skill sources", () => {
   const skills = readBuiltinSkillSources(files);
 
   test("generated data is up to date", () => {
-    const generated = readFileSync(join(ROOT, "apps/api/convex/lib/builtinSkills.data.ts"), "utf8");
+    const generated = readFileSync(join(ROOT, "apps/api/functions/lib/builtinSkills.data.ts"), "utf8");
     expect(generated).toBe(renderBuiltinSkillData(skills));
   });
 

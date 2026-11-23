@@ -64,7 +64,7 @@ Split by render region, not by hook:
 
 Move the queries that only one pane reads into that pane (`api.fileChanges.listByProject`,
 `api.workspace.listSubtasksByProject`, `api.executionView.activeByAgent` are
-candidates). Convex dedupes identical subscriptions, so moving a query does not
+candidates). Fhara runtime dedupes identical subscriptions, so moving a query does not
 add a request.
 
 **Check**: `npm run --workspace=@fhara/web typecheck`; open a project chat and

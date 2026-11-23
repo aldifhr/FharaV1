@@ -1,5 +1,6 @@
 import WorkspaceShell from "@/app/WorkspaceClient";
 import ChatSection from "./ChatSection";
+import { useParams } from "@/lib/spaRouter";
 
 /**
  * A project's workspace at its canonical URL (`/project/:projectId`): team
@@ -7,12 +8,8 @@ import ChatSection from "./ChatSection";
  * `/project/:projectId/:threadId` (see `app/project/[projectId]/[threadId]`).
  * Either way the same workspace shell renders.
  */
-export default async function ProjectPage({
-  params,
-}: {
-  params: Promise<{ projectId: string }>;
-}) {
-  const { projectId } = await params;
+export default function ProjectPage() {
+  const { projectId } = useParams<{ projectId: string }>();
   return (
     <WorkspaceShell projectId={projectId}>
       <ChatSection />

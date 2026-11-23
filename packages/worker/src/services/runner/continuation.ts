@@ -8,7 +8,7 @@
  * or holds the normal way.
  */
 import type { CommandApprovalOutcome } from "@/execution/commandGate";
-import { SUBTASK_CONTINUED_EVENT } from "@/api/convex/lib/restartContinuation";
+import { SUBTASK_CONTINUED_EVENT } from "@/api/functions/lib/restartContinuation";
 import type { RunnerDeps, RunState } from "./types";
 
 type CommandRequest = { command: string; args: string[] };

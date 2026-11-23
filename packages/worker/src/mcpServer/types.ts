@@ -2,12 +2,12 @@
  * GOAT G12a/G12b: shapes shared by the Fhara MCP server modules.
  *
  * `McpReadSource` is the only door from the MCP server to Fhara's data: the
- * worker wires it to token-gated Convex queries (convexSource.ts), tests
+ * worker wires it to token-gated FharaRuntime queries (runtimeSource.ts), tests
  * wire it to an in-memory fake. Results are the typed rows of
- * apps/api/convex/mcpRead.ts.
+ * apps/api/functions/mcpRead.ts.
  */
-import type { FunctionReturnType } from "convex/server";
-import type { api } from "@/api/convex/_generated/api";
+import type { FunctionReturnType } from "@fhara/runtime/server";
+import type { api } from "@fhara/runtime/api";
 
 export type McpTaskStatusResult = FunctionReturnType<typeof api.mcpRead.taskStatus>;
 export type McpTaskListResult = FunctionReturnType<typeof api.mcpRead.taskList>;
@@ -27,7 +27,7 @@ export interface McpReadSource {
 
 /**
  * GOAT G12b: the write door, wired to the token-gated mutations in
- * apps/api/convex/mcpWrite.ts. Every call carries the caller's
+ * apps/api/functions/mcpWrite.ts. Every call carries the caller's
  * `clientRequestId`; a repeat returns the first result with `deduped: true`.
  */
 export interface McpWriteSource {

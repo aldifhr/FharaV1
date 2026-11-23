@@ -17,7 +17,7 @@
  * it never touches `supportedTools` or any permission — a skill that
  * declares `run_command` does not get the agent run_command.
  */
-import { extractToolCalls } from "@/api/convex/lib/chat/toolCallText";
+import { extractToolCalls } from "@/api/functions/lib/chat/toolCallText";
 import {
   appendAgentSkills,
   createSkillLoader,
@@ -27,14 +27,14 @@ import {
   normalizeSkillLoading,
   withoutInvoked,
   type LibraryBodyFetcher,
-} from "@/api/convex/lib/skillRuntime";
+} from "@/api/functions/lib/skillRuntime";
 import {
   LOAD_SKILL_MAX_CALLS,
   LOAD_SKILL_MAX_CHARS,
   LOAD_SKILL_TOOL,
   type LibrarySkillRef,
   type PromptSkill,
-} from "@/api/convex/lib/skills";
+} from "@/api/functions/lib/skills";
 
 export type { LibraryBodyFetcher };
 

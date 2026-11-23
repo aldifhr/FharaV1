@@ -1,6 +1,6 @@
 /**
  * B7 (D8): the one rule for where a project's workspace lives, shared by
- * the worker, the web file preview and the Convex node actions. Before B7
+ * the worker, the web file preview and the FharaRuntime node actions. Before B7
  * each had its own copy, resolved against a different base.
  *
  *   absolute project path → that path (normalised)

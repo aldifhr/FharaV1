@@ -23,14 +23,14 @@ const sibling = (over: Partial<SiblingSubtask> = {}): SiblingSubtask => ({
 describe("Running alongside you section", () => {
   it("lists role, title, owned files and status plus the ownership rule", () => {
     const text = formatSiblingsSection([
-      sibling({ status: "queued", key: "s2", role: "backend", title: "Auth API", allowedPaths: ["apps/api/convex/auth.ts"] }),
+      sibling({ status: "queued", key: "s2", role: "backend", title: "Auth API", allowedPaths: ["apps/api/functions/auth.ts"] }),
       sibling(),
     ]);
     const lines = text.split("\n");
     expect(lines[0]).toMatch(/^Running alongside you/);
     // Running siblings come first.
     expect(lines[1]).toBe("- [running] frontend: Build the login form — owns apps/web/app/login");
-    expect(lines[2]).toBe("- [queued] backend: Auth API — owns apps/api/convex/auth.ts");
+    expect(lines[2]).toBe("- [queued] backend: Auth API — owns apps/api/functions/auth.ts");
     expect(text).toMatch(/Do not edit files owned by another subtask/);
     expect(text).toMatch(/escalation|ask/);
   });

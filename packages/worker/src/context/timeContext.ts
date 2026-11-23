@@ -5,9 +5,9 @@
  * shares; this module keeps the worker's zone (Settings → General, fetched
  * with the app settings) and one throttle per task workspace.
  */
-import { DEFAULT_USER_TIME_ZONE, effectiveTimeZone, TimeContextThrottle } from "@/api/convex/lib/timeContext";
+import { DEFAULT_USER_TIME_ZONE, effectiveTimeZone, TimeContextThrottle } from "@/api/functions/lib/timeContext";
 
-export { TIME_CONTEXT_PREFIX, withTimeTail } from "@/api/convex/lib/timeContext";
+export { TIME_CONTEXT_PREFIX, withTimeTail } from "@/api/functions/lib/timeContext";
 
 let userTimeZone = DEFAULT_USER_TIME_ZONE;
 const throttle = new TimeContextThrottle();

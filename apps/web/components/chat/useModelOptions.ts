@@ -1,8 +1,7 @@
-"use client";
 
 import { useMemo } from "react";
-import { useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 
 export type ModelOption = { id: string; label: string; provider: string };
 

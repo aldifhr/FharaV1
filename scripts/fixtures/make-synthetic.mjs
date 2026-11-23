@@ -18,7 +18,7 @@
 //
 // Rows carry a `fixtureKey` and reference each other with
 // "$ref:<table>/<fixtureKey>" strings (whole value only); the seeder
-// resolves them to real Convex ids. `agents` rows are looked up by role
+// resolves them to real FharaRuntime ids. `agents` rows are looked up by role
 // first and only created when the deployment has none.
 // Timestamps start at a fixed BASE so the output is byte-identical on every
 // run; the seeder shifts them to "now".

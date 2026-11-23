@@ -5,7 +5,7 @@
  * Generic on purpose: D7 (auto review) plugs in
  * its own `DecisionTurnSpec` (role, prompt, parser) and reuses the role
  * pick, the budget gate, the deadline, the model chain and the usage
- * metering here, plus the Convex side (apps/api/convex/decisionTurns.ts:
+ * metering here, plus the FharaRuntime side (apps/api/functions/decisionTurns.ts:
  * the turn row, the `taskSignals` answer outbox and the audit row).
  *
  * Outcomes:

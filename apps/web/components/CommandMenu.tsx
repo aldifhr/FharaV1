@@ -1,9 +1,8 @@
-"use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Command as CommandPrimitive } from "cmdk";
-import { usePathname, useRouter } from "next/navigation";
-import { useQuery } from "convex/react";
+import { usePathname, useRouter } from "@/lib/spaRouter";
+import { useQuery } from "@fhara/runtime/react";
 import {
   FolderKanban,
   FolderPlus,
@@ -18,7 +17,7 @@ import {
   Sun,
   Users,
 } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import AgentAvatar from "./AgentAvatar";
 import { agentName, roleLabel } from "@/lib/agentRoles";
 import { newTaskHref, recentThreads } from "@/lib/commandMenu";

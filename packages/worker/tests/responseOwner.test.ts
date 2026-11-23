@@ -13,7 +13,7 @@ import {
 } from "@/orchestrator/responseOwner";
 import { finalize, persistPlan } from "@/services/runner/finalize";
 import { planSystemLine } from "@/services/runner/systemLines";
-import { canWritePath, ROLES } from "@/api/convex/lib/roles";
+import { canWritePath, ROLES } from "@/api/functions/lib/roles";
 import { writeDenial } from "@/utils/rolePolicy";
 import { tool_call } from "@/governance/registry";
 import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "@/types";
@@ -262,7 +262,7 @@ describe("path-limited docs writes", () => {
     for (const ok of ["README.md", "CHANGELOG.md", "apps/web/README.md", "docs/x.md", "docs/guide/setup.md"]) {
       expect(canWritePath(docsOnly, ok), ok).toBe(true);
     }
-    for (const no of ["src/index.ts", "src/README.ts", "package.json", "apps/api/convex/schema.ts", "docs/../src/a.ts"]) {
+    for (const no of ["src/index.ts", "src/README.ts", "package.json", "apps/api/functions/schema.ts", "docs/../src/a.ts"]) {
       expect(canWritePath(docsOnly, no), no).toBe(false);
     }
     expect(writeDenial("backend", docsOnly, "src/index.ts")).toMatch(/may only write/);

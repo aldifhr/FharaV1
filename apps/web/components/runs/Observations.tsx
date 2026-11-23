@@ -1,8 +1,7 @@
-"use client";
 
-import { useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
-import { OBSERVATION_LABELS, type ObservationType } from "@/api/convex/lib/observations";
+import { useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
+import { OBSERVATION_LABELS, type ObservationType } from "@/api/functions/lib/observations";
 
 /**
  * Plan 025: the typed execution observations of a run, oldest first — the

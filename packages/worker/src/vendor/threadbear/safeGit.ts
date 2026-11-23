@@ -14,7 +14,7 @@
 /* eslint-disable */
 import { execFile, execFileSync } from 'node:child_process';
 import { withAccessLog, type CommandRecorder } from '@/utils/accessLog';
-import { buildChildEnv } from '@/api/convex/lib/childEnv';
+import { buildChildEnv } from '@/api/functions/lib/childEnv';
 
 // git in a folder Threadbear hasn't trusted, or whose .git it didn't make.
 // A folder from a zip, a tarball or a shared drive can carry its own

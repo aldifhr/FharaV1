@@ -24,7 +24,7 @@ Deferred by the user: budget caps / cost limits (P3 is tracking only).
 
 ## P1 — role permissions enforced in the executor
 
-`ROLES[k].permissions` (`apps/api/convex/lib/roles.ts`) is the table:
+`ROLES[k].permissions` (`apps/api/functions/lib/roles.ts`) is the table:
 
 | Role | write | shell | web |
 |---|---|---|---|
@@ -101,7 +101,7 @@ Back-compat (`syncFixedTeam`):
 ## P3 — usage ledger (tracking only, no caps)
 
 - **Schema (additive).** Optional `tokenUsage` columns from
-  `usageLedgerFields` (`apps/api/convex/lib/usageLedger.ts`):
+  `usageLedgerFields` (`apps/api/functions/lib/usageLedger.ts`):
   `cachedInputTokens`, `cacheWriteTokens`, `reasoningTokens`, `durationMs`,
   `providerKind` (`anthropic` / `openai-compatible` / `opencode` / …),
   `callRole` (planner / decision / executor / reviewer / qa / chat /
@@ -149,7 +149,7 @@ Back-compat (`syncFixedTeam`):
   directly in `chat.ts` / `classify.ts`, left alone for the personal-chat
   lane), and personal chats with no project (tokenUsage is per project).
 - Tests: `packages/worker/tests/usageLedger.test.ts`,
-  `apps/api/convex/usageLedger.test.ts`.
+  `apps/api/functions/usageLedger.test.ts`.
 
 ## Completion criteria
 
@@ -158,4 +158,4 @@ Back-compat (`syncFixedTeam`):
 - P3: every recorded call carries the breakdown fields its provider
   returned, duration, provider kind and call role; chat replies record
   rows; schema additive only.
-- Browser / live checks: not done in this lane (unit + convex-test only).
+- Browser / live checks: not done in this lane (unit + local-test only).

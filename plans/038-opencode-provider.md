@@ -5,7 +5,7 @@
 - Priority: P2
 - Size: M
 - Risk: MEDIUM
-- Dependencies: 034 (OpenCode model catalog), 035 (global OpenCode runtime), 037 (one model order)
+- Dependencies: 035 (global OpenCode runtime), 037 (one model order)
 - Planned at: commit `c44c079`, 2026-11-10
 
 ## Why this is needed
@@ -79,7 +79,7 @@ isolation).
 ## Verification log
 
 - web / api / worker typecheck clean.
-- `convex/opencodeProvider.test.ts` (10), the whole api suite 80 files / 835.
+- `runtime/opencodeProvider.test.ts` (10), the whole api suite 80 files / 835.
 - `tests/opencodeProvider.test.ts` (31, incl. 2 live against the sandbox CLI
   1.19.5: detection + `opencode/minimax-m3.1-flash-free` probe ok, ~4.3 s);
   the whole worker suite passes.

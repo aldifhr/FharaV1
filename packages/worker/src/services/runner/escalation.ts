@@ -1,5 +1,5 @@
-import { routeEscalation, type Escalation } from "@/api/convex/lib/subtaskContract";
-import { normalizePermissionMode } from "@/api/convex/lib/permissionModes";
+import { routeEscalation, type Escalation } from "@/api/functions/lib/subtaskContract";
+import { normalizePermissionMode } from "@/api/functions/lib/permissionModes";
 import type { RunContext, RunState } from "./types";
 import { askCtoFirst, ESCALATION_CHOICES, escalationNeedsUser, escalationQuestion, type CtoEscalationResult } from "@/decisionTurn/escalationCto";
 

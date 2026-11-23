@@ -1,5 +1,5 @@
 /** One node of an execution plan and the vocabulary around it. */
-import type { AcceptanceGate } from "@/api/convex/lib/subtaskContract";
+import type { AcceptanceGate } from "@/api/functions/lib/subtaskContract";
 
 export type {
   AcceptanceGate,
@@ -7,7 +7,7 @@ export type {
   EscalationKind,
   GateResult,
   AcceptanceStatus,
-} from "@/api/convex/lib/subtaskContract";
+} from "@/api/functions/lib/subtaskContract";
 
 export type SubtaskKind =
   | "analysis"

@@ -1,8 +1,7 @@
-"use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import QueryBoundary from "../shell/QueryBoundary";
 import { subscribeChatTyping } from "@/lib/chatTyping";
 import { statusFromLeases, type LeaseEntry, type StatusMap } from "@/lib/teamStatus";

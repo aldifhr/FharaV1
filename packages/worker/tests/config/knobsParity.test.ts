@@ -4,7 +4,7 @@ import { ENV_SCHEMA, KNOB_ORDER, KNOBS_FROM_SCHEMA, type EnvVar } from "@fhara/c
 /**
  * E1 parity: SETTING_KNOBS derived from the schema must equal, key for key
  * and in the same order, the literal that lived in
- * apps/api/convex/lib/appSettings.ts at 4d2dfb7 (frozen copy below).
+ * apps/api/functions/lib/appSettings.ts at 4d2dfb7 (frozen copy below).
  */
 // prettier-ignore
 const OLD_SETTING_KNOBS = {
@@ -20,7 +20,7 @@ const OLD_SETTING_KNOBS = {
   FHARA_AUTO_MERGE_MAX_LINES: { type: "int", defaultValue: "400", reader: "api", min: 0, max: 100_000 },
   FHARA_AUTO_MERGE_SENSITIVE: {
     type: "string",
-    defaultValue: ".github/**, **/.env*, **/*.env, **/*.pem, **/*.key, infra/**, apps/api/convex/schema.ts",
+    defaultValue: ".github/**, **/.env*, **/*.env, **/*.pem, **/*.key, infra/**, apps/api/functions/schema.ts",
     reader: "api",
     maxLength: 1000,
   },

@@ -63,20 +63,20 @@ function newRegistry(): McpRegistry {
 
 describe("buildMcpChildEnv", () => {
   it("never forwards worker secrets to an MCP child process", () => {
-    const previousToken = process.env.CONVEX_SERVICE_TOKEN;
+    const previousToken = process.env.FHARA_SERVICE_TOKEN;
     const previousKey = process.env.PROVIDER_ENCRYPTION_KEY;
-    process.env.CONVEX_SERVICE_TOKEN = "service-token-value";
+    process.env.FHARA_SERVICE_TOKEN = "service-token-value";
     process.env.PROVIDER_ENCRYPTION_KEY = "encryption-key-value";
     try {
       const env = buildMcpChildEnv({ SOME_PROXY: "http://proxy", OTHER_TOKEN: "nope" });
-      expect(env.CONVEX_SERVICE_TOKEN).toBeUndefined();
+      expect(env.FHARA_SERVICE_TOKEN).toBeUndefined();
       expect(env.PROVIDER_ENCRYPTION_KEY).toBeUndefined();
       expect(env.OTHER_TOKEN).toBeUndefined();
       expect(env.SOME_PROXY).toBe("http://proxy");
       expect(env.PATH).toBeDefined();
     } finally {
-      if (previousToken === undefined) delete process.env.CONVEX_SERVICE_TOKEN;
-      else process.env.CONVEX_SERVICE_TOKEN = previousToken;
+      if (previousToken === undefined) delete process.env.FHARA_SERVICE_TOKEN;
+      else process.env.FHARA_SERVICE_TOKEN = previousToken;
       if (previousKey === undefined) delete process.env.PROVIDER_ENCRYPTION_KEY;
       else process.env.PROVIDER_ENCRYPTION_KEY = previousKey;
     }

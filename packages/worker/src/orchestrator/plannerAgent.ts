@@ -7,7 +7,7 @@
  */
 import { CAPABILITY, type AgentDefinition } from "@/types";
 import { capabilitiesOf, isAgentEnabled } from "./capabilities";
-import { DOMAIN_ROLES, matchDomains } from "@/api/convex/lib/chat/dispatch";
+import { DOMAIN_ROLES, matchDomains } from "@/api/functions/lib/chat/dispatch";
 
 const isRole = (agent: AgentDefinition, role: string) => agent.role.trim().toLowerCase() === role;
 

@@ -1,7 +1,7 @@
 /**
  * `npm run env:example`: regenerate the files derived from the schema.
  *   .env.example                        (the one documented env file)
- *   apps/api/.env.example               (Convex CLI target only)
+ *   apps/api/.env.example               (FharaRuntime CLI target only)
  *   packages/config/env-manifest.json   (plain-node consumers)
  * `--check` exits 1 when a committed file is stale instead of writing it.
  */

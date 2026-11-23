@@ -59,12 +59,12 @@ a busy agent kept getting work while an equally capable one sat idle.
 - `projects.loadAwareRouting?: boolean`
 - `messages.handoffFromAgentId?: Id<"agents">`
 
-No new indexes. Requires a Convex deploy for the new module, fields and the
+No new indexes. Requires a Fhara runtime deploy for the new module, fields and the
 worker action.
 
 ## Completion criteria
 
-- Pure aggregation tests (`lib/orgIntel.test.ts`), convex-test of the four
+- Pure aggregation tests (`lib/orgIntel.test.ts`), local-test of the four
   queries (`orgIntel.test.ts`), router tests (`packages/worker/tests/loadAwareRouting.test.ts`:
   off = unchanged, on = spare capacity wins, never violates capabilities).
 - Browser check of `/team` and `/team/[agentId]` with live data (pending).

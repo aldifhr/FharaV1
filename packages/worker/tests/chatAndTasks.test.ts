@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 // Minimal test implementations of the core routing and validation algorithms
-// Mirrors fallbackOwner (apps/api/convex/lib/chat/owner.ts, O3): no CTO default.
+// Mirrors fallbackOwner (apps/api/functions/lib/chat/owner.ts, O3): no CTO default.
 // An un-mentioned message nobody's topic matched goes to Support, General,
 // Researcher, then anyone but the CTO.
 function pickConversationalAgent(

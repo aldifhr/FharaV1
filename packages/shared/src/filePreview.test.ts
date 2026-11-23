@@ -207,7 +207,7 @@ describe("attachment preview classification", () => {
     bytes[FILE_TEXT_PREVIEW_MAX_BYTES] = 0x82;
     const preview = decodeFilePreviewText(bytes);
     expect(preview.truncated).toBe(true);
-    expect(preview.text.endsWith("�")).toBe(false);
+    expect(preview.text.endsWith("-")).toBe(false);
     expect(preview.text.length).toBe(FILE_TEXT_PREVIEW_MAX_BYTES - 1);
   });
 });

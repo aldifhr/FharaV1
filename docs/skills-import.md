@@ -43,7 +43,7 @@ repo, then assign each skill to its roles:
 | Reviewer | improve-animations, remove-animations |
 
 The same mapping lives in code as `EMIL_SKILLS_ROLE_MAPPING`
-(`apps/api/convex/lib/githubSkills.ts`) and is exercised by
+(`apps/api/functions/lib/githubSkills.ts`) and is exercised by
 `skillsImport.test.ts` against a test database only. Nothing seeds it into a
 real deployment.
 
@@ -77,7 +77,7 @@ improve-animations plus a cut remove-animations.
   (Edit agent → Skills → version menu; `skills.setPin`, audited).
 - **Migration.** Skills written before v2 have no history. Their current text
   becomes version 1 (`kind: "baseline"`) on their first edit or import, or all at
-  once with `npx convex run skills:backfillVersions` (idempotent). Imports are now
+  once with `npx runtime run skills:backfillVersions` (idempotent). Imports are now
   stored untrimmed (up to `SKILL_STORED_MAX`, 200k chars); skills that were
   trimmed by an earlier import get their full text on the next "Update from
   source" / "Update all from source".

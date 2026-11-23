@@ -4,7 +4,7 @@ import type {
   QaCardRow,
   VerificationCardCheck,
   VerificationCardData,
-} from "@/api/convex/cardTypes";
+} from "@/api/functions/cardTypes";
 import type { VerificationResult } from "@/execution/verification";
 import { QA_VIEWPORTS } from "@/execution/qa";
 import type { FileDiff } from "@/tools/gitDiff";

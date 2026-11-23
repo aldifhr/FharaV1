@@ -36,16 +36,16 @@ unavailable. The user wants the model selected FharaV2-style in `settings.json`
 1. Root `settings.json` + worker reader (`packages/worker/src/tools/chatLlm.ts`):
    parse `defaultModelSelection.model`; `FHARA_SETTINGS_PATH` overrides the
    path. Check: worker unit test for the reader.
-2. `apps/api/convex/repoTools.ts`: `enqueueChatLlm` internal mutation (larger
+2. `apps/api/functions/repoTools.ts`: `enqueueChatLlm` internal mutation (larger
    arg cap, fixed tool name). Check: api typecheck.
 3. `packages/worker/src/services/repoTools.ts`: dispatch `opencode_chat` before
    the workspace check. Check: worker typecheck + repo tool tests.
-4. `apps/api/convex/chat.ts`: `callChatLlmViaWorker` + a `completeChat` wrapper
+4. `apps/api/functions/chat.ts`: `callChatLlmViaWorker` + a `completeChat` wrapper
    used at every `completeWithSnapshot` call site; bridge only for OpenCode
    config. Check: api typecheck + chat tests.
 5. Live smoke: send "create new file hello.html" in the running project chat;
    expect `Sent to Faray`, a CTO answer with a short plain-HTML plan, an
-   `@Rey` handoff, and the Create task offer. Check: Convex message rows.
+   `@Rey` handoff, and the Create task offer. Check: Fhara runtime message rows.
 6. Set this plan DONE and report what was not checked.
 
 ## Out of scope

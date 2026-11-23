@@ -10,7 +10,7 @@ import { ExitCode, makeHandle, ProcessId } from "effect/process/ChildProcessSpaw
 import * as AcpClient from "effect-acp/client";
 import * as AcpError from "effect-acp/errors";
 
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
 import type { EventSink } from "@/types/events";
 import { resolveSandboxPath } from "@/tools/sandbox";
 import { killTree, type NativeRunResult, type SpawnOptions } from "./nativeProvider";

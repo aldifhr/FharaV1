@@ -1,9 +1,8 @@
-"use client";
 // Paradev A2 (plan audit/paradev-plan-2026-11-11.md, P-A): CI checks of the
 // task's PR, one row per ciChecks entry. Pattern only from Paradev's
 // PRDetailCard (its styling uses tinted backgrounds; this is plain rows).
 import { CheckCircle2, Circle, ExternalLink, Loader2, RefreshCw, XCircle } from "lucide-react";
-import type { ChangesPr } from "@/api/convex/lib/changeset";
+import type { ChangesPr } from "@/api/functions/lib/changeset";
 import { checkRows, checksSummary } from "@/lib/changesView";
 
 const GLYPH = { passed: CheckCircle2, failed: XCircle, pending: Circle } as const;

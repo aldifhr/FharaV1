@@ -1,6 +1,6 @@
 # `packages/worker` — task worker
 
-Claims tasks from Convex, plans them, runs the DAG, executes agents, evaluates
+Claims tasks from Fhara runtime, plans them, runs the DAG, executes agents, evaluates
 results, gates risky actions behind human approval, and reports every state
 change back to the backend.
 
@@ -35,7 +35,7 @@ services ← index. Prompt wording lives only in `src/prompts/`; shared types
 only in `src/types/`. Test fixtures: `tests/helpers/`.
 
 Anything that changes task state goes through `WorkerApi` (`src/workerApi.ts`)
-into a `worker.ts` action. Do not call the Convex HTTP API directly and do not
+into a `worker.ts` action. Do not call the Fhara runtime HTTP API directly and do not
 import backend internals.
 
 ## Orchestrator contract
@@ -94,7 +94,7 @@ import backend internals.
   (`Requirements not covered: …`), and with no replan left the task ends
   "completed with gaps" = status `failed` + `requirementCoverage.outcome`.
   `DecisionObservation.observations` carries typed `ExecutionObservation`s
-  (`@/api/convex/lib/observations`); the backend derives and stores the
+  (`@/api/functions/lib/observations`); the backend derives and stores the
   same observations from events (`executionObservations`).
 - QA outcomes: `passed`; `failed` (app defect → at most
   `ORCHESTRATOR_QA_MAX_FIX_ITERATIONS`, default 1, fix round, routed to the UI
@@ -271,7 +271,7 @@ was reported yet, or the last report is older than 10 min
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `CONVEX_SERVICE_TOKEN` | — | Must match the deployment; fails closed when unset |
+| `FHARA_SERVICE_TOKEN` | — | Must match the deployment; fails closed when unset |
 | `PROVIDER_ENCRYPTION_KEY` | — | Must match the deployment |
 | `WORKER_CONCURRENCY` | 1 | Tasks in flight (sequential by default) |
 | `WORKER_POLL_INTERVAL_MS` | 1500 | Claim loop cadence |
@@ -327,7 +327,7 @@ Chromium (e.g. Debian's `chromium` package) and point QA at it with
 
 ## Tests
 
-Vitest, pure unit/integration — no Convex deployment, no live provider.
+Vitest, pure unit/integration — no Fhara runtime deployment, no live provider.
 
 ```
 npm test                                              # whole worker suite

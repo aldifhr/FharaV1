@@ -1,9 +1,8 @@
-"use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useRouter } from "@/lib/spaRouter";
+import { useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import { personalIndexTarget } from "@/lib/personalChat";
 
 /**

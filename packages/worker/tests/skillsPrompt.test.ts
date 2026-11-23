@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { appendSkillsToPrompt, formatSkillsSection, SKILLS_PROMPT_BUDGET } from "@/api/convex/lib/skills";
+import { appendSkillsToPrompt, formatSkillsSection, SKILLS_PROMPT_BUDGET } from "@/api/functions/lib/skills";
 import { toAgentDefinition } from "@/services/runner/setup";
-import { appendMemoryToPrompt } from "@/api/convex/lib/memory";
+import { appendMemoryToPrompt } from "@/api/functions/lib/memory";
 
 describe("library skills in the agent prompt", () => {
   it("appends each skill after the static system prompt", () => {

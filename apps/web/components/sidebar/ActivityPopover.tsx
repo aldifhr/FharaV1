@@ -1,9 +1,8 @@
-"use client";
 
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
-import { useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import { clockTime } from "@/lib/format";
 
 const EVENT_LABEL: Record<string, string> = {

@@ -17,8 +17,8 @@
       "ignoreDependencies": ["tailwindcss", "tw-animate-css"]
     },
     "apps/api": {
-      "entry": ["convex/**/*.ts"],
-      "project": ["convex/**/*.ts"],
+      "entry": ["runtime/**/*.ts"],
+      "project": ["runtime/**/*.ts"],
       "ignoreDependencies": ["vite"]
     },
     "packages/worker": {

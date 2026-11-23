@@ -1,7 +1,7 @@
 /**
  * UI-only preferences saved on this device (localStorage), set in the
  * Settings modal and read by the components they change. Server-side
- * behaviour lives in Convex (`appSettings`); these only change how this
+ * behaviour lives in FharaRuntime (`appSettings`); these only change how this
  * browser renders and handles input.
  *
  * Every pref has a key, a default and a parser, so a hand-edited or stale

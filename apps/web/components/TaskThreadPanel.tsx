@@ -1,9 +1,8 @@
-"use client";
 import { useEffect, useRef, useState } from "react";
-import { useConvex, useMutation, useQuery } from "convex/react";
+import { useFharaRuntime, useMutation, useQuery } from "@fhara/runtime/react";
 import { ReviewerSection, SecondOpinionButton } from "@/components/review/Reviewer";
 import { motion } from "framer-motion";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import MessageText from "./chat/MessageText";
 import { agentName, roleLabel } from "@/lib/agentRoles";
 import { subtaskStatusMeta } from "@/lib/taskStatus";
@@ -76,10 +75,10 @@ export default function TaskThreadPanel({
   // Canonical event stream (plan 016): the UI reads this instead of the raw
   // worker/provider vocabulary.
   // Newest window, merged by sequence; a reconnect gap replays or re-snapshots.
-  const convex = useConvex();
+  const runtime = useFharaRuntime();
   const agentEventsWindow = useQuery(api.orchestration.listAgentEvents, taskExists ? { taskId: taskId as any } : "skip");
   const agentEvents = useSequencedEvents(taskExists ? taskId : null, agentEventsWindow as any[] | undefined, (afterSequence) =>
-    convex.query(api.orchestration.agentEventsSince, { taskId: taskId as any, afterSequence }) as any
+    runtime.query(api.orchestration.agentEventsSince, { taskId: taskId as any, afterSequence }) as any
   );
   const fileChanges = useQuery(api.fileChanges.listByTask, taskExists ? { taskId: taskId as any } : "skip");
   const agents = useQuery(api.agents.list, {});

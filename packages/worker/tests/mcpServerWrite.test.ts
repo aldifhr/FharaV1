@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { startMcpHttpServer, type FharaMcpServer, type McpSource } from "@/mcpServer";
-import { convexMcpSource } from "@/mcpServer/convexSource";
+import { runtimeMcpSource } from "@/mcpServer/runtimeSource";
 import {
   deliverWebhook,
   signWebhookBody,
@@ -21,7 +21,7 @@ import type { WorkerApi } from "@/workerApi";
 const TOKEN = "test-token-0123456789abcdef";
 const SECRET = "webhook-secret-0123456789";
 
-/** An in-memory write source that dedupes by clientRequestId like apps/api/convex/mcpWrite.ts. */
+/** An in-memory write source that dedupes by clientRequestId like apps/api/functions/mcpWrite.ts. */
 function fakeWriteSource(projectMode: "supervised" | "full_access" = "supervised") {
   const seen = new Map<string, Record<string, unknown>>();
   const calls: Array<[string, unknown]> = [];
@@ -112,10 +112,10 @@ describe("write tools over MCP", () => {
     expect(calls.map(([name]) => name)).toEqual(["threadSend", "questionAsk", "runReportResult"]);
   });
 
-  it("convexMcpSource sends each write to its mcpWrite mutation with the worker token", async () => {
+  it("runtimeMcpSource sends each write to its mcpWrite mutation with the worker token", async () => {
     const mutation = vi.fn(async () => ({ kind: "sent" }));
     const workerApi = { client: { mutation }, args: (v: object) => ({ ...v, workerToken: "svc" }) } as unknown as WorkerApi;
-    const src = convexMcpSource(workerApi);
+    const src = runtimeMcpSource(workerApi);
     await src.taskCreate({ clientRequestId: "a", projectId: "p1", command: "c" });
     await src.threadSend({ clientRequestId: "b", taskId: "t1", content: "x" });
     await src.runReportResult({ clientRequestId: "c", taskId: "t1", status: "succeeded", summary: "s" });

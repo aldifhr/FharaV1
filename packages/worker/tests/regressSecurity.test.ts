@@ -27,7 +27,7 @@ import { withFileContexts } from "@/services/runner/setup";
 import { resolveSandboxPath, resolveSandboxPathAsync } from "@/tools/sandbox";
 import { isCommandAllowed, parseAllowedCommandLine } from "@/utils/commandAllowlist";
 import { permissionsForAgent, resolveRoleKey } from "@/utils/rolePolicy";
-import { setSettingOverrides } from "@/api/convex/lib/appSettings";
+import { setSettingOverrides } from "@/api/functions/lib/appSettings";
 import type { FallbackHandle } from "@/effects/llmCall";
 import type { GlobalLLMConfig, LLMProvider } from "@/llm";
 import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "@/types";

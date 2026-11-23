@@ -11,8 +11,8 @@ import {
 
 describe("Agent Reach argv allowlist", () => {
   it("builds an exact argv for an allowlisted channel and action", () => {
-    const built = buildAgentReachArgs({ channel: "web", action: "search", query: "convex typescript", limit: 3 });
-    expect(built).toEqual({ ok: true, args: ["web", "search", "convex typescript", "--limit", "3"] });
+    const built = buildAgentReachArgs({ channel: "web", action: "search", query: "runtime typescript", limit: 3 });
+    expect(built).toEqual({ ok: true, args: ["web", "search", "runtime typescript", "--limit", "3"] });
   });
 
   it("accepts an action without an argument", () => {
@@ -21,7 +21,7 @@ describe("Agent Reach argv allowlist", () => {
   });
 
   it("refuses a channel outside the public allowlist", () => {
-    const built = buildAgentReachArgs({ channel: "twitter", action: "search", query: "convex" });
+    const built = buildAgentReachArgs({ channel: "twitter", action: "search", query: "runtime" });
     expect(built.ok).toBe(false);
     if (!built.ok) expect(built.reason).toMatch(/not allowed/);
   });
@@ -83,7 +83,7 @@ describe("Agent Reach argv allowlist", () => {
 describe("Agent Reach result handling", () => {
   it("reports a missing binary instead of throwing", async () => {
     const result = await runAgentReach(
-      { channel: "web", action: "search", query: "convex" },
+      { channel: "web", action: "search", query: "runtime" },
       { command: "agent-reach-does-not-exist" }
     );
     expect(result.ok).toBe(false);
@@ -92,7 +92,7 @@ describe("Agent Reach result handling", () => {
   });
 
   it("reports a refused request instead of spawning anything", async () => {
-    const result = await runAgentReach({ channel: "twitter", action: "search", query: "convex" });
+    const result = await runAgentReach({ channel: "twitter", action: "search", query: "runtime" });
     expect(result.ok).toBe(false);
     expect(result.errorCode).toBe("BAD_INPUT");
     expect(result.local).toBe(true);

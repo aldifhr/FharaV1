@@ -7,7 +7,7 @@
  * Unifying the dialects is a separate, labelled behaviour change (B1–B10).
  */
 
-export type Runtime = "worker" | "convex" | "convexNode" | "webServer" | "webClient" | "electron" | "scripts";
+export type Runtime = "worker" | "runtime" | "runtimeNode" | "webServer" | "webClient" | "electron" | "scripts";
 
 export type EnvGroup =
   | "core"
@@ -69,7 +69,7 @@ export type BoolParse = "bool";
  */
 export type StringParse = "nullish" | "trimOr" | "or" | "lower";
 
-/** Settings-modal knob metadata (apps/api/convex/lib/appSettings.ts SETTING_KNOBS). */
+/** Settings-modal knob metadata (apps/api/functions/lib/appSettings.ts SETTING_KNOBS). */
 export interface KnobMeta {
   reader: "worker" | "api" | "both";
   /** Only where the UI default is not the code default as a string (derived or tristate defaults). */
@@ -95,8 +95,8 @@ interface VarBase {
   /** "startup": read once at module load today (D14). */
   readAt?: "startup" | "call";
   knob?: KnobMeta;
-  /** CONVEX_SITE_URL: provided by Convex itself, never synced. */
-  convexSystem?: boolean;
+  /** FHARA_SITE_URL: provided by FharaRuntime itself, never synced. */
+  runtimeSystem?: boolean;
   deprecated?: string;
   /** Known quirk kept on purpose in E1, with the behaviour PR that fixes it. */
   quirk?: string;

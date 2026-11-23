@@ -1,4 +1,3 @@
-"use client";
 import DicebearAvatar from "./DicebearAvatar";
 import { dicebearSeedFor, isDicebearAvatarParams } from "@/lib/dicebearAvatar";
 

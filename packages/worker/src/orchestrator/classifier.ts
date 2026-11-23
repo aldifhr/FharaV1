@@ -1,13 +1,13 @@
 import { CAPABILITY, type Classification, type Concern } from "@/types";
 import { ALLOWED_ARGV, allowedCommandLines } from "@/utils/commandAllowlist";
-import { unwrapSandboxBrief } from "@/api/convex/lib/sandboxBrief";
+import { unwrapSandboxBrief } from "@/api/functions/lib/sandboxBrief";
 
 const GREETING = /^(hi|hello|hey|halo|hai|yo|good (morning|afternoon|evening))[!.,?\s]*$/i;
 // Expanded verb coverage (Stage A fast path only — semantic stage below
 // correctly handles migrate/convert/indirect phrasing without this list).
 // Strong change verbs only: generic words (perlu/menggunakan/pakai/jalankan)
 // were removed — they match plain questions ("Kenapa API ini menggunakan
-// Convex?" is research, not a code change). QUESTION is checked first below.
+// FharaRuntime?" is research, not a code change). QUESTION is checked first below.
 // Indonesian verbs take suffixes (-kan, -lah, -in, -nya): "Tambahkan",
 // "buatkan", "bikinin", "ubahlah" must match like their bare stems.
 const ID_SUFFIX = "(?:kan|lah|in|nya|kanlah)?";
@@ -26,7 +26,7 @@ const FRONTEND =
 const DESIGN =
   /\b(design|ui\/ux|wireframe|mockup|layout direction|pricing direction|pricing layout|pricing tier|proposal)\b/i;
 const BACKEND =
-  /\b(backend|back-end|api|server|endpoint|database|db|schema|convex|query|mutation|auth|webhook)\b/i;
+  /\b(backend|back-end|api|server|endpoint|database|db|schema|runtime|query|mutation|auth|webhook)\b/i;
 // Plain text/data files (notes, configs, fixtures) are not frontend work:
 // when a change command touches only these — no frontend/backend/design
 // keywords and no code file extensions — defaulting to frontend makes the

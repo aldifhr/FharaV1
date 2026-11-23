@@ -2,14 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { armDecision, resolvedPhase } from "@/api/convex/sideEffects";
+import { armDecision, resolvedPhase } from "@/api/functions/sideEffects";
 import { guardedEffect, type SideEffectApi } from "@/services/sideEffects";
 import { handlePushRequest, pushErrorKind, type PushClaim } from "@/services/pushRequests";
 import { applyEffectKey, applyUnderLedger, fileApplyState } from "@/services/runner/applyLedger";
 import { hashContent, type FileDiff } from "@/tools/gitDiff";
 import type { ExecGit } from "@/tools/gitPush";
 
-/** In-memory ledger with the same transitions as apps/api/convex/sideEffects.ts. */
+/** In-memory ledger with the same transitions as apps/api/functions/sideEffects.ts. */
 function memoryLedger() {
   type Row = { id: string; key: string; kind: string; phase: string; outcome?: string; evidence?: unknown; attempts: number; reason?: string };
   const rows = new Map<string, Row>();

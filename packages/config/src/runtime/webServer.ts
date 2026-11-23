@@ -1,6 +1,6 @@
 /**
  * Web server reader (route handlers, server components). apps/web imports
- * it through lib/env.server.ts only. NEXT_PUBLIC_* vars are not read here:
+ * it through lib/env.server.ts only. Browser vars are not read here:
  * Next inlines them, so they stay literal in apps/web/lib/env.client.ts.
  */
 import { type EnvSource, rawFrom, readVar } from "../read";

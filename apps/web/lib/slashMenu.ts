@@ -1,7 +1,7 @@
 /**
  * Paradev C2: the pure half of the composer's "/" menu (plan
  * audit/paradev-plan-2026-11-11.md, P-C). Ranking, sorting and suppression
- * come from the shared registry (apps/api/convex/lib/slashCommands.ts, whose
+ * come from the shared registry (apps/api/functions/lib/slashCommands.ts, whose
  * core is copied from superset-sh/superset, MIT, see THIRD_PARTY_NOTICES.md);
  * this file only decides what the draft asks for. No React here so the web
  * unit tests can import it.
@@ -16,7 +16,7 @@ import {
   sortSlashCommandMatches,
   type SlashCommand,
   type SlashCommandScope,
-} from "@/api/convex/lib/slashCommands";
+} from "@/api/functions/lib/slashCommands";
 
 /** A menu row. A disabled row is listed but cannot be picked. */
 export type SlashMenuEntry = SlashCommand & { disabled?: boolean; disabledNote?: string };

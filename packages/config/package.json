@@ -8,7 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./worker": "./src/runtime/worker.ts",
-    "./convex": "./src/runtime/convex.ts",
+    "./runtime": "./src/runtime/runtime.ts",
     "./web-server": "./src/runtime/webServer.ts",
     "./web-client": "./src/runtime/webClient.ts",
     "./env-manifest.json": "./env-manifest.json"

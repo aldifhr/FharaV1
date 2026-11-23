@@ -1,4 +1,3 @@
-"use client";
 
 import { useTheme as useCtx, type Theme, type ThemePreference } from "./theme-provider";
 

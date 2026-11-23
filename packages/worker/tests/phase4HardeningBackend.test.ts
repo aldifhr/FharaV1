@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 /**
  * The backend handlers are loaded with dynamic imports by file path
  * (in beforeAll below), not with static imports: the worker package's
- * tsconfig program must not absorb the whole Convex module graph
+ * tsconfig program must not absorb the whole FharaRuntime module graph
  * (its lib set lacks the DOM WebCrypto types the API workspace's own
  * tsconfig provides, which would surface as phantom errors in
  * unrelated API files). Vitest resolves and transforms the modules
@@ -21,15 +21,15 @@ let cancelTask: unknown;
 let retryTask: unknown;
 
 beforeAll(async () => {
-  const convexDir = path.resolve(
+  const runtimeDir = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
-    "../../../apps/api/convex"
+    "../../../apps/api/functions"
   );
   const orchestration = (await import(
-    path.join(convexDir, "orchestration.ts")
+    path.join(runtimeDir, "orchestration.ts")
   )) as Record<string, unknown>;
   const tasks = (await import(
-    path.join(convexDir, "tasks.ts")
+    path.join(runtimeDir, "tasks.ts")
   )) as Record<string, unknown>;
   completeTask = orchestration.completeTask;
   recoverStale = orchestration.recoverStale;
@@ -44,14 +44,14 @@ beforeAll(async () => {
 /**
  * Phase 4 hardening — BACKEND guards, tested at the handler level.
  *
- * convex-test is not available in this workspace, so the REAL mutation
+ * local-test is not available in this workspace, so the REAL mutation
  * handlers are invoked directly (their `_handler` functions) against
- * an in-memory FakeDb that implements the subset of the Convex data
+ * an in-memory FakeDb that implements the subset of the FharaRuntime data
  * API these handlers use (insert/get/patch/delete, indexed queries
  * with eq/lt/gt predicates, order/take/unique/collect), including
- * Convex's "patch with undefined deletes the field" rule.
+ * FharaRuntime's "patch with undefined deletes the field" rule.
  *
- * Convex executes mutations serially (optimistic concurrency with
+ * FharaRuntime executes mutations serially (optimistic concurrency with
  * retries at the platform level), so concurrent handler invocations
  * in these tests are funneled through `serialized(...)` — a promise
  * chain that reproduces that execution order — while still being
@@ -133,7 +133,7 @@ class FakeQuery {
   ) {}
   withIndex(
     _name: string,
-    // Optional, as in Convex: withIndex("by_seq") with no range (O5 audit chain).
+    // Optional, as in FharaRuntime: withIndex("by_seq") with no range (O5 audit chain).
     build?: (q: PredicateBuilder) => unknown
   ): this {
     const builder = new PredicateBuilder();
@@ -151,7 +151,7 @@ class FakeQuery {
       .filter((row) => this.predicates.every((p) => matches(row, p)));
     filtered.sort((a, b) => a._creationTime - b._creationTime);
     if (this.descending) filtered.reverse();
-    // Convex returns snapshot copies, never live references: a row a
+    // FharaRuntime returns snapshot copies, never live references: a row a
     // handler fetched must not change when a later patch lands.
     return filtered.map((row) => ({ ...row }));
   }
@@ -252,7 +252,7 @@ function callHandler(
 const TEST_WORKER = "test-worker";
 
 /**
- * Convex runs mutations one at a time; this chain reproduces that
+ * FharaRuntime runs mutations one at a time; this chain reproduces that
  * serialization for calls the test issues concurrently.
  */
 let mutationChain: Promise<unknown> = Promise.resolve();
@@ -372,7 +372,7 @@ describe("backend terminal guards (Phase 4 hardening)", () => {
     const ctx = makeCtx(db);
     const { taskId } = await seedTask(db, { status: "running" });
 
-    // Issued concurrently; executed serially, as Convex runs
+    // Issued concurrently; executed serially, as FharaRuntime runs
     // mutations. Whichever lands first wins, the other is refused.
     const [first, second] = (await Promise.all([
       serialized(() =>

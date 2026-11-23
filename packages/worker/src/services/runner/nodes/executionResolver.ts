@@ -2,7 +2,7 @@ import type { AgentDefinition, PlanSubtask } from "@/types";
 import type { WorkerApi } from "@/workerApi";
 import type { NodeOutcome } from "@/scheduler/dagScheduler";
 import type { FallbackHandle } from "@/effects/llmCall";
-import type { PerformanceScore } from "@/api/convex/lib/agentPerformance";
+import type { PerformanceScore } from "@/api/functions/lib/agentPerformance";
 import { nativeTimeoutMs, resolveOpencodeSelection } from "@/execution/nativeProvider";
 import { codexCommand, codexGateFor, isCodexAvailable, nativeDriverFromEnv } from "@/execution/codexProvider";
 import { ensureOpencodeDetection, opencodeGateFor } from "@/execution/opencodeDetect";

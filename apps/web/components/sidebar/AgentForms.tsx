@@ -1,9 +1,8 @@
-"use client";
 
 import { useState, type FormEvent } from "react";
-import { useMutation } from "convex/react";
+import { useMutation } from "@fhara/runtime/react";
 import { Dices, Wand2 } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import Modal from "../Modal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { AGENT_ROLES, roleLabel } from "@/lib/agentRoles";

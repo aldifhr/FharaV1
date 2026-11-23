@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { appendSkillsToPrompt, LOAD_SKILL_MAX_CALLS, type PromptSkill } from "@/api/convex/lib/skills";
+import { appendSkillsToPrompt, LOAD_SKILL_MAX_CALLS, type PromptSkill } from "@/api/functions/lib/skills";
 import { toAgentDefinition } from "@/services/runner/setup";
 import { preloadOnDemandSkills, SKILL_PRELOAD_DONE } from "@/execution/skillLoading";
 import type { WorkerRunAgent } from "@/workerApi";

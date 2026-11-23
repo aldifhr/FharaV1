@@ -1,10 +1,9 @@
-"use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "@fhara/runtime/react";
 import { ListChecks, Trash2, Undo2 } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
-import type { PlanCardData } from "@/api/convex/cardTypes";
+import { api } from "@fhara/runtime/api";
+import type { PlanCardData } from "@/api/functions/cardTypes";
 import { roleLabel } from "@/lib/agentRoles";
 import ConfirmDialog, { type ConfirmRequest } from "../../ConfirmDialog";
 import { useToast } from "../../Toasts";

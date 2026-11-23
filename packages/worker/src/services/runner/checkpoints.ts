@@ -1,16 +1,16 @@
 /**
  * GOAT G5: capture the task worktree as a hidden-ref checkpoint after each
  * finished subtask and after apply (tools/gitCheckpoint.ts), and record the
- * row in Convex (`checkpoints.record`). Isolated worktrees only: a task
+ * row in FharaRuntime (`checkpoints.record`). Isolated worktrees only: a task
  * running in the project checkout itself is not captured.
  *
  * Best effort: a failed capture or report never fails the run. Captures of
  * one worktree run one at a time, so parallel subtasks get distinct
  * numbers without racing on the ref store.
  */
-import { api } from "@/api/convex/_generated/api";
-import type { Id } from "@/api/convex/_generated/dataModel";
-import { CHECKPOINT_FILES_LIMIT } from "@/api/convex/lib/checkpointValidators";
+import { api } from "@fhara/runtime/api";
+import type { Id } from "@fhara/runtime/data";
+import { CHECKPOINT_FILES_LIMIT } from "@/api/functions/lib/checkpointValidators";
 import { captureCheckpoint, type CapturedCheckpoint } from "@/tools/gitCheckpoint";
 import type { WorkerApi } from "@/workerApi";
 import type { RunContext } from "./types";

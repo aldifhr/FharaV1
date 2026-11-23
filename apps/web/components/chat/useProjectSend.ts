@@ -1,6 +1,6 @@
 import { useCallback } from "react";
-import { useMutation } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useMutation } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import { newClientId, optimisticUserRow, withOptimisticRow } from "@/lib/optimisticChat";
 
 /**

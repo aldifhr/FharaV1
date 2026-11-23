@@ -1,10 +1,9 @@
-"use client";
 
 import { FormEvent, useEffect, useState } from "react";
 import { createContext, useCallback, useContext } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { useRouter } from "next/navigation";
-import { api } from "@/api/convex/_generated/api";
+import { useMutation, useQuery } from "@fhara/runtime/react";
+import { useRouter } from "@/lib/spaRouter";
+import { api } from "@fhara/runtime/api";
 import Modal from "./Modal";
 import GitInitNote, { useRepoReadinessNote } from "./GitInitNote";
 import { agentName, agentRoleText } from "@/lib/agentRoles";

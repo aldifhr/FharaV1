@@ -1,7 +1,7 @@
 # Fhara built-in skills
 
 Skills Fhara seeds into the Library and attaches to the fixed team on the
-first team sync (`apps/api/convex/lib/builtinSkills.ts`, generated from these
+first team sync (`apps/api/functions/lib/builtinSkills.ts`, generated from these
 folders by `npm run skills:builtin`). They are also listed in the Library
 Browse catalog (`npm run catalog:build`). Each SKILL.md is kept within the
 inline skill prompt budget; large references live behind tools (the

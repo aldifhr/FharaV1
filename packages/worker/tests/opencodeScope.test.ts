@@ -7,8 +7,8 @@ import { promises as fs } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { scopedHome } from "@/api/convex/lib/childEnv";
-import { ROLES } from "@/api/convex/lib/roles";
+import { scopedHome } from "@/api/functions/lib/childEnv";
+import { ROLES } from "@/api/functions/lib/roles";
 import { buildOpencodePolicy, evaluateOpencodeRule } from "@/execution/opencodePolicy";
 import { OpencodeCredentialError, parseJsonc, prepareOpencodeHome } from "@/execution/opencodeHome";
 import { runNativeProvider, type SpawnImpl } from "@/execution/nativeProvider";
@@ -21,7 +21,7 @@ describe("buildOpencodePolicy", () => {
     const p = buildOpencodePolicy({ permissions: ROLES.frontend.permissions, allowedPaths: ["apps/web/components"], mutating: true });
     expect(evaluateOpencodeRule(p.edit, "apps/web/components/Button.tsx")).toBe("allow");
     expect(evaluateOpencodeRule(p.edit, "apps/web/components")).toBe("allow");
-    expect(evaluateOpencodeRule(p.edit, "apps/api/convex/schema.ts")).toBe("deny");
+    expect(evaluateOpencodeRule(p.edit, "apps/api/functions/schema.ts")).toBe("deny");
     expect(evaluateOpencodeRule(p.edit, "README.md")).toBe("deny");
   });
 

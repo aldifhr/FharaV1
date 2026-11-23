@@ -9,7 +9,7 @@
 - Priority: P2
 - Size: M
 - Risk: LOW
-- Dependencies: 031 (per-agent selection policy), 027 (capability routing)
+- Dependencies: 031 (per-agent selection policy)
 - Planned at: commit `2670c03`, 2026-11-10
 
 ## Why this is needed
@@ -34,7 +34,7 @@ field is honoured, just not editable in the UI any more).
 
 ## Current state
 
-- `apps/api/convex/schema.ts:300-307` — `agents.llmSelectionPolicy` union
+- `apps/api/functions/schema.ts:300-307` — `agents.llmSelectionPolicy` union
   (`fixed` | `priority` | `weighted` | `round_robin`).
 - `packages/worker/src/llm/resolver.ts:399` — `const policy = agent?.llmSelectionPolicy;`
 - `packages/worker/src/llm/resolver.ts:464-474` — the pick: round robin /
@@ -42,7 +42,7 @@ field is honoured, just not editable in the UI any more).
 - `packages/worker/src/services/runner/setup.ts:52-68` — `buildTaskLlmResolver`.
 - `packages/worker/src/services/taskRunner.ts:104`, `services/runner/resume.ts:131`
   — the resolver is built from the run context.
-- `apps/api/convex/orchestration.ts:173-175, 231-252` — `getRunContext`
+- `apps/api/functions/orchestration.ts:173-175, 231-252` — `getRunContext`
   returns the pool + capability overrides to the worker.
 - `apps/web/components/LlmSettings.tsx:85-98` — the Settings LLM section.
 - `apps/web/components/sidebar/AgentForms.tsx:528-535` — the per-agent
@@ -70,22 +70,22 @@ field is honoured, just not editable in the UI any more).
 
 ### Step 1: Shared mode contract
 
-`apps/api/convex/lib/llmSelection.ts` (pure, no Convex import, so the worker
+`apps/api/functions/lib/llmSelection.ts` (pure, no Fhara runtime import, so the worker
 can use it): the mode union, the default, and `policyForMode`.
 
-The Convex validator goes to `apps/api/convex/lib/contractValidators.ts`.
+The Fhara runtime validator goes to `apps/api/functions/lib/contractValidators.ts`.
 
 **Check**: `npm run --workspace=@fhara/api typecheck`.
 
 ### Step 2: Storage + backend API
 
-- `apps/api/convex/schema.ts` — the `llmSelectionSettings` table (one row).
-- `apps/api/convex/llmSelection.ts` — public `get` query, public `set`
+- `apps/api/functions/schema.ts` — the `llmSelectionSettings` table (one row).
+- `apps/api/functions/llmSelection.ts` — public `get` query, public `set`
   mutation, `loadSelectionMode(ctx)` helper.
-- `apps/api/convex/orchestration.ts` — `getRunContext` returns
+- `apps/api/functions/orchestration.ts` — `getRunContext` returns
   `llmSelectionMode`.
 
-**Check**: `npx --workspace=@fhara/api vitest run convex/llmSelection.test.ts`.
+**Check**: `npx --workspace=@fhara/api vitest run runtime/llmSelection.test.ts`.
 
 ### Step 3: Worker honours the global mode
 

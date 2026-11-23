@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { waitForCommandApproval, type CommandApprovalApi } from "@/services/runner/commandApproval";
 import { AUTO_REVIEW_SPEC, commandReviewerFor } from "@/decisionTurn/autoReview";
-import { REVIEW_POLICY, type AutoReviewRequest } from "@/api/convex/lib/autoReview";
+import { REVIEW_POLICY, type AutoReviewRequest } from "@/api/functions/lib/autoReview";
 import type { RunContext } from "@/services/runner/types";
 
 /** D7: the worker side of auto review in Full access (the Reviewer's decision turn and the wait). */

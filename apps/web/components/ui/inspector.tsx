@@ -1,4 +1,3 @@
-"use client";
 
 import { X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode, type Ref } from "react";

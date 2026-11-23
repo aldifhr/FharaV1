@@ -1,4 +1,3 @@
-"use client";
 
 import { ArrowUpRight, Users } from "lucide-react";
 import type {
@@ -9,7 +8,7 @@ import type {
   QaCardData,
   SideEffectCardData,
   VerificationCardData,
-} from "@/api/convex/cardTypes";
+} from "@/api/functions/cardTypes";
 import { ROLE_COLORS, roleKeyForMention, roleLabel, NEUTRAL_MENTION_COLOR } from "@/lib/agentRoles";
 import TaskCard from "../TaskCard";
 import { useCardSurface } from "./CardContext";

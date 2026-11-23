@@ -1,7 +1,6 @@
-"use client";
 
 import { useEffect, useRef, useState } from "react";
-import { hasGap, highWater, mergeSequenced, type SequencedRow } from "@/api/convex/lib/eventResume";
+import { hasGap, highWater, mergeSequenced, type SequencedRow } from "@/api/functions/lib/eventResume";
 
 /** Rows kept client-side per stream; the oldest are dropped past this. */
 const HELD_MAX = 2000;
@@ -11,7 +10,7 @@ type ResumeResult<T> = { mode: "replay" | "snapshot"; events: T[] };
 /**
  * Snapshot + cursor on top of a reactive newest-window query (t3code idea #3).
  *
- * Convex re-sends the newest window after a reconnect, but if more events
+ * FharaRuntime re-sends the newest window after a reconnect, but if more events
  * than the window landed while the tab slept, the ones in between would be
  * skipped. When the new window no longer overlaps the last sequence seen,
  * ask the server what to do (`resume`): replay the missing events, or reset

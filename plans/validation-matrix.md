@@ -13,18 +13,18 @@ API baseline: 4 files / 25 tests green; typecheck clean. Web typecheck clean. Kn
 |---|---|---|---|
 | IntentClassifier | `worker/src/orchestrator/classifier.ts:17 classifyCommand`, `:92 isGreeting` | `classifier.test.ts` 5 tests | PARTIAL — gaps: empty, greeting variants, Indonesian verbs (tambah/buat/ubah/perbaiki/hapus), precedence (audit+changeVerb), defaulted flag |
 | ContextResolver / CSO | `orchestrator/agentContext.ts:20 buildAgentExecutionContext`, `taskContext.ts:100 createSharedTaskContext`, `context/compaction.ts:28 shouldCompact`, `:54 buildTaskPrompt`, `:63 buildChatPrompt` | `contextScope.test.ts`, `taskContext.test.ts` | PARTIAL — capability filter + compaction trigger tested; gaps: exact boundary 40/24k, `maxPreviousResults` cap, most-recent-always, `previousOutputsFromContext`, summarize throwing, budget-gate throw propagation |
-| ProjectAgentRegistry | `api/convex/conversations.ts:30 selectDefaultChatAgents`, `:53 activeParticipantRows`, `agents.listByProject/getRegistryView` | `conversations.test.ts`, `chatAndTasks.test.ts` mirror | COVERED — membership+enabled gate, leave/rejoin, empty team, disabled-after-join, lead selection |
+| ProjectAgentRegistry | `api/runtime/conversations.ts:30 selectDefaultChatAgents`, `:53 activeParticipantRows`, `agents.listByProject/getRegistryView` | `conversations.test.ts`, `chatAndTasks.test.ts` mirror | COVERED — membership+enabled gate, leave/rejoin, empty team, disabled-after-join, lead selection |
 | ConversationRouter | `worker/src/router/route.ts:67 routeMessage`, `selectAgents.ts:19 selectAgentsForChat` | `router.test.ts` R1-R7 (17) | PARTIAL — gaps: advise-not-called invariant, chatMaxAgents 0/negative, advisor case-sensitivity (`"TASK"`), disabled/offline agents, dedupe |
 | TaskRouter | `orchestrator/capabilities.ts:85 routeCapability`, `delegation.ts:33 routePrimaryAgent` | `capabilities.test.ts`, `router.test.ts:119`, `orchestrator.test.ts` | PARTIAL — gaps: tie-break priority/name, `offline` vs `isEnabled` inconsistency, strategy direct/single mapping unpinned |
-| ConversationEngine | `api/convex/chat.ts:164 replyToChat`, `chatContext.ts:61 getContext`, `messages.send` | `conversations.test.ts` (summary + last12), `chatAndTasks.test.ts` | PARTIAL — gaps: closed-conversation reuse, conversationId ignored in history fetch, `ensureForChat` vs project mismatch only partially |
+| ConversationEngine | `api/runtime/chat.ts:164 replyToChat`, `chatContext.ts:61 getContext`, `messages.send` | `conversations.test.ts` (summary + last12), `chatAndTasks.test.ts` | PARTIAL — gaps: closed-conversation reuse, conversationId ignored in history fetch, `ensureForChat` vs project mismatch only partially |
 | Orchestrator | `orchestrator/orchestrator.ts:74 createOrchestratorPlan`, `:189 evaluateAfterExecution`, `:338 createAuthoritativePlan` | `orchestrator.test.ts`, `phase4Hardening.test.ts:306` | PARTIAL — gaps: BUDGET_EXHAUSTED step, stored-plan adoption, `applyDecision`/`kindForCapability` zero tests, `evaluateObjective` edge (critical open, skipped verification) |
 | Planner | `orchestrator/planner.ts:70 createPlan`, `:233 applyPlanningHints`, `:367 ensureRoutable`, `:389 heuristicPlan` | `planner.test.ts`, `phase6Progressive.test.ts` | PARTIAL — gaps: LLM success path (createdBy orchestrator), `pickOrchestrator`, abort mid-LLM, `hasQaUrl` trigger, uniqueKey collision |
 | DelegationEvaluator | `orchestrator/delegation.ts:88 evaluateDelegation`, `:330 preventCircularDelegation` | `delegation.test.ts` (incl. selfServe E), `phase6Delegation.test.ts` C | COVERED except: critical-findings-no-implementer fallthrough, empty-enabled BLOCKED suffix, QA heuristic branch |
 | AgentRuntime | `execution/agentExecutor.ts:106 executeSubtask`, codeChange/review/QA/readOnly/shell | `phase4Execution.test.ts`, `phase5Runner.test.ts`, `qaTaskRunner.test.ts` | PARTIAL — gaps: readOnly-no-write assertion, untrusted-output-can't-override-policy, shell allowlist bypass |
 | PolicyEngine | `orchestrator/policy.ts:129 loadPolicy`, `governance/registry.ts:85 tool_search`, `:95 tool_describe`, `:107 tool_call`, `governance/tools.ts` | `toolRegistry.test.ts` T1-T3, `phase5Budget.test.ts` | PARTIAL — `loadPolicy` env parsing has **zero** dedicated tests (NaN/floor/clamp, bool vocab, planningMode garbage) |
-| ProviderPool | `api/convex/lib/llmResolver.ts:64 loadProviderPool`, `:117 pickPrimaryConnection`, `:135 resolveConnectionKey`; worker `llm/resolver.ts` | `llmResolver.test.ts` J, `llmCall.test.ts`, `llmHealth.test.ts` | COVERED — shared connection, priority/weighted/modelPatterns/health, no per-agent key; gap: malformed ciphertext / wrong `PROVIDER_ENCRYPTION_KEY` explicit error |
-| TaskLifecycle | `api/convex/orchestration.ts:970 completeTask`, `:1028 setTaskStatus` terminal guard; `taskRunner.ts` | `securityInvariants.test.ts` terminal, `evaluator.test.ts`, `phase6Completion.test.ts` D | PARTIAL — backend originial: `completeTask` accepts any status, no workerId check; `setTaskStatus` no transition matrix; `tasks.remove` destroys audit trail |
-| Cancellation | `taskRunner.ts` AbortController per task, `dagScheduler.shouldCancel`; `api/convex/tasks.ts cancel` | `phase4HardeningRecovery.test.ts` I, `phase4Execution.test.ts`, qaThreading | COVERED — no new node after abort, resume keeps completed keys; gap: cancellation **during QA** re-run (`runQaLoop`) — partially via `taskCancelled()` |
+| ProviderPool | `api/runtime/lib/llmResolver.ts:64 loadProviderPool`, `:117 pickPrimaryConnection`, `:135 resolveConnectionKey`; worker `llm/resolver.ts` | `llmResolver.test.ts` J, `llmCall.test.ts`, `llmHealth.test.ts` | COVERED — shared connection, priority/weighted/modelPatterns/health, no per-agent key; gap: malformed ciphertext / wrong `PROVIDER_ENCRYPTION_KEY` explicit error |
+| TaskLifecycle | `api/runtime/orchestration.ts:970 completeTask`, `:1028 setTaskStatus` terminal guard; `taskRunner.ts` | `securityInvariants.test.ts` terminal, `evaluator.test.ts`, `phase6Completion.test.ts` D | PARTIAL — backend originial: `completeTask` accepts any status, no workerId check; `setTaskStatus` no transition matrix; `tasks.remove` destroys audit trail |
+| Cancellation | `taskRunner.ts` AbortController per task, `dagScheduler.shouldCancel`; `api/runtime/tasks.ts cancel` | `phase4HardeningRecovery.test.ts` I, `phase4Execution.test.ts`, qaThreading | COVERED — no new node after abort, resume keeps completed keys; gap: cancellation **during QA** re-run (`runQaLoop`) — partially via `taskCancelled()` |
 | Recovery | `taskRunner.buildStateFromDb`, `carryForwardState`, `recoverStale` (backend), `recoverStaleMessages` | `taskRunner.replan.test.ts` F, `phase4HardeningRecovery`, `queue.test.ts` | COVERED — completed work survives replan; gap: corrupted/missing execution context (`buildStateFromDb` with malformed subtasks) |
 | BudgetTracker | `orchestrator/budget.ts:162 recordLLMCall`, `:228 assertLlmCallAllowed`, `:240 isBudgetExhausted`, `:113 seed/restoreExtras` | `budget.test.ts`, `phase5Budget.test.ts` G | COVERED — pre-call gate, enforce/warn, seed/restore; gaps: `canDelegate()`/`canCallLLM()` no direct test, monotonic-max seed |
 
@@ -39,7 +39,7 @@ API baseline: 4 files / 25 tests green; typecheck clean. Web typecheck clean. Kn
 | 5 | Project members discoverable independent of participation | `conversations.test.ts` registry views | COVERED |
 | 6 | Asking about agent returns registry info | **GAP** — no test asks "who is X?" / capability lookup via registry | GAP → add `validation-integration` #6 |
 | 7 | Consulting agent does not create execution task | `chatAndTasks` + router R3 | PARTIAL → add explicit integration (#7) |
-| 8 | Orchestrator not forced to answer every conversation | `chat.ts:221` role regex + `ROADMAP` non-orchestrator fix | **GAP** — no test pins non-orchestrator persona (backend chat not in convex-test) |
+| 8 | Orchestrator not forced to answer every conversation | `chat.ts:221` role regex + `ROADMAP` non-orchestrator fix | **GAP** — no test pins non-orchestrator persona (backend chat not in local-test) |
 | 9 | Simple tasks do not generate unnecessary DAGs | `phase6Progressive.test.ts` A (1 node, direct, zero review/QA) | COVERED |
 | 10 | Complex tasks delegate only when necessary | `delegation.test.ts` E (selfServe REJECT), `phase6Delegation C` | COVERED |
 | 11 | QA/Security/Review conditional | `phase6Progressive B` (risk signal), `decision.test.ts` | COVERED |
@@ -84,7 +84,7 @@ API baseline: 4 files / 25 tests green; typecheck clean. Web typecheck clean. Kn
 
 ## 5. E2E (Playwright)
 
-Not present. Root + web `package.json` have no `@playwright/test` or e2e script; only `packages/worker` devDep `playwright` for QA screenshots. AGENTS.md: "Do not add Playwright or live-provider tests to the default suite". Recommendation: **skip Playwright**; cover sequence via `convex-test` + worker-mocked integration tests, and manual browser smoke via `smoke` skill. Filing a plan for Playwright would be a **new dependency** (unnecessary infra per brief §7).
+Not present. Root + web `package.json` have no `@playwright/test` or e2e script; only `packages/worker` devDep `playwright` for QA screenshots. AGENTS.md: "Do not add Playwright or live-provider tests to the default suite". Recommendation: **skip Playwright**; cover sequence via `local-test` + worker-mocked integration tests, and manual browser smoke via `smoke` skill. Filing a plan for Playwright would be a **new dependency** (unnecessary infra per brief §7).
 
 ## 6. Bugs ranked
 
@@ -96,7 +96,7 @@ Not present. Root + web `package.json` have no `@playwright/test` or e2e script;
 ## 7. Status after the regression suite (2026-11-13)
 
 Legend: **FIXED** = verified fixed (file + test cited); **OPEN** = still open; **OBSOLETE** = no longer applies.
-API tests live in `apps/api/convex/`, worker tests in `packages/worker/tests/`.
+API tests live in `apps/api/functions/`, worker tests in `packages/worker/tests/`.
 
 ### Bugs (§6) and security checks (§4)
 

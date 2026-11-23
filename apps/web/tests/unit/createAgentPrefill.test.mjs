@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { prefillPromptForRole, roleTemplateFor } from "../../../api/convex/lib/prompts/roleTemplate.ts";
-import { ROLE_PROMPT_TEMPLATES } from "../../../api/convex/lib/prompts/rolePrompts.data.ts";
+import { prefillPromptForRole, roleTemplateFor } from "../../../api/runtime/lib/prompts/roleTemplate.ts";
+import { ROLE_PROMPT_TEMPLATES } from "../../../api/runtime/lib/prompts/rolePrompts.data.ts";
 
 test("picking a role in the create form prefills its role template", () => {
   assert.equal(prefillPromptForRole("", "frontend"), ROLE_PROMPT_TEMPLATES.frontend);

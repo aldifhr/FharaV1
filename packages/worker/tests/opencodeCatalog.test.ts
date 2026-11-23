@@ -44,7 +44,7 @@ describe("opencode model list", () => {
     expect(result.available).toBe(true);
     expect(result.models).toEqual(["opencode/beam-free"]);
     expect(seen?.args).toEqual(["models"]);
-    expect(seen?.env?.CONVEX_SERVICE_TOKEN).toBeUndefined();
+    expect(seen?.env?.FHARA_SERVICE_TOKEN).toBeUndefined();
     expect(seen?.env?.PROVIDER_ENCRYPTION_KEY).toBeUndefined();
     expect(JSON.stringify(seen?.args)).not.toContain(SECRET);
   });

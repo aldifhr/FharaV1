@@ -15,7 +15,7 @@
  * carries the escalation; the runner routes it (services/runner/escalation).
  */
 import * as fs from "node:fs/promises";
-import { parseEscalation, type Escalation } from "@/api/convex/lib/subtaskContract";
+import { parseEscalation, type Escalation } from "@/api/functions/lib/subtaskContract";
 import { isPathWithinOwnership } from "@/utils/ownershipPaths";
 import { resolveSandboxPathAsync } from "@/tools/sandbox";
 import type { PlanSubtask } from "@/types";

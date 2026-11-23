@@ -115,7 +115,7 @@ Dead or divergent:
 
 Schema:
 
-- `apps/api/convex/schema.ts:4-11` — `taskStatus` has no waiting-for-input
+- `apps/api/functions/schema.ts:4-11` — `taskStatus` has no waiting-for-input
   state (`queued`/`running`/`needs_approval`/`done`/`rejected`/`failed`).
 
 ## Decisions that must not change during execution
@@ -212,7 +212,7 @@ Schema:
 
 - Additive schema: `taskStatus` gains `"waiting_input"`;
   `tasks.pendingQuestion: v.optional(v.string())`
-  (`apps/api/convex/schema.ts:4-11`).
+  (`apps/api/functions/schema.ts:4-11`).
 - Backend: internal mutation to set question + status and one to record the
   answer and re-queue, both behind the `worker.ts` facade pattern where
   worker-facing (`assertServiceToken`); the answer mutation is public
@@ -225,7 +225,7 @@ Schema:
   Handle the new status wherever the UI switches on `taskStatus`.
 
 **Check**: `npm run --workspace=@fhara/api typecheck` &&
-`npx --workspace=@fhara/api vitest run convex/securityInvariants.test.ts` &&
+`npx --workspace=@fhara/api vitest run runtime/securityInvariants.test.ts` &&
 `npm run --workspace=@fhara/web typecheck` &&
 `npm run --workspace=@fhara/worker typecheck` → green; worker recovery test
 exercises pause → answer → resume.

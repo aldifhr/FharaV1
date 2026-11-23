@@ -1,10 +1,9 @@
-"use client";
 
 import { Suspense, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { useMutation, useQuery } from "convex/react";
+import { useSearchParams } from "@/lib/spaRouter";
+import { useMutation, useQuery } from "@fhara/runtime/react";
 import { Plus } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import Sidebar from "@/components/Sidebar";
 import InitialAvatar from "@/components/InitialAvatar";
 import AgentDetailPanel from "@/components/AgentDetailPanel";

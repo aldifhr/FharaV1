@@ -1,9 +1,8 @@
-"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useConvex, useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
-import { loadEarlier, mergeHistory, MESSAGE_WINDOW, type EarlierPage, type HistoryRow } from "@/api/convex/lib/historyPaging";
+import { useFharaRuntime, useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
+import { loadEarlier, mergeHistory, MESSAGE_WINDOW, type EarlierPage, type HistoryRow } from "@/api/functions/lib/historyPaging";
 
 export type MessageHistoryScope =
   | { kind: "task"; taskId: string }
@@ -41,7 +40,7 @@ export function useMessageHistory<T extends HistoryRow>(
   scope: MessageHistoryScope | null,
   live: T[] | undefined
 ): { rows: T[] | undefined; history: MessageHistory } {
-  const convex = useConvex();
+  const runtime = useFharaRuntime();
   const key = scopeKey(scope);
   const [state, setState] = useState<{ key: string | null; earlier: T[]; hasMore?: boolean }>({ key, earlier: [] });
   const [loading, setLoading] = useState(false);
@@ -66,14 +65,14 @@ export function useMessageHistory<T extends HistoryRow>(
       setLoading(true);
       try {
         const fetchPage = (args: { before: number; floor?: number; limit?: number }) =>
-          convex.query(api.messages.pageEarlier, { scope: current as never, ...args }) as unknown as Promise<EarlierPage<T>>;
+          runtime.query(api.messages.pageEarlier, { scope: current as never, ...args }) as unknown as Promise<EarlierPage<T>>;
         const next = await loadEarlier(fetchPage, { earlier: h.earlier, live: l }, floor === undefined ? {} : { floor });
         if (latest.current.key === currentKey) setState({ key: currentKey, ...next });
       } finally {
         setLoading(false);
       }
     },
-    [convex]
+    [runtime]
   );
 
   const jumpToTurn = useCallback(

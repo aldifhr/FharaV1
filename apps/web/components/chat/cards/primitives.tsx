@@ -1,4 +1,3 @@
-"use client";
 
 import type { ReactNode } from "react";
 import { Check, Loader2, Minus, X } from "lucide-react";

@@ -1,10 +1,9 @@
-"use client";
 
 import { Pencil } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent, type SyntheticEvent } from "react";
-import { useMutation } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
-import type { Id } from "@/api/convex/_generated/dataModel";
+import { useMutation } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
+import type { Id } from "@fhara/runtime/data";
 import { renameDraft, withRenamedRow, type RenameRef } from "@/lib/threadRename";
 import { useToast } from "./Toasts";
 
@@ -34,8 +33,8 @@ function useRenameThread() {
     }
     if (args.conversationId) {
       for (const { args: activeArgs, value } of store.getAllQueries(api.conversations.getActive)) {
-        if (value && String(value.conversation._id) === String(args.conversationId)) {
-          store.setQuery(api.conversations.getActive, activeArgs, { ...value, conversation: { ...value.conversation, title } });
+        if (value && String((value as any).conversation._id) === String(args.conversationId)) {
+          store.setQuery(api.conversations.getActive, activeArgs, { ...value, conversation: { ...(value as any).conversation, title } });
         }
       }
     }

@@ -1,9 +1,8 @@
-"use client";
 
 import { useState, type FormEvent } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
-import { BRIEF_QUESTIONS_MAX, BRIEF_QUESTION_MAX, BRIEF_TEXT_MAX } from "@/api/convex/lib/brief";
+import { useMutation, useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
+import { BRIEF_QUESTIONS_MAX, BRIEF_QUESTION_MAX, BRIEF_TEXT_MAX } from "@/api/functions/lib/brief";
 import { relativeTime } from "@/lib/runFormat";
 import { roleLabel } from "@/lib/agentRoles";
 

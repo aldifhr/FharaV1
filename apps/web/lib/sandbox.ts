@@ -57,7 +57,7 @@ export function sandboxCommand(config: SandboxConfig): string {
   );
 }
 
-/** Task command length limit, mirrored from `api.tasks.createFromCommand` (convex/tasks.ts). */
+/** Task command length limit, mirrored from `api.tasks.createFromCommand` (runtime/tasks.ts). */
 export const SANDBOX_COMMAND_MAX = 4000;
 
 export function validateSandbox(config: SandboxConfig): string[] {

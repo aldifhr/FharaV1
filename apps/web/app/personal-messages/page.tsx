@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { redirect } from "@/lib/spaRouter";
 
 /**
  * Old personal messages URL (`/personal-messages`); the list now lives at

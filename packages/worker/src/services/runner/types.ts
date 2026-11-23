@@ -1,6 +1,6 @@
 import type { LoadAwareDecision } from "@/orchestrator/loadAwareRouting";
 import type { PerformanceDecision } from "@/orchestrator/performanceRouting";
-import type { PerformanceScore } from "@/api/convex/lib/agentPerformance";
+import type { PerformanceScore } from "@/api/functions/lib/agentPerformance";
 import type { ModelRoutingInfo } from "@/llm/resolver";
 import type { RepeatedOutputGuard, StallThresholds } from "@/utils/stallDetector";
 import type {
@@ -32,13 +32,13 @@ import type { LlmConcurrencyGate } from "@/effects/llmCall";
 import type { McpRunConfig } from "@/mcp/registry";
 import type { WebReachConfig } from "@/execution/webReachTools";
 import type { SchedulerResult } from "@/scheduler/dagScheduler";
-import type { RecordedStep } from "@/api/convex/lib/restartContinuation";
+import type { RecordedStep } from "@/api/functions/lib/restartContinuation";
 import type { CtoFirstConfig, DecisionTurnPort } from "@/decisionTurn/port";
 import type { NativeProviderDriver } from "@/execution/codexProvider";
 
 /**
  * Runtime dependencies the runner needs. One sink per concern: every
- * backend call goes through `api` (never the Convex HTTP API directly).
+ * backend call goes through `api` (never the FharaRuntime HTTP API directly).
  */
 export interface RunnerDeps {
   api: WorkerApi;
@@ -302,7 +302,7 @@ export interface RunContext {
   qaCard?: {
     key: string;
     iteration: number;
-    rows: import("@/api/convex/cardTypes").QaCardRow[];
+    rows: import("@/api/functions/cardTypes").QaCardRow[];
     url?: string;
     agentId?: string;
   };

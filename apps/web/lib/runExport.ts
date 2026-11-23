@@ -2,12 +2,12 @@
  * Run export: turns the `api.runs.get` payload into a compact Markdown
  * report (for pasting into an AI assistant) or a JSON dump.
  *
- * Pure: no DOM, no Convex, no clock. `exportedAt` comes in through the
+ * Pure: no DOM, no FharaRuntime, no clock. `exportedAt` comes in through the
  * options so the output is deterministic and testable. Times are rendered
  * in the runtime's local zone, and the report states that zone.
  */
-import type { FunctionReturnType } from "convex/server";
-import type { api } from "@/api/convex/_generated/api";
+import type { FunctionReturnType } from "@fhara/runtime/server";
+import type { api } from "@fhara/runtime/api";
 import { formatCost, formatDuration, formatTokens, isErrorStatus } from "./runFormat";
 
 export type RunExportData = NonNullable<FunctionReturnType<typeof api.runs.get>>;

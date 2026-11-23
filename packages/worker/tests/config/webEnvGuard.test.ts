@@ -5,41 +5,30 @@ import { ENV_SCHEMA, type EnvVar, varsFor } from "@fhara/config";
 import { WEB_CLIENT_VARS } from "@fhara/config/web-client";
 
 /**
- * Guards (E3): apps/web reads Fhara config only through lib/env.server.ts
- * (@fhara/config/web-server) and lib/env.client.ts (literal NEXT_PUBLIC_*
- * reads Next can inline); electron and the plain-node launchers read
- * defaults from the generated env-manifest.json. Every `process.env` use
- * left is listed here with its reason; a new one fails this test.
+ * Guards: apps/web reads Fhara config only through lib/env.server.ts
+ * (@fhara/config/web-server) and lib/env.client.ts (the browser bridge).
+ * Electron and the plain-node launchers read defaults from the generated
+ * env-manifest.json. Every `process.env` use left is listed here with its
+ * reason; a new one fails this test.
  */
 const ROOT = path.resolve(import.meta.dirname, "../../../..");
 const WEB = path.join(ROOT, "apps/web");
 
-const SCAN_DIRS = ["apps/web/app", "apps/web/lib", "apps/web/components", "apps/web/scripts", "electron"];
-const SCAN_FILES = ["apps/web/next.config.mjs", "apps/web/proxy.ts", "apps/web/playwright.config.ts"];
+const SCAN_DIRS = ["apps/web/app", "apps/web/lib", "apps/web/components", "apps/web/src", "electron"];
+const SCAN_FILES = ["apps/web/playwright.config.ts"];
 
 const ALLOWED: Record<string, string> = {
-  "apps/web/lib/env.client.ts:return process.env.NEXT_PUBLIC_CONVEX_URL;":
-    "the literal NEXT_PUBLIC_* read Next inlines (the web-client reader)",
   "apps/web/lib/requestGuard.ts:export function isAllowedHost(hostHeader: string | null, env: Record<string, string | undefined> = process.env): boolean {":
     "pure module unit-tested by plain node (no package imports); FHARA_ALLOWED_HOSTS parity is pinned in webParity",
   "apps/web/lib/requestGuard.ts:export function checkApiRequest(input: GuardInput, env: Record<string, string | undefined> = process.env): GuardResult {":
     "pure module unit-tested by plain node; the env source is injectable",
   "apps/web/lib/projectFilesPolicy.ts:env: Record<string, string | undefined> = process.env,":
     "injectable env for tests; WORKSPACE_ROOT is read through serverEnv and the shared resolver (B7)",
-  "apps/web/next.config.mjs:nextEnv.loadEnvConfig(repoRoot, process.env.NODE_ENV !== \"production\");": "NODE_ENV (platform var)",
   "apps/web/playwright.config.ts:forbidOnly: !!process.env.CI,": "CI (platform var, Playwright)",
   "apps/web/playwright.config.ts:retries: process.env.CI ? 2 : 0,": "CI (platform var, Playwright)",
   "apps/web/playwright.config.ts:workers: process.env.CI ? 1 : undefined,": "CI (platform var, Playwright)",
   "apps/web/playwright.config.ts:reporter: process.env.CI ? [[\"line\"], [\"html\"]] : [[\"html\", { open: \"never\" }]],": "CI (platform var, Playwright)",
   "apps/web/playwright.config.ts:reuseExistingServer: !process.env.CI,": "CI (platform var, Playwright)",
-  "apps/web/scripts/next.mjs:const host = (process.env.FHARA_HOST ?? \"\").trim() || envDefault(\"FHARA_HOST\");":
-    "plain-node launcher: trimOr dialect, default from env-manifest.json",
-  "apps/web/scripts/next.mjs:if (wantsTailscale(process.env)) {": "plain-node launcher: FHARA_BIND_TAILSCALE truthyList (scripts/tailnet.mjs)",
-  "apps/web/scripts/next.mjs:const port = nextPort(rest, process.env);": "PORT (platform var for next)",
-  "apps/web/scripts/next.mjs:process.env.FHARA_ALLOWED_HOSTS = withAllowedHosts(process.env.FHARA_ALLOWED_HOSTS, [ip, `${ip}:${port}`, ...(dns ? [dns, `${dns}:${port}`] : [])]);":
-    "the launcher widens the host allowlist for the Next child it spawns",
-  "apps/web/scripts/next.mjs:const child = spawn(process.execPath, [nextBin, ...args], { cwd: webDir, stdio: \"inherit\", env: process.env });":
-    "the Next child inherits the launcher's env",
   "electron/main.cjs:const DEV_SERVER_URL = process.env.DEV_SERVER_URL || envDefault(\"DEV_SERVER_URL\");":
     "plain-node electron: `||` dialect, default from env-manifest.json",
 };
@@ -47,7 +36,7 @@ const ALLOWED: Record<string, string> = {
 function walk(dir: string, out: string[] = []): string[] {
   if (!fs.existsSync(dir)) return out;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === "node_modules" || entry.name === ".next") continue;
+    if (entry.name === "node_modules") continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) walk(full, out);
     else if (/\.(tsx?|mjs|cjs|js)$/.test(entry.name) && !/\.test\.(tsx?|mjs)$/.test(entry.name)) out.push(full);
@@ -83,7 +72,7 @@ function uses(): string[] {
   return hits;
 }
 
-describe("noRawEnv guard (web + electron, E3)", () => {
+describe("noRawEnv guard (web + electron)", () => {
   it("every process.env use in apps/web and electron is allow-listed with a reason", () => {
     expect(uses().filter((hit) => !(hit in ALLOWED))).toEqual([]);
   });
@@ -93,24 +82,22 @@ describe("noRawEnv guard (web + electron, E3)", () => {
     expect(Object.keys(ALLOWED).filter((k) => !all.has(k))).toEqual([]);
   });
 
-  it("every webClient var is read literally in lib/env.client.ts and nowhere else in apps/web", () => {
-    const client = fs.readFileSync(path.join(WEB, "lib/env.client.ts"), "utf8");
+  it("every webClient var is declared for webClient in the schema", () => {
     const schemaClient = varsFor("webClient").map((d) => d.name);
     expect([...WEB_CLIENT_VARS].sort()).toEqual([...schemaClient].sort());
-    for (const name of schemaClient) {
-      expect(client).toContain(`process.env.${name}`);
-      const elsewhere = uses().filter((hit) => hit.includes(`process.env.${name}`) && !hit.startsWith("apps/web/lib/env.client.ts:"));
-      expect(elsewhere).toEqual([]);
-    }
+    const client = fs.readFileSync(path.join(WEB, "lib/env.client.ts"), "utf8");
+    expect(client).toContain("publicFharaRuntimeUrl");
+    const elsewhere = uses().filter(
+      (hit) => schemaClient.some((name) => hit.includes(`process.env.${name}`)) && !hit.startsWith("apps/web/lib/env.client.ts:")
+    );
+    expect(elsewhere).toEqual([]);
   });
 
-  it("only server code imports lib/env.server (never a \"use client\" module)", () => {
+  it("no browser module imports the server-only env reader", () => {
     const offenders = files()
-      .filter((f) => /\.tsx?$/.test(f))
-      .filter((f) => {
-        const src = fs.readFileSync(f, "utf8");
-        return /^\s*["']use client["']/.test(src) && /env\.server|@fhara\/config\/web-server/.test(src);
-      })
+      .filter((f) => f.startsWith(path.join(WEB, "app")) || f.startsWith(path.join(WEB, "components")))
+      .filter((f) => !f.includes(`${path.sep}api${path.sep}`))
+      .filter((f) => /env\.server|@fhara\/config\/web-server/.test(fs.readFileSync(f, "utf8")))
       .map((f) => path.relative(ROOT, f));
     expect(offenders).toEqual([]);
   });
@@ -128,4 +115,3 @@ describe("noRawEnv guard (web + electron, E3)", () => {
     expect(offenders).toEqual([]);
   });
 });
-

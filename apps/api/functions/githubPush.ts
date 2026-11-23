@@ -1,0 +1,846 @@
+import {
+  action,
+  internalAction,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "@fhara/runtime/functions";
+import type { MutationCtx, QueryCtx } from "@fhara/runtime/functions";
+import { taskCardConversationId } from "./lib/conversationScope";
+import { v } from "@fhara/runtime/values";
+import { internal } from "@fhara/runtime/api";
+import type { Doc, Id } from "@fhara/runtime/data";
+import { assertProjectAccess } from "./lib/authz";
+import { githubConnectionState, projectGithubBinding, resolveGithubToken } from "./lib/githubAuth";
+import { holdsTaskLease } from "./orchestration";
+import { prCheckFact, prState } from "./schema";
+import type { QaCardData, VerificationCardData } from "./cardTypes";
+import { ingestSignal, onPrPushed, syncPrNotifications } from "./prFeedback";
+import { closesIssueFor } from "./issueIntake";
+import { ciRollup, mergeabilityOf, type CheckFact } from "./lib/prFeedback";
+import { fetchCommitChecks, MAX_POLLED_CHECKS, summarizeChecks } from "./lib/prChecks";
+import { appendTaskEvent } from "./lib/taskEvents";
+import { inheritedFixPush } from "./lib/fixPushPr";
+
+/**
+ * Plan 019 — stage cards and the GitHub push / pull-request flow.
+ *
+ * Flow:
+ *  1. The worker commits the task branch and calls `recordTaskCommit`
+ *     (token + lease gated through worker.ts): a `taskPushes` row in
+ *     `ready` plus a `push` card in the task's chat.
+ *  2. The user clicks "Push & open PR" / "Push only": `requestPush`
+ *     records an APPROVED `git_push` approval row (the click is the
+ *     explicit approval, AGENTS.md rule 5) and moves the row to
+ *     `requested`. Nothing is pushed by the backend.
+ *  3. The worker (it owns the local repository) claims the request with a
+ *     lease (`claimPushRequest`), pushes with the account-level GitHub token
+ *     passed through the environment only, opens a draft PR, and reports
+ *     back with `completePushRequest` → `pushed` / `failed`.
+ *  4. `refreshOpenPrs` (cron) and `refreshPrStatus` (button) keep the PR
+ *     state (draft/open/merged/closed) current, bounded per run.
+ *  5. T1: the same refresh reads the head commit's check runs and commit
+ *     statuses (lib/prChecks.ts) into `ciChecks` / `ciState`, which the
+ *     push card shows as passing / failing / pending with a link.
+ */
+
+const DEFAULT_PUSH_LEASE_MS = 120_000;
+const MAX_PUSH_ATTEMPTS = 3;
+const ERROR_LIMIT = 1_000;
+const CARD_DEDUPE_SCAN = 100;
+const PR_REFRESH_BATCH = 20;
+const PR_REFRESH_MIN_AGE_MS = 5 * 60_000;
+
+const cardKind = v.union(v.literal("verification"), v.literal("qa"), v.literal("changes"));
+
+type PushRow = Doc<"taskPushes">;
+
+// ---------------------------------------------------------------------------
+// Pure helpers (exported for tests)
+// ---------------------------------------------------------------------------
+
+/** GitHub REST pull → our four-state PR status. */
+export function mapPrState(pull: {
+  state?: string;
+  merged?: boolean;
+  merged_at?: string | null;
+  draft?: boolean;
+}): "draft" | "open" | "merged" | "closed" {
+  if (pull.merged || pull.merged_at) return "merged";
+  if (pull.state === "closed") return "closed";
+  if (pull.draft) return "draft";
+  return "open";
+}
+
+const checkMark = (status: string) =>
+  status === "passed" ? "✅ passed" : status === "failed" ? "❌ failed" : "⏭️ not run";
+
+/**
+ * PR description: task summary plus the verification / QA results the
+ * cards recorded. A stage that never reported is written as "not run",
+ * never as passed.
+ */
+export function buildPrBody(input: {
+  title: string;
+  command: string;
+  commitSha: string;
+  filesChanged: number;
+  verification?: VerificationCardData | null;
+  qa?: QaCardData | null;
+  /** O4: the issue this task came from (same repo); GitHub closes it on merge. */
+  closesIssue?: number;
+}): string {
+  const lines: string[] = [];
+  lines.push(`## Summary`, "", input.title, "");
+  if (input.closesIssue !== undefined) lines.push(`Closes #${input.closesIssue}`, "");
+  const request = input.command.split("\n--- Conversation context ---")[0].trim();
+  if (request && request !== input.title) {
+    lines.push("<details><summary>Original request</summary>", "", request.slice(0, 1500), "", "</details>", "");
+  }
+  lines.push(`Commit \`${input.commitSha.slice(0, 12)}\` · ${input.filesChanged} file(s) changed`, "");
+  lines.push("## Verification", "");
+  if (input.verification && Array.isArray(input.verification.checks) && input.verification.checks.length > 0) {
+    for (const check of input.verification.checks) {
+      const where = check.target ? ` (${check.target})` : "";
+      lines.push(`- ${check.name}${where}: ${checkMark(check.status)}${check.detail ? ` — ${check.detail}` : ""}`);
+    }
+  } else {
+    lines.push("- not run");
+  }
+  lines.push("", "## QA", "");
+  if (input.qa) {
+    lines.push(`- Outcome: **${input.qa.outcome}**${input.qa.reason ? ` — ${input.qa.reason}` : ""}`);
+    for (const url of input.qa.urls ?? []) lines.push(`- Checked: ${url}`);
+    for (const issue of (input.qa.issues ?? []).slice(0, 10)) lines.push(`- Issue: ${issue}`);
+  } else {
+    lines.push("- not run");
+  }
+  lines.push("", "_Opened as a draft by Fhara after an explicit push approval._");
+  return lines.join("\n");
+}
+
+function truncate(text: string | undefined, limit = ERROR_LIMIT): string | undefined {
+  if (text === undefined) return undefined;
+  return text.length <= limit ? text : `${text.slice(0, limit)}…`;
+}
+
+/** The project's repo binding (owner/repo/base branch). Holds no token once migrated. */
+async function githubIntegration(ctx: QueryCtx | MutationCtx, projectId: Id<"projects">) {
+  return await projectGithubBinding(ctx, projectId);
+}
+
+type RepoBinding = Doc<"integrations"> & { githubOwner: string; githubRepo: string };
+
+function repoBound(integration: Doc<"integrations"> | null): integration is RepoBinding {
+  return Boolean(integration && integration.status !== "disconnected" && integration.githubOwner && integration.githubRepo);
+}
+
+/**
+ * Push target for a project: its repo binding plus the account-level GitHub
+ * token (legacy per-project token until migrated). Null when either is missing.
+ */
+async function pushTarget(
+  ctx: QueryCtx | MutationCtx,
+  projectId: Id<"projects">
+): Promise<{ integration: RepoBinding; token: string } | null> {
+  const integration = await githubIntegration(ctx, projectId);
+  if (!repoBound(integration)) return null;
+  const resolved = await resolveGithubToken(ctx, projectId);
+  return resolved ? { integration, token: resolved.token } : null;
+}
+
+/** Latest card of a kind on a task (bounded scan, newest first). */
+async function latestCard(ctx: QueryCtx | MutationCtx, taskId: Id<"tasks">, kind: string) {
+  const recent = await ctx.db
+    .query("messages")
+    .withIndex("by_task", (q) => q.eq("taskId", taskId))
+    .order("desc")
+    .take(CARD_DEDUPE_SCAN);
+  return recent.find((m) => m.card?.kind === kind)?.card?.data ?? null;
+}
+
+async function logPushEvent(
+  ctx: MutationCtx,
+  row: PushRow,
+  type: string,
+  payload: Record<string, unknown>,
+  level: "info" | "warn" | "error" = "info"
+) {
+  await appendTaskEvent(ctx, {
+    taskId: row.taskId,
+    projectId: row.projectId,
+    type,
+    payload: { pushId: row._id, branchName: row.branchName, ...payload },
+    level,
+    createdAt: Date.now(),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Worker-facing internals (wrapped by token-gated actions in worker.ts)
+// ---------------------------------------------------------------------------
+
+/** Verification / QA card into the task's chat conversation. */
+export const postTaskCard = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    workerId: v.optional(v.string()),
+    agentId: v.optional(v.id("agents")),
+    kind: cardKind,
+    content: v.optional(v.string()),
+    data: v.any(),
+  },
+  handler: async (ctx, args) => {
+    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) {
+      return { applied: false as const, reason: "lease_lost" as const };
+    }
+    const task = await ctx.db.get(args.taskId);
+    if (!task || task.projectId !== args.projectId) {
+      return { applied: false as const, reason: "task_not_found" as const };
+    }
+    const key = typeof args.data?.idempotencyKey === "string" ? args.data.idempotencyKey : undefined;
+    if (key) {
+      const recent = await ctx.db
+        .query("messages")
+        .withIndex("by_task", (q) => q.eq("taskId", args.taskId))
+        .order("desc")
+        .take(CARD_DEDUPE_SCAN);
+      const existing = recent.find((m) => m.card?.kind === args.kind && m.card?.data?.idempotencyKey === key);
+      if (existing) {
+        // Same key = same card: a live card (QA checklist) is updated in
+        // place, and a retried post simply rewrites identical data.
+        await ctx.db.patch(existing._id, {
+          content: (args.content ?? existing.content).trim(),
+          card: { kind: args.kind, data: { ...args.data, taskId: String(args.taskId) } },
+        });
+        return { applied: true as const, messageId: existing._id, deduped: true };
+      }
+    }
+    const messageId = await ctx.db.insert("messages", {
+      projectId: args.projectId,
+      taskId: args.taskId,
+      conversationId: await taskCardConversationId(ctx, task.conversationId),
+      agentId: args.agentId,
+      authorType: "agent",
+      content: (args.content ?? "").trim(),
+      card: { kind: args.kind, data: { ...args.data, taskId: String(args.taskId) } },
+    });
+    return { applied: true as const, messageId, deduped: false };
+  },
+});
+
+/** The worker committed the task branch: record it and post the push card. */
+export const recordTaskCommit = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    projectId: v.id("projects"),
+    workerId: v.optional(v.string()),
+    agentId: v.optional(v.id("agents")),
+    branchName: v.string(),
+    commitSha: v.string(),
+    commitMessage: v.string(),
+    filesChanged: v.number(),
+    additions: v.optional(v.number()),
+    deletions: v.optional(v.number()),
+    ahead: v.optional(v.number()),
+    behind: v.optional(v.number()),
+    comparedTo: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    if (!(await holdsTaskLease(ctx, args.taskId, args.workerId))) {
+      return { applied: false as const, reason: "lease_lost" as const };
+    }
+    if (!/^[0-9a-f]{7,64}$/i.test(args.commitSha)) {
+      throw new Error("Invalid commit sha");
+    }
+    const task = await ctx.db.get(args.taskId);
+    if (!task || task.projectId !== args.projectId) {
+      return { applied: false as const, reason: "task_not_found" as const };
+    }
+    const existing = await ctx.db
+      .query("taskPushes")
+      .withIndex("by_task_and_sha", (q) => q.eq("taskId", args.taskId).eq("commitSha", args.commitSha))
+      .first();
+    if (existing) {
+      return { applied: true as const, pushId: existing._id, messageId: existing.messageId, deduped: true };
+    }
+    const now = Date.now();
+    // A prFix/reviewFix commit joins its owner's PR (lib/fixPushPr.ts).
+    const inherited = await inheritedFixPush(ctx, task, args.projectId, args.branchName);
+    const pushId = await ctx.db.insert("taskPushes", {
+      ...inherited,
+      taskId: args.taskId,
+      projectId: args.projectId,
+      conversationId: task.conversationId,
+      branchName: args.branchName,
+      commitSha: args.commitSha,
+      commitMessage: args.commitMessage.slice(0, 500),
+      filesChanged: args.filesChanged,
+      additions: args.additions,
+      deletions: args.deletions,
+      ahead: args.ahead,
+      behind: args.behind,
+      comparedTo: args.comparedTo,
+      status: "ready",
+      attempts: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const messageId = await ctx.db.insert("messages", {
+      projectId: args.projectId,
+      taskId: args.taskId,
+      conversationId: await taskCardConversationId(ctx, task.conversationId),
+      agentId: args.agentId,
+      authorType: "agent",
+      content: "",
+      card: {
+        kind: "push",
+        data: {
+          taskId: String(args.taskId),
+          pushId: String(pushId),
+          branchName: args.branchName,
+          commitSha: args.commitSha,
+          commitMessage: args.commitMessage.slice(0, 500),
+          filesChanged: args.filesChanged,
+          additions: args.additions,
+          deletions: args.deletions,
+          ahead: args.ahead,
+          behind: args.behind,
+        },
+      },
+    });
+    await ctx.db.patch(pushId, { messageId });
+    return { applied: true as const, pushId, messageId, deduped: false };
+  },
+});
+
+/**
+ * Claim the oldest requested push with a lease. Stale `pushing` rows (lease
+ * lapsed) are requeued first, and failed after MAX_PUSH_ATTEMPTS. The
+ * result carries the project's GitHub token: this function is internal and
+ * reachable only through the token-gated `worker.claimPushRequest` action.
+ */
+export const claimPushRequest = internalMutation({
+  args: { workerId: v.string(), leaseMs: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const stale = await ctx.db
+      .query("taskPushes")
+      .withIndex("by_status_and_lease", (q) => q.eq("status", "pushing").lt("leaseExpiresAt", now))
+      .take(10);
+    for (const row of stale) {
+      if (row.attempts >= MAX_PUSH_ATTEMPTS) {
+        await ctx.db.patch(row._id, {
+          status: "failed",
+          error: "The push worker stopped responding; retry the push.",
+          workerId: undefined,
+          leaseExpiresAt: undefined,
+          updatedAt: now,
+        });
+        await logPushEvent(ctx, row, "push.failed", { reason: "lease_expired" }, "error");
+      } else {
+        await ctx.db.patch(row._id, {
+          status: "requested",
+          workerId: undefined,
+          leaseExpiresAt: undefined,
+          updatedAt: now,
+        });
+      }
+    }
+
+    // A request that cannot run (approval or GitHub config gone) is failed
+    // with a reason and the next one is tried, bounded per claim.
+    const candidates = await ctx.db
+      .query("taskPushes")
+      .withIndex("by_status_and_requested", (q) => q.eq("status", "requested"))
+      .order("asc")
+      .take(5);
+    for (const row of candidates) {
+      const fail = async (error: string) => {
+        await ctx.db.patch(row._id, { status: "failed", error, updatedAt: now });
+        await logPushEvent(ctx, row, "push.failed", { reason: error }, "error");
+      };
+      const approval = row.approvalId ? await ctx.db.get(row.approvalId) : null;
+      if (!approval || approval.kind !== "git_push" || approval.status !== "approved") {
+        await fail("Push approval is missing or was revoked.");
+        continue;
+      }
+      const project = await ctx.db.get(row.projectId);
+      const task = await ctx.db.get(row.taskId);
+      if (!project || !task) {
+        await fail("The task or project no longer exists.");
+        continue;
+      }
+      const target = await pushTarget(ctx, row.projectId);
+      if (!target) {
+        await fail("GitHub is not connected or no repository is selected for this project.");
+        continue;
+      }
+      const { integration } = target;
+      const leaseMs = args.leaseMs ?? DEFAULT_PUSH_LEASE_MS;
+      await ctx.db.patch(row._id, {
+        status: "pushing",
+        workerId: args.workerId,
+        leaseExpiresAt: now + leaseMs,
+        attempts: row.attempts + 1,
+        error: undefined,
+        updatedAt: now,
+      });
+      await logPushEvent(ctx, row, "push.started", { workerId: args.workerId, attempt: row.attempts + 1 });
+      const verification = (await latestCard(ctx, row.taskId, "verification")) as VerificationCardData | null;
+      const qa = (await latestCard(ctx, row.taskId, "qa")) as QaCardData | null;
+      const baseBranch = integration.githubBaseBranch || project.mainBranch || "main";
+      return {
+        pushId: row._id,
+        taskId: row.taskId,
+        projectId: row.projectId,
+        workspacePath: project.workspacePath,
+        branchName: row.branchName,
+        commitSha: row.commitSha,
+        openPr: row.openPr === true,
+        existingPrNumber: row.prNumber,
+        owner: integration.githubOwner,
+        repo: integration.githubRepo,
+        baseBranch,
+        token: target.token,
+        prTitle: task.title.slice(0, 200),
+        prBody: buildPrBody({
+          title: task.title,
+          command: task.command,
+          commitSha: row.commitSha,
+          filesChanged: row.filesChanged,
+          verification,
+          qa,
+          closesIssue: await closesIssueFor(ctx, row.ownerTaskId ?? row.taskId, `${integration.githubOwner}/${integration.githubRepo}`),
+        }),
+      };
+    }
+    return null;
+  },
+});
+
+export const completePushRequest = internalMutation({
+  args: {
+    pushId: v.id("taskPushes"),
+    workerId: v.string(),
+    outcome: v.union(v.literal("pushed"), v.literal("failed")),
+    error: v.optional(v.string()),
+    pr: v.optional(
+      v.object({
+        number: v.number(),
+        url: v.string(),
+        title: v.string(),
+        state: prState,
+      })
+    ),
+    repoFullName: v.optional(v.string()),
+    baseBranch: v.optional(v.string()),
+    // O8 (additive): the worker's dependency check on the pushed commit.
+    dependencyCheck: v.optional(
+      v.object({
+        status: v.union(v.literal("passed"), v.literal("failed"), v.literal("skipped")),
+        high: v.optional(v.number()),
+        summary: v.optional(v.string()),
+      })
+    ),
+  },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.pushId);
+    if (!row) return { applied: false as const, reason: "not_found" as const };
+    if (row.status !== "pushing") return { applied: false as const, reason: "not_pushing" as const };
+    if (row.workerId !== args.workerId) return { applied: false as const, reason: "lease_lost" as const };
+    const now = Date.now();
+    if (args.outcome === "pushed") {
+      await ctx.db.patch(row._id, {
+        status: "pushed",
+        pushedAt: now,
+        workerId: undefined,
+        leaseExpiresAt: undefined,
+        error: undefined,
+        repoFullName: args.repoFullName ?? row.repoFullName,
+        baseBranch: args.baseBranch ?? row.baseBranch,
+        ...(args.dependencyCheck ? { dependencyCheck: { ...args.dependencyCheck, checkedAt: now } } : {}),
+        ...(args.pr
+          ? {
+              prNumber: args.pr.number,
+              prUrl: args.pr.url,
+              prTitle: args.pr.title,
+              prState: args.pr.state,
+              prCheckedAt: now,
+            }
+          : {}),
+        updatedAt: now,
+      });
+      await logPushEvent(ctx, row, "push.pushed", {
+        commitSha: row.commitSha,
+        prNumber: args.pr?.number ?? null,
+      });
+      const pushed = await ctx.db.get(row._id);
+      if (pushed) await onPrPushed(ctx, pushed);
+    } else {
+      await ctx.db.patch(row._id, {
+        status: "failed",
+        workerId: undefined,
+        leaseExpiresAt: undefined,
+        error: truncate(args.error ?? "Push failed"),
+        updatedAt: now,
+      });
+      await logPushEvent(ctx, row, "push.failed", { reason: truncate(args.error, 300) ?? null }, "error");
+    }
+    return { applied: true as const };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// UI-facing
+// ---------------------------------------------------------------------------
+
+/** Live push state for a push card. Never returns credential material. */
+export const get = query({
+  args: { pushId: v.id("taskPushes") },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.pushId);
+    if (!row) return null;
+    await assertProjectAccess(ctx, row.projectId);
+    const integration = await githubIntegration(ctx, row.projectId);
+    const connection = await githubConnectionState(ctx, row.projectId);
+    const project = await ctx.db.get(row.projectId);
+    const verification = (await latestCard(ctx, row.taskId, "verification")) as VerificationCardData | null;
+    const qa = (await latestCard(ctx, row.taskId, "qa")) as QaCardData | null;
+    return {
+      projectName: project?.name ?? null,
+      heldAt: row.heldAt,
+      additions: row.additions,
+      deletions: row.deletions,
+      // Stage results the card's stats grid shows. Absent = not run.
+      verification: verification
+        ? { outcome: verification.outcome, checks: verification.checks ?? [] }
+        : null,
+      qa: qa ? { outcome: qa.outcome, rows: qa.rows ?? [], reason: qa.reason ?? null } : null,
+      _id: row._id,
+      taskId: row.taskId,
+      projectId: row.projectId,
+      branchName: row.branchName,
+      commitSha: row.commitSha,
+      commitMessage: row.commitMessage,
+      filesChanged: row.filesChanged,
+      ahead: row.ahead,
+      behind: row.behind,
+      comparedTo: row.comparedTo,
+      status: row.status,
+      openPr: row.openPr,
+      error: row.error,
+      attempts: row.attempts,
+      pushedAt: row.pushedAt,
+      prNumber: row.prNumber,
+      prUrl: row.prUrl,
+      prTitle: row.prTitle,
+      prState: row.prState,
+      prCheckedAt: row.prCheckedAt,
+      // O2: supervised auto-merge state and its reason (one line on the card).
+      autoMerge: row.autoMerge ? { state: row.autoMerge.state, reason: row.autoMerge.reason } : null,
+      // T1: CI on the PR head commit (webhooks + refresh). null = never read.
+      checks:
+        row.prNumber !== undefined && (row.ciChecks !== undefined || row.ciState !== undefined)
+          ? {
+              ...summarizeChecks(
+                row.ciChecks ?? [],
+                row.repoFullName && row.headSha
+                  ? `https://github.com/${row.repoFullName}/commit/${row.headSha}/checks`
+                  : row.prUrl
+                    ? `${row.prUrl}/checks`
+                    : undefined
+              ),
+              items: (row.ciChecks ?? []).slice(0, 10).map((c) => ({
+                name: c.name,
+                status: c.status,
+                ...(c.url ? { url: c.url } : {}),
+              })),
+              checkedAt: row.prFactsAt ?? row.prCheckedAt ?? null,
+            }
+          : null,
+      github: {
+        connected: connection.connected,
+        repoFullName:
+          row.repoFullName ??
+          (integration?.githubOwner && integration?.githubRepo
+            ? `${integration.githubOwner}/${integration.githubRepo}`
+            : null),
+        baseBranch: row.baseBranch ?? integration?.githubBaseBranch ?? project?.mainBranch ?? "main",
+      },
+    };
+  },
+});
+
+/**
+ * The user's explicit click on "Push & open PR" / "Push only". Records an
+ * approved `git_push` approval row and queues the push for the worker.
+ * Idempotent: a request that is already queued or running is returned as
+ * is; a pushed row only re-queues to open the PR it does not have yet.
+ */
+export const requestPush = mutation({
+  args: { pushId: v.id("taskPushes"), openPr: v.boolean() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.pushId);
+    if (!row) throw new Error("Push not found");
+    await assertProjectAccess(ctx, row.projectId);
+    if (row.status === "requested" || row.status === "pushing") {
+      return { status: row.status, changed: false };
+    }
+    if (row.status === "pushed" && (!args.openPr || row.prNumber !== undefined)) {
+      return { status: row.status, changed: false };
+    }
+    const integration = await githubIntegration(ctx, row.projectId);
+    if (!repoBound(integration) || !(await githubConnectionState(ctx, row.projectId)).connected) {
+      throw new Error("Connect GitHub in Integrations and choose a repository in project settings first.");
+    }
+    const now = Date.now();
+    const repoFullName = `${integration.githubOwner}/${integration.githubRepo}`;
+    const project = await ctx.db.get(row.projectId);
+    const baseBranch = integration.githubBaseBranch || project?.mainBranch || "main";
+    const approvalId = await ctx.db.insert("approvals", {
+      taskId: row.taskId,
+      projectId: row.projectId,
+      kind: "git_push",
+      summary: `Push ${row.branchName} to ${repoFullName}${args.openPr ? " and open a draft PR" : ""}`,
+      status: "approved",
+      resolvedAt: now,
+      toolName: "git_push",
+      arguments: {
+        branchName: row.branchName,
+        commitSha: row.commitSha,
+        repo: repoFullName,
+        baseBranch,
+        openPr: args.openPr,
+      },
+      history: [{ at: now, status: "approved", by: "user", via: "push_card" }],
+    });
+    await ctx.db.patch(row._id, {
+      status: "requested",
+      openPr: args.openPr,
+      approvalId,
+      requestedAt: now,
+      heldAt: undefined,
+      attempts: 0,
+      error: undefined,
+      workerId: undefined,
+      leaseExpiresAt: undefined,
+      repoFullName,
+      baseBranch,
+      updatedAt: now,
+    });
+    await logPushEvent(ctx, row, "push.requested", { openPr: args.openPr, repo: repoFullName });
+    return { status: "requested" as const, changed: true };
+  },
+});
+
+/**
+ * "Hold" on the push card: nothing is pushed, the hold is recorded in the
+ * task timeline and shown on the card. Approve still works afterwards.
+ */
+export const holdPush = mutation({
+  args: { pushId: v.id("taskPushes") },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.pushId);
+    if (!row) throw new Error("Push not found");
+    await assertProjectAccess(ctx, row.projectId);
+    if (row.status !== "ready" && row.status !== "failed") {
+      return { held: false as const, status: row.status };
+    }
+    const now = Date.now();
+    await ctx.db.patch(row._id, { heldAt: now, updatedAt: now });
+    await logPushEvent(ctx, row, "push.held", {}, "warn");
+    return { held: true as const, status: row.status };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// PR status refresh (bounded)
+// ---------------------------------------------------------------------------
+
+export const getPrRefreshTarget = internalQuery({
+  args: { pushId: v.id("taskPushes"), checkAccess: v.boolean() },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.pushId);
+    if (!row || row.prNumber === undefined) return null;
+    if (args.checkAccess) await assertProjectAccess(ctx, row.projectId);
+    const integration = await githubIntegration(ctx, row.projectId);
+    const resolved = await resolveGithubToken(ctx, row.projectId);
+    if (!resolved) return null;
+    const [owner, repo] = (row.repoFullName ?? `${integration?.githubOwner}/${integration?.githubRepo}`).split("/");
+    if (!owner || !repo || owner === "undefined" || repo === "undefined") return null;
+    return { pushId: row._id, owner, repo, prNumber: row.prNumber, token: resolved.token };
+  },
+});
+
+/** Oldest-checked open/draft PRs first, at most PR_REFRESH_BATCH. */
+export const listPrsToRefresh = internalQuery({
+  args: { now: v.number() },
+  handler: async (ctx, args) => {
+    const cutoff = args.now - PR_REFRESH_MIN_AGE_MS;
+    const ids: Id<"taskPushes">[] = [];
+    for (const state of ["draft", "open"] as const) {
+      const rows = await ctx.db
+        .query("taskPushes")
+        .withIndex("by_pr_state_and_checked", (q) => q.eq("prState", state).lt("prCheckedAt", cutoff))
+        .order("asc")
+        .take(PR_REFRESH_BATCH - ids.length);
+      ids.push(...rows.map((row) => row._id));
+      if (ids.length >= PR_REFRESH_BATCH) break;
+    }
+    return ids;
+  },
+});
+
+export const recordPrState = internalMutation({
+  args: {
+    pushId: v.id("taskPushes"),
+    state: v.optional(prState),
+    title: v.optional(v.string()),
+    headSha: v.optional(v.string()),
+    mergeable: v.optional(v.union(v.literal("unknown"), v.literal("mergeable"), v.literal("conflict"))),
+    // T1: polled checks on `headSha` (replaces that commit's list).
+    checks: v.optional(v.array(prCheckFact)),
+  },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.pushId);
+    if (!row) return;
+    const now = Date.now();
+    await ctx.db.patch(row._id, {
+      ...(args.state ? { prState: args.state } : {}),
+      ...(args.title ? { prTitle: args.title } : {}),
+      prCheckedAt: now,
+      updatedAt: now,
+    });
+    // Post-push feedback loop: the polled state and mergeability go through
+    // the same path as a pull_request webhook (facts, conflict reaction,
+    // notifications, worktree release on close).
+    if (args.state && row.prNumber !== undefined && row.repoFullName) {
+      await ingestSignal(ctx, row.projectId, {
+        kind: "pull_request",
+        repoFullName: row.repoFullName,
+        prNumber: row.prNumber,
+        action: "refresh",
+        state: args.state,
+        headSha: args.headSha,
+        mergeable: args.mergeable,
+      });
+    }
+    if (args.checks && args.headSha) await storePolledChecks(ctx, row, args.headSha, args.checks);
+  },
+});
+
+/**
+ * Store polled checks on every row of the PR whose head is still `headSha`
+ * (a newer head from a webhook in between wins). Bounded to
+ * MAX_POLLED_CHECKS; notifications are re-derived for the owner task.
+ */
+async function storePolledChecks(ctx: MutationCtx, row: PushRow, headSha: string, checks: CheckFact[]) {
+  const repoFullName = row.repoFullName;
+  const prNumber = row.prNumber;
+  if (prNumber === undefined || !repoFullName) return;
+  const ciChecks = checks.slice(0, MAX_POLLED_CHECKS);
+  const ciState = ciRollup(ciChecks);
+  const rows = await ctx.db
+    .query("taskPushes")
+    .withIndex("by_repo_pr", (q) => q.eq("repoFullName", repoFullName).eq("prNumber", prNumber))
+    .take(50);
+  const now = Date.now();
+  let changed = false;
+  for (const same of rows) {
+    if (same.projectId !== row.projectId) continue;
+    if (same.headSha !== undefined && same.headSha !== headSha) continue;
+    await ctx.db.patch(same._id, { headSha, ciChecks, ciState, prFactsAt: now, updatedAt: now });
+    changed = true;
+  }
+  if (changed) await syncPrNotifications(ctx, row.ownerTaskId ?? row.taskId);
+}
+
+async function fetchPull(target: { owner: string; repo: string; prNumber: number; token: string }) {
+  const response = await fetch(
+    `https://api.github.com/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}/pulls/${target.prNumber}`,
+    {
+      headers: {
+        Authorization: `Bearer ${target.token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    }
+  );
+  if (!response.ok) throw new Error(`GitHub API error: ${response.status}`);
+  return (await response.json()) as {
+    state?: string;
+    merged?: boolean;
+    merged_at?: string | null;
+    draft?: boolean;
+    title?: string;
+    mergeable?: boolean | null;
+    mergeable_state?: string;
+    head?: { sha?: string };
+  };
+}
+
+/** recordPrState args for a fetched pull. */
+function pullFacts(pull: Awaited<ReturnType<typeof fetchPull>>) {
+  return {
+    state: mapPrState(pull),
+    title: pull.title,
+    ...(typeof pull.head?.sha === "string" ? { headSha: pull.head.sha } : {}),
+    mergeable: mergeabilityOf(pull.mergeable, pull.mergeable_state),
+  };
+}
+
+/**
+ * The PR facts plus the head commit's checks. A checks failure never fails
+ * the refresh: the PR state is still recorded, the checks are left as is.
+ */
+async function pullFactsWithChecks(target: { owner: string; repo: string; prNumber: number; token: string }) {
+  const facts = pullFacts(await fetchPull(target));
+  if (!facts.headSha) return facts;
+  try {
+    const { checks } = await fetchCommitChecks({ ...target, sha: facts.headSha });
+    return { ...facts, checks };
+  } catch {
+    return facts;
+  }
+}
+
+/** "Refresh" on a push card. */
+export const refreshPrStatus = action({
+  args: { pushId: v.id("taskPushes") },
+  handler: async (ctx, args): Promise<{ state: string | null }> => {
+    const target = await ctx.runQuery(internal.githubPush.getPrRefreshTarget, {
+      pushId: args.pushId,
+      checkAccess: true,
+    });
+    if (!target) return { state: null };
+    const facts = await pullFactsWithChecks(target);
+    await ctx.runMutation(internal.githubPush.recordPrState, { pushId: args.pushId, ...facts });
+    return { state: facts.state };
+  },
+});
+
+/** Cron: refresh a bounded batch of open/draft PRs. */
+export const refreshOpenPrs = internalAction({
+  args: {},
+  handler: async (ctx): Promise<{ checked: number; failed: number }> => {
+    const ids = await ctx.runQuery(internal.githubPush.listPrsToRefresh, { now: Date.now() });
+    let checked = 0;
+    let failed = 0;
+    for (const pushId of ids) {
+      const target = await ctx.runQuery(internal.githubPush.getPrRefreshTarget, { pushId, checkAccess: false });
+      if (!target) continue;
+      try {
+        await ctx.runMutation(internal.githubPush.recordPrState, { pushId, ...(await pullFactsWithChecks(target)) });
+        checked += 1;
+      } catch {
+        // Stamp the check so one broken PR does not starve the batch.
+        await ctx.runMutation(internal.githubPush.recordPrState, { pushId });
+        failed += 1;
+      }
+    }
+    return { checked, failed };
+  },
+});

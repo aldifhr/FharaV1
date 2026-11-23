@@ -30,7 +30,7 @@
   | `components/AgentDetailPanel.tsx` | 12 |
   | `components/chat/PersonalChatPanel.tsx` | 12 |
 
-- 68 of them are Convex id casts, e.g.
+- 68 of them are Fhara runtime id casts, e.g.
   `useQuery(api.changes.forTask, { taskId: taskId as any })`
   (`components/changes/ChangesPane.tsx:62`, `components/chat/cards/PushCard.tsx:102`,
   `components/changes/useLineComments.tsx:28`). The cast hides a real contract:
@@ -49,7 +49,7 @@
   `jsx-a11y/anchor-is-valid`, `jsx-a11y/click-events-have-key-events`.
 - The `any` count is ratcheted, not fixed in one commit: a baseline file (or
   `--max-warnings`) fails the build when it grows.
-- Convex ids in component props are `Id<"...">`, so the 68 casts disappear.
+- Fhara runtime ids in component props are `Id<"...">`, so the 68 casts disappear.
 
 ## Steps
 
@@ -60,7 +60,7 @@
   `@next/eslint-plugin-next`.
 - `apps/web/eslint.config.mjs`: flat config, `next/core-web-vitals`-equivalent
   rules via `@next/eslint-plugin-next`, the four plugins above, ignores for
-  `.next`, `node_modules`, `api/convex/_generated`.
+  `.next`, `node_modules`, `api/functions/_generated`.
 - Root script: `"lint": "npm run --workspace=@fhara/web lint"`, workspace script
   `"lint": "eslint ."`.
 - Run it once and write down the counts. Expect hundreds of
@@ -80,7 +80,7 @@ documented list of errors to fix in Step 2).
 
 **Check**: `npm run lint` exit 0; `npm run --workspace=@fhara/web typecheck`.
 
-### Step 3: Type the Convex ids (the 68 casts)
+### Step 3: Type the Fhara runtime ids (the 68 casts)
 
 Start with the three files that already take a `taskId` prop and cast it:
 `components/changes/ChangesPane.tsx`, `components/changes/useLineComments.tsx`,

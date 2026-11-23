@@ -5,15 +5,15 @@ import {
   validatePlan as validateSharedPlan,
   type ValidatePlanOptions,
   validateStoredPlan as validateSharedStoredPlan,
-} from "@/api/convex/lib/planValidation";
+} from "@/api/functions/lib/planValidation";
 
 // The validator itself lives in the shared backend lib
-// (apps/api/convex/lib/planValidation.ts) so user plan edits are checked by
+// (apps/api/functions/lib/planValidation.ts) so user plan edits are checked by
 // the SAME rules on the backend before they are stored. This module keeps
 // the worker's import path and plan types.
 
 export { findCycle };
-export { isReadOnlyTaskKind, READ_ONLY_TASK_KINDS, type ValidatePlanOptions } from "@/api/convex/lib/planValidation";
+export { isReadOnlyTaskKind, READ_ONLY_TASK_KINDS, type ValidatePlanOptions } from "@/api/functions/lib/planValidation";
 
 export const SUBTASK_KINDS: SubtaskKind[] = SHARED_SUBTASK_KINDS;
 

@@ -1,11 +1,10 @@
-"use client";
 
 import { Suspense } from "react";
-import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { useQuery } from "convex/react";
+import { Link } from "@/lib/spaRouter";
+import { useSearchParams } from "@/lib/spaRouter";
+import { useQuery } from "@fhara/runtime/react";
 import { Sparkles } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import Sidebar from "@/components/Sidebar";
 import { SuggestFixButton, SuggestionItem } from "@/components/review/Improve";
 import { relativeTime } from "@/lib/runFormat";

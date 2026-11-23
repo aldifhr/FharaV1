@@ -124,9 +124,9 @@ pass it through.
 ### Step 6: Make the tool reachable
 
 The agent's `supportedTools` is the gate, and the agent editor had no way to
-set it. `apps/api/convex/lib/toolNames.ts` lists the governed tools, the
+set it. `apps/api/functions/lib/toolNames.ts` lists the governed tools, the
 agent form gains a "Tool permissions" fieldset, and the researcher role
-default includes `web_reach` (`apps/api/convex/lib/roles.ts`).
+default includes `web_reach` (`apps/api/functions/lib/roles.ts`).
 
 **Check**: `npm run --workspace=@fhara/web typecheck` + `npm run --workspace=@fhara/api test`.
 

@@ -1,4 +1,3 @@
-"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { changedKeys, sameValue, type Draft } from "@/lib/inspectorDraft";

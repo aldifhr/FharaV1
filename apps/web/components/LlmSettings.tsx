@@ -1,4 +1,3 @@
-"use client";
 
 /**
  * Settings → LLM & Models, one page top to bottom:
@@ -13,19 +12,19 @@
  *   entry runs a subtask on the OpenCode CLI, chat skips it.
  *
  * Provider/model writes, discovery and tests go through the server-side
- * route (/api/llm-providers): the Convex mutations require the service
+ * route (/api/llm-providers): the FharaRuntime mutations require the service
  * token, which lives only in the web server's environment, and a provider
  * key never travels from the browser to a provider URL.
  */
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "@fhara/runtime/react";
 import { ArrowDown, ArrowUp, MoreHorizontal, Plus } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
-import { findPreset, guessPreset, LLM_PROVIDER_PRESETS } from "@/api/convex/lib/llmPresets";
+import { api } from "@fhara/runtime/api";
+import { findPreset, guessPreset, LLM_PROVIDER_PRESETS } from "@/api/functions/lib/llmPresets";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import Segmented from "./ui/segmented";
 import { useToast } from "./Toasts";
-import { OPENCODE_INSTALL_COMMAND, isNativeCliConnection, isOpencodeConnection, nativeCliOf } from "@/api/convex/lib/opencodeProvider";
+import { OPENCODE_INSTALL_COMMAND, isNativeCliConnection, isOpencodeConnection, nativeCliOf } from "@/api/functions/lib/opencodeProvider";
 import { CLI_MODEL_PRESETS, TASK_CLI_LABEL, type TaskCli } from "@/lib/cliProviders";
 import { relativeTime } from "@/lib/runFormat";
 import { RoleOverrideKnob } from "./settings/RoleOverrideKnob";
@@ -572,8 +571,8 @@ export default function LlmSettingsSection({
 
         {keyStorageMissing && (
           <p role="status" className="text-[13px] text-warn">
-            API keys can&apos;t be stored yet: <code>PROVIDER_ENCRYPTION_KEY</code> is not set on the Convex deployment.
-            Run <code>npx convex env set PROVIDER_ENCRYPTION_KEY &quot;$(openssl rand -base64 32)&quot;</code> and put the
+            API keys can&apos;t be stored yet: <code>PROVIDER_ENCRYPTION_KEY</code> is not set on the FharaRuntime deployment.
+            Run <code>npx runtime env set PROVIDER_ENCRYPTION_KEY &quot;$(openssl rand -base64 32)&quot;</code> and put the
             same value in <code>.env</code> for the worker. Local servers without a key (Ollama, LM Studio) work without it.
           </p>
         )}
@@ -751,8 +750,8 @@ export default function LlmSettingsSection({
             {opencodeTestKey === "p:opencode" && !opencode?.pendingTest && opencodeTest && (
               <p className={opencodeTest.ok ? HINT : ERROR_TEXT}>
                 {opencodeTest.ok
-                  ? `OK A� ${opencodeTest.model ?? "OpenCode default model"} A� ${opencodeTest.latencyMs} ms`
-                  : `Failed A� ${opencodeTest.model ?? "OpenCode"} A� ${opencodeTest.error ?? "error"}`}
+                  ? `OK A- ${opencodeTest.model ?? "OpenCode default model"} A- ${opencodeTest.latencyMs} ms`
+                  : `Failed A- ${opencodeTest.model ?? "OpenCode"} A- ${opencodeTest.error ?? "error"}`}
               </p>
             )}
           </div>

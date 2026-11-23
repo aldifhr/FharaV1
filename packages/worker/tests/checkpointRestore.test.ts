@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { captureCheckpoint } from "@/tools/gitCheckpoint";
-import { listTaskCheckpointRefs, removeTaskGitState } from "@/api/convex/lib/checkpointRefs";
+import { listTaskCheckpointRefs, removeTaskGitState } from "@/api/functions/lib/checkpointRefs";
 import {
   captureWorktreeSnapshot,
   listWorktreeSnapshots,
@@ -24,7 +24,7 @@ import {
   restoreWorktreeSnapshot,
   revertCommitToCheckpoint,
   SNAPSHOT_RETENTION_MS,
-} from "@/api/convex/lib/checkpointRestore";
+} from "@/api/functions/lib/checkpointRestore";
 
 const TASK = "k17abc123task";
 const IDENTITY = ["-c", "user.name=Test", "-c", "user.email=test@example.invalid"];

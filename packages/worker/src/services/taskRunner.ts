@@ -1,8 +1,8 @@
 import { runWithObservationScope } from "@/effects/observationContext";
-import { normalizeModelTiers } from "@/api/convex/lib/modelTiers";
-import type { LlmSelectionMode } from "@/api/convex/lib/llmSelection";
+import { normalizeModelTiers } from "@/api/functions/lib/modelTiers";
+import type { LlmSelectionMode } from "@/api/functions/lib/llmSelection";
 import { withSnapshotScope } from "@/llm/snapshots";
-import { parseStoredRequirements } from "@/api/convex/lib/requirements";
+import { parseStoredRequirements } from "@/api/functions/lib/requirements";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { WorkerRunAgent, WorkerTask } from "@/workerApi";
@@ -57,7 +57,7 @@ import {
   mcpStatusReporter,
   threadUserAnswers,
 } from "./runner/session";
-import { plainServerError } from "@/api/convex/lib/repoReadiness";
+import { plainServerError } from "@/api/functions/lib/repoReadiness";
 
 // Public surface of `@/services/taskRunner`: the task lifecycle entry
 // points (processTask / resumeTask) plus re-exports tests and

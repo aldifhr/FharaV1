@@ -1,7 +1,7 @@
 import type { SharedTaskContext, ExecutionHistoryEntry, TaskArtifact, OutstandingIssue } from "@/types";
 import type { AgentDefinition } from "@/types";
 import { capabilitiesOf } from "@/utils/agentCapabilities";
-import { formatBriefSection } from "@/api/convex/lib/brief";
+import { formatBriefSection } from "@/api/functions/lib/brief";
 
 export interface AgentExecutionContext {
   taskId: string;

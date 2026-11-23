@@ -1,10 +1,9 @@
-"use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { Link } from "@/lib/spaRouter";
+import { useAction, useMutation, useQuery } from "@fhara/runtime/react";
 import { GitBranch, Loader2 } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import { useToast } from "./Toasts";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message.replace(/^.*Uncaught Error: /s, "").split("\n")[0] : "Please try again.");

@@ -1,4 +1,3 @@
-"use client";
 
 import { KnobToggle } from "./controls";
 

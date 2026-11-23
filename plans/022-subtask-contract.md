@@ -48,17 +48,17 @@ model regardless of how much judgement the role needed.
 ## Current state (as implemented on `feat/subtask-contract`)
 
 - Contract vocabulary, parser, default gates, gate evaluation and
-  escalation routing: `apps/api/convex/lib/subtaskContract.ts`
+  escalation routing: `apps/api/functions/lib/subtaskContract.ts`
   (`defaultGatesForKind` ~L100, `parseContract` ~L170, `evaluateGates`
   L361, `acceptanceFromGates` L442, `parseEscalation` L461,
   `routeEscalation` L512). Pure TS, shared by api, worker and web.
-- Convex validators: `apps/api/convex/lib/contractValidators.ts`; schema
-  fields in `apps/api/convex/schema.ts` (`subtasks`: contract fields,
+- Fhara runtime validators: `apps/api/functions/lib/contractValidators.ts`; schema
+  fields in `apps/api/functions/schema.ts` (`subtasks`: contract fields,
   `acceptanceStatus`, `acceptanceReason`, `gateResults`, `escalation`;
   `executions`: `dispatchKey` + `by_dispatch_key`, `leaseLost`; `tasks`:
   status `paused`, `pausedBy`, `pausedAt`; `projects`: `modelTiers`).
 - Plan validator and edits honour the contract:
-  `apps/api/convex/lib/planValidation.ts`, `lib/planEdit.ts`,
+  `apps/api/functions/lib/planValidation.ts`, `lib/planEdit.ts`,
   `lib/planStore.ts`, `planReview.ts`.
 - Worker: planner prompt/parser (`src/prompts/planner.ts`,
   `src/orchestrator/planner.ts`), executor prompt
@@ -67,10 +67,10 @@ model regardless of how much judgement the role needed.
   acceptance stage (`src/services/runner/acceptance.ts`, called from
   `executePlan.ts` ~L271), pause drain (`src/services/runner/pause.ts`,
   `runNodes.ts` ~L332–L433).
-- Dispatch keys: `apps/api/convex/orchestration.ts` `dispatchKeyFor`
+- Dispatch keys: `apps/api/functions/orchestration.ts` `dispatchKeyFor`
   (~L845) and the dispatch decision (~L865–L917).
 - Planning-interrupted recovery: `orchestration.ts` `recoverStale` (~L462).
-- Model tiers: `apps/api/convex/lib/modelTiers.ts`; resolver
+- Model tiers: `apps/api/functions/lib/modelTiers.ts`; resolver
   `packages/worker/src/llm/resolver.ts` (`applyModelTier` ~L435).
 - Reviewer read-only: `packages/worker/src/governance/registry.ts` (~L40),
   `src/execution/agentExecutor.ts` `READ_ONLY_ROLES`.

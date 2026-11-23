@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "vitest";
 import { loadPolicy } from "@/orchestrator/policy";
 import { applyAppSettings, knobEnvSnapshot, resetAppSettingsForTest, syncAppSettings } from "@/services/appSettings";
 import { assertPushAllowed } from "@/tools/gitPush";
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
-import { gitIdentity } from "@/api/convex/lib/gitIdentity";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
+import { gitIdentity } from "@/api/functions/lib/gitIdentity";
 
 afterEach(() => resetAppSettingsForTest());
 
@@ -43,7 +43,7 @@ describe("Settings modal → worker", () => {
     applyAppSettings(
       {
         values: { FHARA_ALLOW_BASE_BRANCH_PUSH: "true", FHARA_GIT_AUTHOR_EMAIL: "me@example.com" },
-        childEnv: { DATABASE_URL: "postgres://local", CONVEX_SERVICE_TOKEN: "nope" },
+        childEnv: { DATABASE_URL: "postgres://local", FHARA_SERVICE_TOKEN: "nope" },
         updatedAt: 2,
       },
       { policy, workspaceRoot: "." }
@@ -53,12 +53,12 @@ describe("Settings modal → worker", () => {
     expect(gitIdentity().email).toBe("me@example.com");
     const env = buildChildEnv();
     expect(env.DATABASE_URL).toBe("postgres://local");
-    expect(env.CONVEX_SERVICE_TOKEN).toBeUndefined();
+    expect(env.FHARA_SERVICE_TOKEN).toBeUndefined();
   });
 
   test("the env report carries worker knobs only", () => {
     expect(
-      knobEnvSnapshot({ QA_CHROMIUM_PATH: "/usr/bin/chromium", FHARA_PR_FIX_MAX_ATTEMPTS: "5", CONVEX_SERVICE_TOKEN: "x", ORCHESTRATOR_TOOL_LOOP: "" })
+      knobEnvSnapshot({ QA_CHROMIUM_PATH: "/usr/bin/chromium", FHARA_PR_FIX_MAX_ATTEMPTS: "5", FHARA_SERVICE_TOKEN: "x", ORCHESTRATOR_TOOL_LOOP: "" })
     ).toEqual([{ key: "QA_CHROMIUM_PATH", value: "/usr/bin/chromium" }]);
   });
 

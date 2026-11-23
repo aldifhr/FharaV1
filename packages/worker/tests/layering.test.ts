@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
  * import only from its own layer or a LOWER one (type-only imports count).
  *
  *   0 foundation   types/ prompts/ utils/
- *   1 infra        llm/ effects/ governance/ context/ workerApi convexClient (+ @/api)
+ *   1 infra        llm/ effects/ governance/ context/ workerApi runtimeClient (+ @/api)
  *   2 tools        tools/ (git, fs, process, browser) mcp/
  *   3 execution    execution/
  *   4 orchestrator orchestrator/ scheduler/ router/
@@ -17,7 +17,7 @@ import { describe, expect, it } from "vitest";
  * i.e. tools ← execution ← orchestrator ← services. A new top-level
  * directory must be added to LAYERS before it can be imported.
  *
- * Pure shared modules from apps/api (no Convex/Node/DOM APIs) listed in
+ * Pure shared modules from apps/api (no FharaRuntime/Node/DOM APIs) listed in
  * SHARED_FOUNDATION count as foundation, so utils/ may read the shared role
  * registry.
  */
@@ -30,7 +30,7 @@ const LAYERS: Record<string, number> = {
   governance: 1,
   context: 1,
   workerApi: 1,
-  convexClient: 1,
+  runtimeClient: 1,
   "@api": 1,
   // Vendored third-party code (threadbear safe-git): infra, imports only @api.
   vendor: 1,
@@ -55,44 +55,44 @@ const LAYERS: Record<string, number> = {
 
 /** apps/api modules that are pure TypeScript and safe at the foundation layer. */
 const SHARED_FOUNDATION = new Set([
-  "convex/lib/roles",
+  "runtime/lib/roles",
   // Plan L3: pure task-brief helpers (types, caps, prompt section).
-  "convex/lib/brief",
+  "runtime/lib/brief",
   // Skill v2: pure skill prompt helpers (PromptSkill type, budgets).
-  "convex/lib/skills",
-  // Pure shared helpers (no Convex APIs): plan validation + estimate +
+  "runtime/lib/skills",
+  // Pure shared helpers (no FharaRuntime APIs): plan validation + estimate +
   // plan-review policy run on both sides.
-  "convex/lib/ownershipPaths",
-  "convex/lib/planValidation",
-  "convex/lib/estimate",
-  "convex/lib/planReviewPolicy",
+  "runtime/lib/ownershipPaths",
+  "runtime/lib/planValidation",
+  "runtime/lib/estimate",
+  "runtime/lib/planReviewPolicy",
   // Plan 022: contract / gates / escalation and model tiers (pure).
-  "convex/lib/subtaskContract",
-  "convex/lib/modelTiers",
+  "runtime/lib/subtaskContract",
+  "runtime/lib/modelTiers",
   // Plan 025: requirements traceability and execution observations (pure).
-  "convex/lib/requirements",
-  "convex/lib/observations",
+  "runtime/lib/requirements",
+  "runtime/lib/observations",
   // Plan 027: agent performance scoring (pure). The model capability
   // registry was removed with plan 033.
-  "convex/lib/agentPerformance",
+  "runtime/lib/agentPerformance",
   // Plan 032: the global LLM selection mode (pure).
-  "convex/lib/llmSelection",
+  "runtime/lib/llmSelection",
   // L2: secret patterns shared with context snapshots (pure).
-  "convex/lib/secretPatterns",
+  "runtime/lib/secretPatterns",
   // Role memory: learnings parse / dedupe / cap helpers (pure).
-  "convex/lib/roleMemory",
+  "runtime/lib/roleMemory",
   // Orchestrator/CTO split O1: the architecture flag type, decision key and
   // parsers (pure, no imports), shared by the planner and the plan validator.
-  "convex/lib/architectureFlag",
+  "runtime/lib/architectureFlag",
   // DeepSeek Harness D4: instruction-chain budget rules and the time line (pure).
-  "convex/lib/projectInstructions",
-  "convex/lib/timeContext",
+  "runtime/lib/projectInstructions",
+  "runtime/lib/timeContext",
   // DeepSeek Harness D5: one stable-prefix prompt layout (pure, no imports),
   // shared by the planner, the executor and chat.
-  "convex/lib/assemblePrompt",
+  "runtime/lib/assemblePrompt",
   // Orchestrator/CTO split O2: System status line constants + guard (pure,
   // no imports), read by compaction to keep System lines out of transcripts.
-  "convex/lib/systemLine",
+  "runtime/lib/systemLine",
 ]);
 
 const SRC = path.resolve(import.meta.dirname, "../src");
@@ -165,8 +165,8 @@ describe("worker layering", () => {
     expect(targetUnit("execution/x.ts", "@/orchestrator/budget")).toBe("orchestrator");
     expect(targetUnit("execution/x.ts", "../orchestrator/types")).toBe("orchestrator");
     expect(targetUnit("services/runner/a.ts", "./types")).toBe("services");
-    expect(targetUnit("utils/x.ts", "@/api/convex/lib/roles")).toBe("types");
-    expect(targetUnit("utils/x.ts", "@/api/convex/_generated/api")).toBe("@api");
+    expect(targetUnit("utils/x.ts", "@/api/functions/lib/roles")).toBe("types");
+    expect(targetUnit("utils/x.ts", "@fhara/runtime/api")).toBe("@api");
     expect(importsOf('import type { A } from "@/types";\nexport { b } from "./b";')).toEqual(["@/types", "./b"]);
   });
 });

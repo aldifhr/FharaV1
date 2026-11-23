@@ -1,4 +1,3 @@
-"use client";
 
 /**
  * Paradev C2: the composer's "/" menu (plan audit/paradev-plan-2026-11-11.md,

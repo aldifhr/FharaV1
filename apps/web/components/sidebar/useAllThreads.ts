@@ -1,8 +1,7 @@
-"use client";
 
 import { useMemo } from "react";
-import { useQueries, useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useQueries, useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import type { ThreadItem } from "@/lib/threadTree";
 
 /** Projects whose threads are loaded (newest projects first) and rows per project. */
@@ -15,7 +14,7 @@ type ListRow = Omit<ThreadItem, "projectId" | "projectName">;
 /**
  * Threads of every visible project, flattened. `undefined` until the first load.
  * Shared by the sidebar thread list and the command menu's recent threads, so
- * both read the same Convex subscriptions. `enabled: false` subscribes to nothing.
+ * both read the same FharaRuntime subscriptions. `enabled: false` subscribes to nothing.
  */
 export function useAllThreads(enabled = true): ThreadItem[] | undefined {
   const projects = useQuery(api.projects.list, enabled ? {} : "skip") as ProjectRow[] | undefined;

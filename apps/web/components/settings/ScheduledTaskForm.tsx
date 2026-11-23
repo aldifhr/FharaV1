@@ -1,4 +1,3 @@
-"use client";
 
 /**
  * Settings → Scheduled tasks: the create / edit form (GOAT G8). A scheduled
@@ -7,9 +6,9 @@
  * A time of day defaults to the user's time zone (Settings → General).
  */
 import { useMemo, useState, type ReactNode } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
-import type { Id } from "@/api/convex/_generated/dataModel";
+import { useMutation, useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
+import type { Id } from "@fhara/runtime/data";
 import { useToast } from "@/components/Toasts";
 import { BUTTON, errorText, INPUT, Select, useAppSettings } from "./controls";
 import { supportedZones } from "./TimeZoneField";

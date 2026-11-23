@@ -1,12 +1,11 @@
-"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useQuery } from "convex/react";
-import type { FunctionReturnType } from "convex/server";
+import { Link } from "@/lib/spaRouter";
+import { useParams } from "@/lib/spaRouter";
+import { useQuery } from "@fhara/runtime/react";
+import type { FunctionReturnType } from "@fhara/runtime/server";
 import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Copy, Download, FileJson, FileText } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import Sidebar from "@/components/Sidebar";
 import { PageHeader } from "@/components/ui/page-header";
 import SubtaskLiveOutput from "@/components/SubtaskLiveOutput";
@@ -29,8 +28,8 @@ import Decisions from "@/components/runs/Decisions";
 import RawEvents from "@/components/runs/RawEvents";
 import TaskBrief from "@/components/runs/TaskBrief";
 import TaskStopButton from "@/components/TaskStopButton";
-import { MODEL_TIER_LABELS, type ModelTierKey } from "@/api/convex/lib/modelTiers";
-import { formatEstimateLine } from "@/api/convex/lib/estimate";
+import { MODEL_TIER_LABELS, type ModelTierKey } from "@/api/functions/lib/modelTiers";
+import { formatEstimateLine } from "@/api/functions/lib/estimate";
 import {
   formatCost,
   formatDuration,
@@ -40,7 +39,7 @@ import {
   statusDot,
   statusTone,
 } from "@/lib/runFormat";
-import { PERMISSION_MODE_LABELS, normalizePermissionMode } from "@/api/convex/lib/permissionModes";
+import { PERMISSION_MODE_LABELS, normalizePermissionMode } from "@/api/functions/lib/permissionModes";
 import { approvalDeciderLabel } from "@/lib/approvalDecider";
 
 type Run = NonNullable<FunctionReturnType<typeof api.runs.get>>;

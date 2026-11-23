@@ -1,4 +1,3 @@
-"use client";
 
 import { ChevronRight, Plus } from "lucide-react";
 

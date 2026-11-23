@@ -35,7 +35,7 @@ ever started by the user's click on the push card.
 
 - Schema (additive): `tasks.permissionMode`, `projects.defaultPermissionMode`,
   `approvals.decidedBy`. Unset = supervised.
-- Pure policy: `apps/api/convex/lib/permissionModes.ts`
+- Pure policy: `apps/api/functions/lib/permissionModes.ts`
   (`autoApprovalDecision`), shared by backend, worker and web.
 - Backend: `orchestration.autoApprove` (internal) re-checks the mode from
   the task row, so a worker cannot raise it; `worker.autoApprove` is the

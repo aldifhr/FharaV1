@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { parse, type DefaultTreeAdapterTypes as T } from "parse5";
-import { htmlLooksActive, previewDocument } from "@/api/convex/lib/optionsReview";
+import { htmlLooksActive, previewDocument } from "@/api/functions/lib/optionsReview";
 import { inspectMockupHtml, prepareHtmlOption, sanitizeMockupHtml } from "./htmlPreview";
 
 /** Every way a page could run code, load a resource or navigate. */

@@ -1,5 +1,6 @@
 import WorkspaceShell from "@/app/WorkspaceClient";
 import ChatSection from "../ChatSection";
+import { useParams } from "@/lib/spaRouter";
 
 /**
  * Deep link to a thread in a project (`/project/:projectId/:threadId`).
@@ -8,12 +9,8 @@ import ChatSection from "../ChatSection";
  * path segment so the link is shareable and survives reload — the same
  * workspace shell renders, only the open thread differs.
  */
-export default async function ProjectThreadPage({
-  params,
-}: {
-  params: Promise<{ projectId: string; threadId: string }>;
-}) {
-  const { projectId, threadId } = await params;
+export default function ProjectThreadPage() {
+  const { projectId, threadId } = useParams<{ projectId: string; threadId: string }>();
   return (
     <WorkspaceShell projectId={projectId} threadId={threadId}>
       <ChatSection />

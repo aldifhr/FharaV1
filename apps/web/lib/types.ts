@@ -1,6 +1,6 @@
 /**
  * UI-only shared types. Domain shapes that the backend owns come from
- * `@/api/convex/_generated/dataModel` or `@/api/convex/lib/...`.
+ * `@/api/functions/_generated/dataModel` or `@/api/functions/lib/...`.
  */
 
 /** The minimal agent shape components need to label and colour a member. */

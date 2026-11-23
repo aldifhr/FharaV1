@@ -1,4 +1,3 @@
-"use client";
 
 /**
  * Settings → Scheduled tasks: the automation hold (GOAT G3), the user's own
@@ -8,8 +7,8 @@
  * marked below do nothing, and the user's own tasks still run.
  */
 import { useEffect, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useMutation, useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import { useToast } from "@/components/Toasts";
 import { BUTTON, errorText, relativeTime, Row, Section, Toggle } from "./controls";
 import { ScheduledTaskList } from "./ScheduledTaskList";

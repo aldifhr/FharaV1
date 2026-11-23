@@ -17,7 +17,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type * as TS from "typescript";
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
 import { pagerank, type WeightedGraph } from "@/utils/pagerank";
 import { loadTypescript } from "./tsRuntime";
 
@@ -68,7 +68,7 @@ interface FileTags {
 }
 
 const SOURCE = /\.(?:[cm]?[jt]sx?)$/i;
-const SKIP_DIRS = new Set([".git", "node_modules", ".next", "dist", "build", "out", ".convex", ".turbo", "coverage", ".qa", "_generated", "vendor"]);
+const SKIP_DIRS = new Set([".git", "node_modules", ".next", "dist", "build", "out", ".runtime", ".turbo", "coverage", ".qa", "_generated", "vendor"]);
 const MAX_FILE_BYTES = 256 * 1024;
 const DEFAULT_MAX_CHARS = 4_000;
 

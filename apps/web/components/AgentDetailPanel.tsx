@@ -1,8 +1,7 @@
-"use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import AgentAvatar from "./AgentAvatar";
 import ConfirmDialog from "./ConfirmDialog";
 import AgentActivity, { type ActiveExecution } from "./agents/AgentActivity";
@@ -14,7 +13,7 @@ import { Inspector, InspectorTabs } from "./ui/inspector";
 import { StatusTag } from "./ui/status-tag";
 import { agentName, fixedAgentIds, roleLabel } from "@/lib/agentRoles";
 import { agentStatusView, type StatusMap } from "@/lib/teamStatus";
-import { LEGACY_ROLE_SUCCESSORS, ROLES, isRoleKey } from "@/api/convex/lib/roles";
+import { LEGACY_ROLE_SUCCESSORS, ROLES, isRoleKey } from "@/api/functions/lib/roles";
 
 /**
  * Fallback when the backend `roleDefinitions` row is missing, plus the

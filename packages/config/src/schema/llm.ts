@@ -1,6 +1,6 @@
 import type { EnvGet, EnvVar } from "./types";
 
-/** B5: openai and openai-compatible take the OpenAI defaults (worker and Convex alike). */
+/** B5: openai and openai-compatible take the OpenAI defaults (worker and FharaRuntime alike). */
 export const isOpenAIFlavour = (provider: unknown) => provider === "openai-compatible" || provider === "openai";
 const openaiFlavour = (get: EnvGet) => isOpenAIFlavour(get("LLM_PROVIDER"));
 
@@ -10,7 +10,7 @@ export const LLM_VARS = [
     type: "string",
     parse: "lower",
     default: "anthropic",
-    runtimes: ["worker", "convex", "scripts"],
+    runtimes: ["worker", "runtime", "scripts"],
     group: "llm",
     doc: "Global LLM provider fallback: anthropic | openai | openai-compatible.",
   },
@@ -19,7 +19,7 @@ export const LLM_VARS = [
     type: "string",
     parse: "nullish",
     default: (get: EnvGet) => (openaiFlavour(get) ? "gpt-4o-mini" : "claude-sonnet-4-20250514"),
-    runtimes: ["worker", "convex", "scripts"],
+    runtimes: ["worker", "runtime", "scripts"],
     group: "llm",
     doc: "Global fallback model; the default depends on LLM_PROVIDER.",
   },
@@ -28,7 +28,7 @@ export const LLM_VARS = [
     type: "url",
     parse: "nullish",
     default: (get: EnvGet) => (openaiFlavour(get) ? "https://api.openai.com/v1" : "https://api.anthropic.com/v1"),
-    runtimes: ["worker", "convex", "scripts"],
+    runtimes: ["worker", "runtime", "scripts"],
     group: "llm",
     doc: "Global fallback base URL; the default depends on LLM_PROVIDER.",
   },
@@ -36,7 +36,7 @@ export const LLM_VARS = [
     name: "LLM_OPENAI_BASE_URL",
     type: "url",
     parse: "nullish",
-    runtimes: ["worker", "convex"],
+    runtimes: ["worker", "runtime"],
     group: "llm",
     doc: "OpenAI-flavour base URL; wins over LLM_BASE_URL for that flavour.",
   },
@@ -44,7 +44,7 @@ export const LLM_VARS = [
     name: "LLM_ANTHROPIC_BASE_URL",
     type: "url",
     parse: "nullish",
-    runtimes: ["worker", "convex"],
+    runtimes: ["worker", "runtime"],
     group: "llm",
     doc: "Anthropic-flavour base URL; wins over LLM_BASE_URL for that flavour.",
   },
@@ -53,7 +53,7 @@ export const LLM_VARS = [
     type: "string",
     parse: "nullish",
     default: "",
-    runtimes: ["worker", "convex", "scripts"],
+    runtimes: ["worker", "runtime", "scripts"],
     group: "llm",
     doc: "Global fallback API key; also the default apiKeyEnv name.",
     aliases: ["OPENAI_API_KEY"],
@@ -63,7 +63,7 @@ export const LLM_VARS = [
     name: "OPENAI_API_KEY",
     type: "string",
     parse: "nullish",
-    runtimes: ["worker", "convex", "scripts"],
+    runtimes: ["worker", "runtime", "scripts"],
     group: "llm",
     doc: "Legacy fallback for LLM_API_KEY.",
     secret: true,
@@ -83,7 +83,7 @@ export const LLM_VARS = [
     name: "FHARA_LLM_ROLE_OVERRIDE",
     type: "bool",
     default: false,
-    runtimes: ["worker", "convex"],
+    runtimes: ["worker", "runtime"],
     group: "llm",
     doc: "1 puts the project's per-role model (planner, reviewer, workers) first, with the global model list as fallback; 0 (default) uses the global list for every call.",
     knob: { reader: "both" },

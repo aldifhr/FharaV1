@@ -1,4 +1,3 @@
-"use client";
 
 /**
  * Settings → Scheduled tasks: the user's own scheduled tasks (GOAT G8).
@@ -8,8 +7,8 @@
  * never starts one on its own.
  */
 import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useMutation, useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toasts";
 import { BUTTON, errorText, LINK_BUTTON, relativeTime, Row, Section, Toggle, useAppSettings } from "./controls";

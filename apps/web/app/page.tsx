@@ -1,9 +1,8 @@
-"use client";
 
 import { useMemo } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
-import Link from "next/link";
+import { useMutation, useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
+import { Link } from "@/lib/spaRouter";
 import { ArrowUpRight, Plus } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import InitialAvatar from "@/components/InitialAvatar";

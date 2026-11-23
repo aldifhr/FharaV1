@@ -1,7 +1,7 @@
 /**
  * Secret env names, one source for the redactor, the child-env block list
  * and the apiKeyEnv denylist. Members and order equal today's lists in
- * apps/api/convex/lib/childEnv.ts (E1 changes no behaviour).
+ * apps/api/functions/lib/childEnv.ts (E1 changes no behaviour).
  */
 import { ENV_SCHEMA } from "./schema";
 import type { EnvVar } from "./schema/types";
@@ -13,9 +13,9 @@ export const SCHEMA_SECRET_NAMES: readonly string[] = (ENV_SCHEMA as readonly En
 
 /** Control-plane secrets that are not Fhara config vars but must never reach a child. */
 export const EXTRA_PLATFORM_SECRETS = [
-  "CONVEX_SELF_HOSTED_ADMIN_KEY",
-  "CONVEX_ADMIN_KEY",
-  "CONVEX_DEPLOY_KEY",
+  "FHARA_ADMIN_KEY",
+  "FHARA_ADMIN_KEY",
+  "FHARA_DEPLOY_KEY",
   "AUTH_GITHUB_SECRET",
   "JWT_PRIVATE_KEY",
 ] as const;
@@ -26,12 +26,12 @@ export const EXTRA_PLATFORM_SECRETS = [
  * FHARA_MCP_TOKEN (G12a) and FHARA_MCP_WEBHOOK_SECRET (G12b) at the end.
  */
 export const PLATFORM_SECRET_ENV_NAMES: readonly string[] = [
-  "CONVEX_SERVICE_TOKEN",
+  "FHARA_SERVICE_TOKEN",
   "PROVIDER_ENCRYPTION_KEY",
   "PROVIDER_ENCRYPTION_KEY_OLD",
-  "CONVEX_SELF_HOSTED_ADMIN_KEY",
-  "CONVEX_ADMIN_KEY",
-  "CONVEX_DEPLOY_KEY",
+  "FHARA_ADMIN_KEY",
+  "FHARA_ADMIN_KEY",
+  "FHARA_DEPLOY_KEY",
   "OAUTH_STATE_SECRET",
   "GITHUB_CLIENT_SECRET",
   "GITHUB_WEBHOOK_SECRET",

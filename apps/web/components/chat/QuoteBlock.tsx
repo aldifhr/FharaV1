@@ -1,7 +1,6 @@
-"use client";
 
 import { X } from "lucide-react";
-import { quoteSnippet } from "@/api/convex/lib/chat/quote";
+import { quoteSnippet } from "@/api/functions/lib/chat/quote";
 import { roleLabel } from "@/lib/agentRoles";
 
 /** What the composer and a bubble need to show a quoted message. */

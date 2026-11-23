@@ -1,11 +1,10 @@
-"use client";
 
 import { useState } from "react";
-import { useQuery } from "convex/react";
+import { useQuery } from "@fhara/runtime/react";
 import { ChevronDown, ChevronRight, Copy } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import { useToast } from "@/components/Toasts";
-import { CALL_ROLE_LABELS, sectionShares, type CallRole } from "@/api/convex/lib/contextSnapshot";
+import { CALL_ROLE_LABELS, sectionShares, type CallRole } from "@/api/functions/lib/contextSnapshot";
 import { roleLabel } from "@/lib/agentRoles";
 import { clockTime } from "@/lib/format";
 import { formatDuration, formatTokens } from "@/lib/runFormat";
@@ -157,14 +156,14 @@ export default function ContextInspector({ snapshotId }: { snapshotId: string })
       <div>
         <h3 className="mb-1 text-[12.5px] font-medium text-ink-2">Prompt sections</h3>
         <ul className="divide-y divide-line">
-          {shares.map((s) => (
+          {shares.map((s: any) => (
             <SectionRow
               key={s.key}
               label={s.label}
               tokens={s.tokens}
               share={s.share}
-              content={bodyByKey.get(s.key)?.content ?? ""}
-              truncatedChars={bodyByKey.get(s.key)?.truncatedChars}
+              content={(bodyByKey.get(s.key) as any)?.content ?? ""}
+              truncatedChars={(bodyByKey.get(s.key) as any)?.truncatedChars}
             />
           ))}
         </ul>

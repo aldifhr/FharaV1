@@ -1,7 +1,6 @@
-"use client";
 
 import { roleLabel } from "@/lib/agentRoles";
-import type { RoutingView } from "@/api/convex/lib/routing";
+import type { RoutingView } from "@/api/functions/lib/routing";
 
 /**
  * Intent & Routing Inspector: instruction → classification → planner →

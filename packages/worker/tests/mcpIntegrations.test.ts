@@ -9,7 +9,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { encryptApiKey } from "@/api/convex/lib/llmCrypto";
+import { encryptApiKey } from "@/api/functions/lib/llmCrypto";
 import { buildMcpChildEnv } from "@/mcp/client";
 import { McpRegistry, sessionAllowedForRole } from "@/mcp/registry";
 import { resolveMcpSpawn, redactSecrets } from "@/mcp/spawn";
@@ -87,15 +87,15 @@ describe("spawn spec from an encrypted row", () => {
   });
 
   it("forwards the server's own token env but never the worker's secrets", () => {
-    process.env.CONVEX_SERVICE_TOKEN = "worker-service-token";
+    process.env.FHARA_SERVICE_TOKEN = "worker-service-token";
     const env = buildMcpChildEnv(undefined, {
       GITHUB_PERSONAL_ACCESS_TOKEN: "ghp_server",
-      CONVEX_SERVICE_TOKEN: "smuggled",
+      FHARA_SERVICE_TOKEN: "smuggled",
       PROVIDER_ENCRYPTION_KEY: "smuggled",
     });
-    delete process.env.CONVEX_SERVICE_TOKEN;
+    delete process.env.FHARA_SERVICE_TOKEN;
     expect(env.GITHUB_PERSONAL_ACCESS_TOKEN).toBe("ghp_server");
-    expect(env.CONVEX_SERVICE_TOKEN).toBeUndefined();
+    expect(env.FHARA_SERVICE_TOKEN).toBeUndefined();
     expect(env.PROVIDER_ENCRYPTION_KEY).toBeUndefined();
   });
 });

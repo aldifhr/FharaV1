@@ -8,8 +8,8 @@ import { planningPromptParts } from "@/prompts/planner";
 import { runLlmCallWithFallback, type FallbackHandle } from "@/effects/llmCall";
 import { flushSnapshots, setSnapshotSink, withSnapshotScope, type SnapshotRecord } from "@/llm/snapshots";
 import { firstTokenClock, normalizeOpenAiUsage } from "@/llm/usage";
-import { assemblePrompt, stablePrefixHash, stablePrefixText } from "@/api/convex/lib/assemblePrompt";
-import { cacheHitPercent, tokensPerSecond } from "@/api/convex/lib/callStats";
+import { assemblePrompt, stablePrefixHash, stablePrefixText } from "@/api/functions/lib/assemblePrompt";
+import { cacheHitPercent, tokensPerSecond } from "@/api/functions/lib/callStats";
 import type { TaskLlmResolver } from "@/llm/resolver";
 import type { AgentDefinition } from "@/types";
 

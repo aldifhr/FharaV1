@@ -5,7 +5,7 @@ Fhara includes portions adapted from the following projects.
 ## t3code
 
 - Source: https://github.com/pingdotgg/t3code
-- Used in: `apps/api/convex/lib/eventResume.ts` (`decideResume` / `replayEncodedBytes`, adapted from
+- Used in: `apps/api/functions/lib/eventResume.ts` (`decideResume` / `replayEncodedBytes`, adapted from
   `apps/server/src/orchestration-v2/ThreadStream.ts` `decideThreadResume` / `threadReplayEncodedBytes`).
   Other t3code-inspired changes (sequenced events, idempotent sends, durable chat replies) take the ideas only.
 
@@ -41,21 +41,21 @@ SOFTWARE.
   `packages/provider-core/src/server/builtinSkills/goatDiscipline.ts`); `scripts/guards/rules.mjs` and
   `scripts/code-budget.mjs` (line budget, suppression-reason and baseline-ratchet logic adapted from
   `oxlint-plugin-goat/codeBudget.ts`, `rules/code-budget.ts`, `rules/require-suppression-reason.ts`,
-  `update-code-budgets.ts`); `apps/api/convex/lib/automationHold.ts` (global automation hold, adapted
-  from `apps/server/src/automationHold.ts`); `apps/api/convex/lib/restartContinuation.ts` (restart
+  `update-code-budgets.ts`); `apps/api/functions/lib/automationHold.ts` (global automation hold, adapted
+  from `apps/server/src/automationHold.ts`); `apps/api/functions/lib/restartContinuation.ts` (restart
   continuation: `CONTINUE_PROMPT` text and the 3-in-5-minutes loop window, adapted from
   `apps/server/src/orchestration-v2/RestartContinuation.ts`; the subtask wiring is a
   pattern only); `packages/worker/src/vendor/goat/diffs.ts` (copy of
   `apps/server/src/checkpointing/Diffs.ts`, numstat parser) with `packages/worker/src/tools/gitCheckpoint.ts`
-  and `apps/api/convex/lib/checkpointRefs.ts` (hidden-ref checkpoint capture: temp index, write-tree,
+  and `apps/api/functions/lib/checkpointRefs.ts` (hidden-ref checkpoint capture: temp index, write-tree,
   commit-tree, update-ref; a pattern from `apps/server/src/vcs/GitVcsDriver.ts`);
-  `apps/api/convex/lib/checkpointRestore.ts` (checkpoint restore with multi-pass clean and the
+  `apps/api/functions/lib/checkpointRestore.ts` (checkpoint restore with multi-pass clean and the
   worktree snapshot before cleanup; a pattern from `GitVcsDriver.ts` `restoreCheckpoint` and
-  `apps/server/src/worktreeSnapshots/captureSnapshot.ts`); `apps/api/convex/lib/schedule.ts` (port of
+  `apps/server/src/worktreeSnapshots/captureSnapshot.ts`); `apps/api/functions/lib/schedule.ts` (port of
   `apps/server/src/scheduledTasks/Schedule.ts`: next-run, missed fixed-time run, schedule equality;
-  epoch milliseconds and IANA time zones instead of Effect DateTime); `apps/api/convex/lib/webhookTemplate.ts`
+  epoch milliseconds and IANA time zones instead of Effect DateTime); `apps/api/functions/lib/webhookTemplate.ts`
   (copy of `apps/server/src/scheduledTasks/webhookTemplate.ts`: webhook placeholders, untrusted-data
-  framing, credential redaction) and `apps/api/convex/lib/webhookVerification.ts` (`constantTimeEquals`
+  framing, credential redaction) and `apps/api/functions/lib/webhookVerification.ts` (`constantTimeEquals`
   from `webhookVerification.ts` on Web Crypto; the hashed bearer token, the hold-before-dispatch answer
   of `webhookAutomationHold.ts` and the per-delivery dedupe of `webhookDedupe.ts` are patterns only);
   `packages/worker/src/vendor/goat/projectScripts.ts` (port of `packages/shared/src/projectScripts.ts`:
@@ -68,14 +68,14 @@ SOFTWARE.
   `apps/server/src/terminal/terminalHistoryReplay.ts`: terminal query/response sequence stripping), used by
   `packages/worker/src/tools/runPty.ts` and `execution/shellRun.ts` (the PTY routing of long shell-node
   commands into the live tail is a pattern only); `packages/worker/src/mcpServer/` (`registry.ts`,
-  `protocol.ts`, `httpServer.ts`) with `apps/api/convex/mcpRead.ts` (the localhost Fhara MCP server: one
+  `protocol.ts`, `httpServer.ts`) with `apps/api/functions/mcpRead.ts` (the localhost Fhara MCP server: one
   registry of `resource.verb` tools with access declarations driving the read-only/destructive hints,
   the two-tool `describe` + `call` core listing, and the bearer-token HTTP transport on 127.0.0.1; a
   pattern from `apps/server/src/mcp/{McpHttpServer.ts, OrchestratorMcpService.ts, McpToolAccess.ts,
   ToolDispatch.ts}` and `packages/contracts/src/agentSurface/registry.ts`, no code copied);
   `apps/web/lib/composerPaste.ts` (a paste of 32 KiB or more, or one past the 120k-character composer
   cap, becomes a text attachment; a pattern from `docs/user/composer.md`), no code copied;
-  `apps/api/convex/decisionTurns.ts`, `apps/api/convex/lib/questionPolicy.ts` and
+  `apps/api/functions/decisionTurns.ts`, `apps/api/functions/lib/questionPolicy.ts` and
   `packages/worker/src/decisionTurn/` (CTO-first questions: a question inside the CTO's ceiling goes to a
   decision turn first, only questions above it reach the person, the answer is committed to an outbox
   before delivery, expiry never picks an option; a pattern from
@@ -111,7 +111,7 @@ SOFTWARE.
 ## 9router
 
 - Source: https://github.com/decolua/9router (commit `1339107`)
-- Used in: `apps/api/convex/lib/llmRotation.ts`: `StickyRotationCursor` / `rotateFrom` (adapted from
+- Used in: `apps/api/functions/lib/llmRotation.ts`: `StickyRotationCursor` / `rotateFrom` (adapted from
   `open-sse/services/combo.js` `getRotatedModels` / `normalizeStickyLimit` / `rotateModelsFromIndex`),
   `isEmptyCompletion` (from `isZeroContentResponse`, same file), and `cooldownForFailure` /
   `rateLimitCooldownMs` (from `open-sse/services/accountFallback.js` `checkFallbackError` /
@@ -148,7 +148,7 @@ SOFTWARE.
 - Used in:
   - `packages/worker/src/vendor/threadbear/safeGit.ts`: copy of `runner/src/safe-git.ts` (child env default changed to
     `buildChildEnv()`; see the file header). Used by `packages/worker/src/tools/gitPush.ts`.
-  - `apps/api/convex/lib/prChecks.ts`: the check rollup follows `ciVerdict` / `githubRuns` in `runner/src/upstream.ts`
+  - `apps/api/functions/lib/prChecks.ts`: the check rollup follows `ciVerdict` / `githubRuns` in `runner/src/upstream.ts`
     (idea and pass/fail rules only, no code copied).
   - Mock fixtures (docs/mock-fixtures.md; commit b697f32; each file carries a header naming its source):
     - `app/Tools/mock-runner/make-synthetic.mjs` → `scripts/fixtures/make-synthetic.mjs` (adapted: the
@@ -537,14 +537,14 @@ SOFTWARE.
 ## Awesome Agent Skills (skill catalog metadata)
 
 - Source: https://github.com/khasky/awesome-agent-skills (commit `58ea4e8`)
-- Used in: `apps/api/convex/lib/skillCatalog.json`, generated by `scripts/build-skill-catalog.ts` from the
+- Used in: `apps/api/functions/lib/skillCatalog.json`, generated by `scripts/build-skill-catalog.ts` from the
   repository's README skill tables and each `SKILL.md` front matter (skill name, one-line description,
   category, path, license, author). Library → Browse → Refresh catalog stores a newer copy of the same
   metadata in the `skillCatalogs` table. Skill bodies are not bundled; installing one imports it from
   GitHub with its own license recorded on the skill.
 - Also used in: `skills/builtin/accessibility-audit/SKILL.md` (Fhara built-in skill), condensed from
   `skills/awesome-accessibility-audit/SKILL.md` to fit the inline skill prompt budget; the file header names the
-  source. Bundled through the generated `apps/api/convex/lib/builtinSkills.data.ts`.
+  source. Bundled through the generated `apps/api/functions/lib/builtinSkills.data.ts`.
 
 ```
 MIT License
@@ -577,7 +577,7 @@ SOFTWARE.
 - Used in: `skills/builtin/frontend-design/SKILL.md` (Fhara built-in skill). Modified by Fhara: condensed to fit
   the inline skill prompt budget, reordered, and extended with a rule to design within an existing app's design
   system. The folder keeps the upstream `LICENSE.txt` and a `NOTICE` describing the changes. Bundled through the
-  generated `apps/api/convex/lib/builtinSkills.data.ts`.
+  generated `apps/api/functions/lib/builtinSkills.data.ts`.
 - Not used: theme-factory, canvas-design, brand-guidelines, web-artifacts-builder and webapp-testing (each is
   Apache-2.0 too; their content did not fit the Designer's prompt budget or duplicated Fhara's own QA browser).
 
@@ -669,25 +669,25 @@ SOFTWARE.
 ## vigilante
 
 - Source: https://github.com/aliengiraffe/vigilante (commit `a4f7826`)
-- Used in: `apps/api/convex/lib/autoMerge.ts` (`mergeVerdict`: the wait-reason table, ported from
+- Used in: `apps/api/functions/lib/autoMerge.ts` (`mergeVerdict`: the wait-reason table, ported from
   `internal/app/app.go` `automergeWaitReason`, lines 5211-5249). Changed by Fhara: TypeScript port, typed
   wait/blocked verdicts, errored checks block, no-check PRs wait, head must equal the approved commit.
-  Also `apps/api/convex/lib/issueIntake.ts`: the status-label lifecycle on the issue (`internal/app/app.go:78-90`).
+  Also `apps/api/functions/lib/issueIntake.ts`: the status-label lifecycle on the issue (`internal/app/app.go:78-90`).
   Also `packages/worker/src/utils/accessLog.ts` (O5): `sanitizeAccessLogArgs`, `sanitizeAccessLogText`, the
   sensitive flag/value tests and the failure-kind classification, ported from
   `internal/environment/accesslog.go`. Changed by Fhara: TypeScript; also redacts `x-access-token:` URLs,
   git `http.extraheader` values, sensitive `NAME=` assignments, caller-known secrets and token-shaped strings;
-  rows go to the Convex audit table instead of a JSONL file.
+  rows go to the Fhara audit table instead of a JSONL file.
   Licensed under the Apache License, Version 2.0 (full text in the Aider entry above). vigilante ships no
   NOTICE file and names no copyright holder in its LICENSE.
 
 ## coder (zvenoai)
 
 - Source: https://github.com/zvenoai/coder (commit `1e1cc92`)
-- Used in: `apps/api/convex/lib/autoMerge.ts` (`humanGate`: the diff-size and sensitive-path gate, ported from
+- Used in: `apps/api/functions/lib/autoMerge.ts` (`humanGate`: the diff-size and sensitive-path gate, ported from
   `orchestrator/pr_monitor.py` `_check_human_gate`, lines 860-902). Changed by Fhara: TypeScript port, fails
   closed when the file list cannot be read or may be truncated, renamed-from paths are matched too. Also
-  `apps/api/convex/lib/issueIntake.ts` (`preflightEvidence`: the "already done?" evidence collection from
+  `apps/api/functions/lib/issueIntake.ts` (`preflightEvidence`: the "already done?" evidence collection from
   `orchestrator/preflight_checker.py:87-130`; changed: GitHub timeline/comments as sources, evidence only asks the
   user to confirm). Licensed
   under the Apache License, Version 2.0 (full text in the Aider entry above). coder ships no NOTICE file and
@@ -696,7 +696,7 @@ SOFTWARE.
 ## Harness
 
 - Source: https://github.com/VocanicZ/Harness (commit `edcf03d`)
-- Used in: `apps/api/convex/lib/issueIntake.ts` (`intakeDecision`: only issues written by the authenticated
+- Used in: `apps/api/functions/lib/issueIntake.ts` (`intakeDecision`: only issues written by the authenticated
   user are taken, following `scripts/issuelib.py:492-517`).
 
 ```
@@ -757,7 +757,7 @@ SOFTWARE.
 ## discoclaw
 
 - Source: https://github.com/DiscoClaw/discoclaw (commit `24c8ae6`)
-- Used in: `apps/api/convex/lib/approvalFingerprint.ts` (`stableStringify`, the action fingerprint and the
+- Used in: `apps/api/functions/lib/approvalFingerprint.ts` (`stableStringify`, the action fingerprint and the
   10-minute confirmation TTL from `src/discord/destructive-confirmation.ts`). Changed by Fhara: Web Crypto, the
   fingerprint covers an approval's shown fields, the TTL runs from when the client showed it.
 
@@ -828,7 +828,7 @@ This repository does not claim affiliation with the upstream projects listed bel
 ## embassy
 
 - Source: https://github.com/YuanpingSong/embassy (commit `331d004`, `docs/DELIVERY.md`)
-- Used in: `apps/api/convex/sideEffects.ts`, `packages/worker/src/services/sideEffects.ts`,
+- Used in: `apps/api/functions/sideEffects.ts`, `packages/worker/src/services/sideEffects.ts`,
   `packages/worker/src/services/runner/applyLedger.ts`: the delivery phase model only (queued → armed → accepted →
   terminal, `ambiguous` never replayed, only positive proof of no write returns work to the queue). No code copied.
 
@@ -860,7 +860,7 @@ SOFTWARE.
 ## openagents
 
 - Source: https://github.com/openagents-org/openagents (commit `96d18e8`)
-- Used in: `apps/api/convex/lib/brief.ts` and `apps/api/convex/briefs.ts` (task brief, plan L3): the brief fields
+- Used in: `apps/api/functions/lib/brief.ts` and `apps/api/functions/briefs.ts` (task brief, plan L3): the brief fields
   (objective, owner, latest result, open questions, next step), the caps (4000 characters, 20 questions of 500
   characters) and the partial-upsert rule (an absent key is untouched, an explicit null clears it), adapted from
   `workspace/backend/app/routers/briefs.py`. Ported from Python to TypeScript; changes are marked in the file
@@ -871,7 +871,7 @@ SOFTWARE.
 
 - Source: https://github.com/earthwalker17/agent-os (commit `59833d3`)
 - Used in:
-  - `apps/api/convex/lib/memoryRecall.ts` (memory recall, plan L4): the query tokenizer, stopword list, keyword
+  - `apps/api/functions/lib/memoryRecall.ts` (memory recall, plan L4): the query tokenizer, stopword list, keyword
     score and snippet window, adapted from `backend/execution/local_rag.py` (`_tokens`, `_STOPWORDS`, `_score`,
     `_snippet`).
   - `packages/worker/src/services/runner/memoryReconcile.ts` and `packages/worker/src/prompts/memoryReconcile.ts`
@@ -885,27 +885,27 @@ SOFTWARE.
 ## Paradev (superset-sh/superset)
 
 - Source: https://github.com/superset-sh/superset
-- Used in: `apps/api/convex/lib/slashCommands.ts` and `slashCommands.test.ts` (the slash-command wire type,
+- Used in: `apps/api/functions/lib/slashCommands.ts` and `slashCommands.test.ts` (the slash-command wire type,
   `findSlashCommandByNameOrAlias`, `getCommandMatchRank`, `shouldSuppressSlashMenuForCommittedCommand`,
   `sortSlashCommandMatches` and their tests, copied from `packages/shared/src/slash-commands.ts` and
   `slash-commands.test.ts`). Changed by Fhara: no `trigger` field, builtins sort first, plus the Fhara
   builtin list, scopes and `parseSlash`; changes are marked in the file headers.
 - Also used in (Paradev A1, cloned from github.com/superset-sh/superset @ ce98da26, now github.com/paradevai/paradev):
-  - `apps/api/convex/lib/changeset.ts` (`getChangesFlowState`, `selectActionButton`, `selectPrLink`,
+  - `apps/api/functions/lib/changeset.ts` (`getChangesFlowState`, `selectActionButton`, `selectPrLink`,
     `selectStatusLabel`), adapted from
     `apps/desktop/src/renderer/routes/_authenticated/_dashboard/v2-workspace/$workspaceId/utils/getPRFlowState/getPRFlowState.ts`
     (`getPRFlowState` and its selectors); `ChangesetFile` follows the pattern of `.../hooks/useChangeset/types.ts`.
-    `apps/api/convex/lib/changeset.test.ts` ports the cases of `getPRFlowState.test.ts`. Changed by Fhara: states
+    `apps/api/functions/lib/changeset.test.ts` ports the cases of `getPRFlowState.test.ts`. Changed by Fhara: states
     renamed for Fhara task facts (no-branch, worktree-gone, proposed, committed, pushed, pr-exists, fix-running,
     error), plus the git `-z` parsers.
-  - `apps/api/convex/lib/diffPatch.ts` (`CONFIG_ARGS`, `BASE_ARGS`, `MAX_PATCH_BYTES`, `PatchBudget`,
+  - `apps/api/functions/lib/diffPatch.ts` (`CONFIG_ARGS`, `BASE_ARGS`, `MAX_PATCH_BYTES`, `PatchBudget`,
     `keepCompleteSections`), copied from `packages/host-service/src/trpc/router/git/utils/diff-patch.ts` and used by
-    `apps/api/convex/worktreeNode.ts` (`getDiff`). Changed by Fhara: no spawn, git runs through Fhara's `gitExec`
+    `apps/api/functions/worktreeNode.ts` (`getDiff`). Changed by Fhara: no spawn, git runs through Fhara's `gitExec`
     with a maxBuffer, and a truncated patch ends with a marker line.
-  - `apps/api/convex/lib/prFeedback.ts` (`formatLineComment`, Paradev A3), copied from
+  - `apps/api/functions/lib/prFeedback.ts` (`formatLineComment`, Paradev A3), copied from
     `apps/desktop/src/renderer/hooks/host-service/useSendToTerminalAgent/useSendToTerminalAgent.ts`
     (`formatAgentPromptWithFileContext`). Changed by Fhara: takes one flat comment object and trims the body;
-    used by `buildReviewRoundPrompt` for review rounds (`apps/api/convex/diffComments.ts`).
+    used by `buildReviewRoundPrompt` for review rounds (`apps/api/functions/diffComments.ts`).
 - Other Paradev-inspired changes take the ideas only.
 
 ```
@@ -941,7 +941,7 @@ SOFTWARE.
     targets; the canonical-rotation, baseline-compare and target-partition helpers are kept as in the original.
   - `scripts/guards/rules.mjs` (`unawaitedAsyncAssertions`): port of `eslint-rules/no-unawaited-async-assertion.js`
     to a TypeScript-AST scan. Modified by Fhara.
-  - `apps/api/convex/lib/untrustedContent.ts`: copy of `apps/backend/src/lib/agent/untrusted-content.ts`
+  - `apps/api/functions/lib/untrustedContent.ts`: copy of `apps/backend/src/lib/agent/untrusted-content.ts`
     (`fenceUntrusted`: every `<` escaped so nothing inside can close the block). Modified by Fhara: always an
     `<untrusted source="…">` block, Fhara's notes (evidence and request variants). Used for GitHub issue bodies
     (`lib/issueIntake.ts`), PR reviews, CI logs and review-round comments (`lib/prFeedback.ts`).
@@ -973,7 +973,7 @@ apps/runtime/openab/LICENSE.
     `packages/test-support/llm-mock-server/README.md`, re-done for Fhara's OpenAI-compatible mock and scripted rules.
   - `packages/worker/tests/helpers/assertUntouched.ts` and `e2e/fixtures-ui/world.mjs`: "Verify the world, not the
     self-report" from `docs/testing.md` (untouched files stay byte-identical after a flow).
-  - `apps/api/convex/lib/llmWireErrors.ts` (re-exported by `packages/worker/src/llm/errors.ts`) and
+  - `apps/api/functions/lib/llmWireErrors.ts` (re-exported by `packages/worker/src/llm/errors.ts`) and
     `packages/worker/src/context/overflowRecovery.ts` (D2): typed wire faults and the context-overflow request-error
     path (prune, re-check, summarize only if still over, retry, `compaction.start`/`compaction.end`) after
     `packages/compaction/compaction-basic` and `docs/subsystems/compaction.md`; pattern only.
@@ -989,13 +989,13 @@ apps/runtime/openab/LICENSE.
   - `skills/builtin/review-checklist/SKILL.md` (D9, Fhara built-in skill for Reviewer, Frontend, Backend and QA):
     adapted prose, distilled into a short checklist from `docs/defensive-patterns/general.md`, `docs/testing.md` and
     `.agents/skills/{dsh-code-review,dsh-error-handling,dsh-ci-test-reliability}/SKILL.md`; attribution in its front
-    matter. Bundled through the generated `apps/api/convex/lib/builtinSkills.data.ts`.
-  - `apps/api/convex/commandApprovals.ts` (`review`), `apps/api/convex/lib/permissionModes.ts` (`autoReviewApplies`) and
+    matter. Bundled through the generated `apps/api/functions/lib/builtinSkills.data.ts`.
+  - `apps/api/functions/commandApprovals.ts` (`review`), `apps/api/functions/lib/permissionModes.ts` (`autoReviewApplies`) and
     `packages/worker/src/decisionTurn/autoReview.ts` (D7, auto review in Full access): one LLM review of the pending
     command before an auto-approval, a deny or unparsable verdict falling back to the approval card, after
     `packages/experimental/auto-review/src/index.ts` and `interaction/permission-presets` (the `auto` preset); pattern
     only. The deterministic floors (push, secret upload) are Fhara's.
-- Copied (MIT, header in the file): `apps/api/convex/lib/autoReview.ts` (D7): the review rubric (`REVIEW_POLICY`) and the
+- Copied (MIT, header in the file): `apps/api/functions/lib/autoReview.ts` (D7): the review rubric (`REVIEW_POLICY`) and the
   closed risk/decision protocol (`topLevelMemberCount`, `parseDecision`) from
   `packages/experimental/auto-review/src/index.ts`, reworded for one shell command and Fhara's review request; `packages/worker/src/vendor/deepseek-harness/prunerConfig.ts` from
   `packages/compaction/compaction-tool-result-pruner/src/config.ts` (head 4096 + marker + tail 1024, at most 8192;

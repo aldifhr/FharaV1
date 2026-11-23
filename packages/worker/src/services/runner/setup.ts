@@ -22,7 +22,7 @@ import {
   type PoolConnectionRow,
 } from "@/llm/resolver";
 import { providerHealth } from "@/llm/health";
-import type { LlmSelectionMode } from "@/api/convex/lib/llmSelection";
+import type { LlmSelectionMode } from "@/api/functions/lib/llmSelection";
 import { routeCapability } from "@/orchestrator/capabilities";
 import type { ReviewFinding } from "@/utils/json";
 import { getMcpRegistry, type McpRunConfig } from "@/mcp/registry";
@@ -31,9 +31,9 @@ import type { WebClientConfig } from "@/tools/webClient";
 import type { NodeOutcome, SchedulerResult } from "@/scheduler/dagScheduler";
 import type { FileDiff } from "@/tools/gitDiff";
 import { taskAgentSkills } from "@/execution/skillLoading";
-import type { ModelTiers } from "@/api/convex/lib/modelTiers";
-import { appendMemoryToPrompt } from "@/api/convex/lib/memory";
-import { settingEnv } from "@/api/convex/lib/appSettings";
+import type { ModelTiers } from "@/api/functions/lib/modelTiers";
+import { appendMemoryToPrompt } from "@/api/functions/lib/memory";
+import { settingEnv } from "@/api/functions/lib/appSettings";
 import type {
   WorkerRunAgent,
   WorkerProject,

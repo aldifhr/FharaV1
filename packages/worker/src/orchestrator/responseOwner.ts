@@ -16,8 +16,8 @@
  * its review/qa nodes, unless they are the whole plan.
  */
 import { CAPABILITY, type AgentDefinition, type ExecutionPlan, type PlanSubtask } from "@/types";
-import { ARCH_DECISION_KEY } from "@/api/convex/lib/architectureFlag";
-import { canWritePath, ROLES, ROLE_KEYS, type RoleKey } from "@/api/convex/lib/roles";
+import { ARCH_DECISION_KEY } from "@/api/functions/lib/architectureFlag";
+import { canWritePath, ROLES, ROLE_KEYS, type RoleKey } from "@/api/functions/lib/roles";
 import { normalizeCapability } from "@/utils/agentCapabilities";
 import { resolveRoleKey } from "@/utils/rolePolicy";
 import { routeCapability } from "./capabilities";

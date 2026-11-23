@@ -1,16 +1,15 @@
-"use client";
 
 /**
  * Self-Improvement Lab UI: "Suggest fix" on a failed run and the proposed
  * change shown as a diff with Apply / Dismiss. Nothing applies by itself.
  */
 import { useState } from "react";
-import { useMutation } from "convex/react";
-import type { FunctionReturnType } from "convex/server";
-import { api } from "@/api/convex/_generated/api";
+import { useMutation } from "@fhara/runtime/react";
+import type { FunctionReturnType } from "@fhara/runtime/server";
+import { api } from "@fhara/runtime/api";
 import { useToast } from "@/components/Toasts";
-import { TARGET_KIND_LABELS, type SuggestionTargetKind } from "@/api/convex/lib/improve/suggest";
-import { diffStats } from "@/api/convex/lib/improve/textDiff";
+import { TARGET_KIND_LABELS, type SuggestionTargetKind } from "@/api/functions/lib/improve/suggest";
+import { diffStats } from "@/api/functions/lib/improve/textDiff";
 
 export type Suggestion = FunctionReturnType<typeof api.improve.listSuggestions>[number];
 

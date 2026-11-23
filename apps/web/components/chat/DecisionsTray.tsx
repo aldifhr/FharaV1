@@ -1,8 +1,7 @@
-"use client";
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react";
-import { nextTrayIndex, type TrayAction, type TrayItem } from "@/api/convex/lib/decisionTray";
+import { nextTrayIndex, type TrayAction, type TrayItem } from "@/api/functions/lib/decisionTray";
 
 /**
  * "Decision needed": one box docked directly above the chat composer

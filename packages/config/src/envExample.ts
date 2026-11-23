@@ -1,10 +1,10 @@
 /**
  * The root .env.example and apps/api/.env.example, rendered from the schema
  * (`npm run env:example`; a guard test fails when a committed copy is stale).
- * Defaults, options, secret flags and the Convex sync list come from the
+ * Defaults, options, secret flags and the FharaRuntime sync list come from the
  * schema, so the docs cannot drift from the code again.
  */
-import { CONVEX_NOT_SYNCED, CONVEX_SYNC_KEYS } from "./convexSync";
+import { FHARA_NOT_SYNCED, FHARA_SYNC_KEYS } from "./runtimeSync";
 import { ENV_SCHEMA } from "./schema";
 import type { EnvGroup, EnvVar, Runtime } from "./schema/types";
 
@@ -19,26 +19,26 @@ export const ENV_SECTIONS: readonly Section[] = [
   {
     group: "core",
     title: "Required",
-    intro: ["The Convex deployment and the service token the worker, Convex and the web server share."],
+    intro: ["The FharaRuntime deployment and the service token the worker, FharaRuntime and the web server share."],
   },
   {
     group: "llm",
     title: "LLM fallback",
     intro: [
       "Optional when a provider is configured in Settings → LLM. Used by the worker and by",
-      "Convex (chat, prompt enhance) when no provider row applies.",
+      "FharaRuntime (chat, prompt enhance) when no provider row applies.",
     ],
   },
   {
     group: "github",
-    title: "GitHub OAuth and webhooks (Convex)",
+    title: "GitHub OAuth and webhooks (FharaRuntime)",
     intro: [
       "GitHub OAuth app for push / draft PRs, the signed OAuth state, and the fallback",
       "webhook secret (per-project secrets from Integrations win; none = webhooks 401).",
       "The GitHub token is stored encrypted, so connecting GitHub needs PROVIDER_ENCRYPTION_KEY.",
     ],
   },
-  { group: "usage", title: "Usage meter (Convex)" },
+  { group: "usage", title: "Usage meter (FharaRuntime)" },
   {
     group: "web",
     title: "Web server exposure",
@@ -76,19 +76,19 @@ export const ENV_SECTIONS: readonly Section[] = [
     intro: ["Install Chromium once: cd packages/worker && npx playwright install chromium"],
   },
   { group: "snapshots", title: "Context snapshots" },
-  { group: "threads", title: "Chat and task watchdogs (Convex)" },
+  { group: "threads", title: "Chat and task watchdogs (FharaRuntime)" },
   { group: "workspace", title: "Workspaces" },
   { group: "electron", title: "Electron shell (npm run electron:dev)" },
   { group: "scripts", title: "Scripts (supervise, smoke:push, catalog:build)" },
 ];
 
-/** Convex CLI target vars: not Fhara config, read by `npx convex` from apps/api/.env.local or the env. */
-export const CONVEX_CLI_TARGET_VARS = ["CONVEX_DEPLOYMENT", "CONVEX_SELF_HOSTED_URL", "CONVEX_SELF_HOSTED_ADMIN_KEY"] as const;
+/** FharaRuntime CLI target vars: not Fhara config, read by `npx runtime` from apps/api/.env.local or the env. */
+export const FHARA_CLI_TARGET_VARS = ["FHARA_DEPLOYMENT", "FHARA_BACKEND_URL", "FHARA_ADMIN_KEY"] as const;
 
 const RUNTIME_LABEL: Record<Runtime, string> = {
   worker: "worker",
-  convex: "Convex",
-  convexNode: "Convex",
+  runtime: "FharaRuntime",
+  runtimeNode: "FharaRuntime",
   webServer: "web",
   webClient: "web",
   electron: "electron",
@@ -96,12 +96,12 @@ const RUNTIME_LABEL: Record<Runtime, string> = {
 };
 
 const GENERATE: Readonly<Record<string, string>> = {
-  CONVEX_SERVICE_TOKEN: "openssl rand -hex 32",
+  FHARA_SERVICE_TOKEN: "openssl rand -hex 32",
   OAUTH_STATE_SECRET: "openssl rand -hex 32",
   GITHUB_WEBHOOK_SECRET: "openssl rand -hex 32",
 };
 
-const isConvex = (r: Runtime) => r === "convex" || r === "convexNode";
+const isFharaRuntime = (r: Runtime) => r === "runtime" || r === "runtimeNode";
 
 function readers(def: EnvVar): string {
   return [...new Set(def.runtimes.map((r) => RUNTIME_LABEL[r]))].join(", ");
@@ -122,11 +122,11 @@ function notes(def: EnvVar, sync: ReadonlySet<string>): string[] {
   const out: string[] = [`read by: ${readers(def)}`];
   if ("options" in def && def.type === "enum") out.push(`one of: ${def.options.join(" | ")}`);
   if (def.knob) out.push("also set in Settings (overrides this file)");
-  if (sync.has(def.name)) out.push("synced to Convex by npm run dev");
-  else if (def.runtimes.some(isConvex) && !def.convexSystem) {
-    out.push(`not synced to Convex: ${CONVEX_NOT_SYNCED[def.name] ?? "set it with npx convex env set"}`);
+  if (sync.has(def.name)) out.push("synced to FharaRuntime by npm run dev");
+  else if (def.runtimes.some(isFharaRuntime) && !def.runtimeSystem) {
+    out.push(`not synced to FharaRuntime: ${FHARA_NOT_SYNCED[def.name] ?? "set it with npx runtime env set"}`);
   }
-  if (def.convexSystem) out.push("set by Convex itself; on the web side derived from NEXT_PUBLIC_CONVEX_URL");
+  if (def.runtimeSystem) out.push("set by FharaRuntime itself; on the web side derived from FHARA_BACKEND_URL");
   if (def.aliases?.length) out.push(`legacy name${def.aliases.length > 1 ? "s" : ""} ${def.aliases.join(", ")} still read`);
   if (def.secret) out.push(GENERATE[def.name] ? `secret, generate: ${GENERATE[def.name]}` : "secret");
   if (def.type === "base64key32") out.push("base64 of 32 bytes: openssl rand -base64 32");
@@ -142,10 +142,10 @@ const HEADER = [
   "#   cp .env.example .env   then run `npm run doctor`.",
   "#",
   "# - worker: loads the root .env at startup.",
-  "# - web: next.config.mjs loads it (apps/web/.env.local still works as an override).",
-  "# - Convex functions cannot read files: `npm run dev` (or `npm run env:sync`) copies the",
-  "#   keys marked \"synced to Convex\" to the deployment env, only when a value changed.",
-  "# - The Convex CLI target (CONVEX_DEPLOYMENT / CONVEX_SELF_HOSTED_*) lives in",
+  "# - web: vite.config.mts loads it (apps/web/.env.local still works as an override).",
+  "# - FharaRuntime functions cannot read files: `npm run dev` (or `npm run env:sync`) copies the",
+  "#   keys marked \"synced to FharaRuntime\" to the deployment env, only when a value changed.",
+  "# - The FharaRuntime CLI target (FHARA_DEPLOYMENT / FHARA_SELF_HOSTED_*) lives in",
   "#   apps/api/.env.local; see apps/api/.env.example.",
   "#",
   "# GENERATED from packages/config/src/schema by `npm run env:example`; edit the schema,",
@@ -158,7 +158,7 @@ function sectionRule(title: string): string {
 }
 
 export function renderEnvExample(): string {
-  const sync = new Set<string>(CONVEX_SYNC_KEYS);
+  const sync = new Set<string>(FHARA_SYNC_KEYS);
   const all = ENV_SCHEMA as readonly EnvVar[];
   const lines: string[] = [...HEADER];
   for (const section of ENV_SECTIONS) {
@@ -183,18 +183,18 @@ export function renderEnvExample(): string {
 
 export function renderApiEnvExample(): string {
   return [
-    "# Convex CLI target — copy to apps/api/.env.local (the Convex CLI reads it from this folder).",
+    "# FharaRuntime CLI target — copy to apps/api/.env.local (the FharaRuntime CLI reads it from this folder).",
     "# Everything else lives in the root .env (see ../../.env.example); `npm run dev` / `npm run",
-    "# env:sync` copies the keys Convex functions read to the deployment env.",
+    "# env:sync` copies the keys FharaRuntime functions read to the deployment env.",
     "#",
     "# GENERATED by `npm run env:example` (packages/config/src/envExample.ts).",
     "",
-    "# Convex cloud: `npx convex dev` writes CONVEX_DEPLOYMENT (and CONVEX_URL) here.",
-    "# CONVEX_DEPLOYMENT=",
+    "# FharaRuntime cloud: `npx runtime dev` writes FHARA_DEPLOYMENT (and FHARA_BACKEND_URL) here.",
+    "# FHARA_DEPLOYMENT=",
     "",
     "# Self-hosted / local backend instead:",
-    "# CONVEX_SELF_HOSTED_URL=http://127.0.0.1:3210",
-    "# CONVEX_SELF_HOSTED_ADMIN_KEY=",
+    "# FHARA_BACKEND_URL=http://127.0.0.1:3210",
+    "# FHARA_ADMIN_KEY=",
     "",
   ].join("\n");
 }

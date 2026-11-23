@@ -8,9 +8,9 @@ Read this file before changing code. Each surface has its own rules:
 
 | File | Scope |
 | --- | --- |
-| [`apps/api/convex/AGENTS.md`](apps/api/convex/AGENTS.md) | Schema, queries/mutations/actions, authz, migrations |
+| [`apps/api/functions/AGENTS.md`](apps/api/functions/AGENTS.md) | Schema, queries/mutations/actions, authz, migrations |
 | [`packages/worker/AGENTS.md`](packages/worker/AGENTS.md) | Orchestrator, planner, DAG scheduler, LLM gates, tools |
-| [`apps/web/AGENTS.md`](apps/web/AGENTS.md) | Next.js UI (partly generated — do not delete its blocks) |
+| [`apps/web/AGENTS.md`](apps/web/AGENTS.md) | React/Vite SPA UI |
 
 ## Communication
 
@@ -38,7 +38,7 @@ an explicit decision recorded in `plans/`.
    decrypts locally. Never log, echo, return, or embed a provider key.
 2. **Worker ↔ backend is token-gated.** Every worker-facing action takes
    `workerToken: v.string()` and calls `assertServiceToken` (`authz.ts`). The
-   comparison is constant-time and fails closed when `CONVEX_SERVICE_TOKEN` is
+   comparison is constant-time and fails closed when `FHARA_SERVICE_TOKEN` is
    unset. Do not add a worker-facing action, mutation, or query that skips it.
 3. **Terminal tasks are immutable.** Once a task reaches a terminal status, a
    late worker completion must be refused with a value, not applied
@@ -68,36 +68,36 @@ If a change needs one of these rules changed, stop and write a plan first.
 ## Layout
 
 ```
-apps/web          Next.js 16 UI (React 19, Tailwind 4) — @fhara/web
-apps/api/convex   Convex backend — @fhara/api
+apps/web          Vite + React 19 SPA (Tailwind 4) — @fhara/web
+apps/api/functions   Fhara runtime backend — @fhara/api
 packages/worker   Task worker: orchestrator, scheduler, LLM, tools — @fhara/worker
 electron/         Optional desktop shell (electron/main.cjs)
-convex/           Root marker only; real backend code lives in apps/api/convex
+runtime/           Root marker only; real backend code lives in apps/api/functions
 ```
 
 The worker loads `../../.env` relative to its own directory, so the single root
-`.env` serves both the worker and local scripts. Convex deployment env is separate
-(`npx convex env set ...`) — the two `PROVIDER_ENCRYPTION_KEY` values must match.
+`.env` serves both the worker and local scripts. Fhara runtime deployment env is separate
+(`npx runtime env set ...`) — the two `PROVIDER_ENCRYPTION_KEY` values must match.
 
 ## Commands
 
 | Goal | Command |
 | --- | --- |
 | Web UI | `npm run dev` (port 3000) |
-| Convex dev + worker | `npm run convex` |
+| Fhara runtime dev + worker | `npm run runtime` |
 | Worker only | `npm run worker` |
 | Electron shell | `npm run electron:dev` |
 | All workspace typechecks | `npm run typecheck` |
 | Worker tests | `npm test` (or `npm run --workspace=@fhara/worker test`) |
 | Backend tests (in-memory) | `npm run --workspace=@fhara/api test` |
 | Codegen only | `npm run --workspace=@fhara/api codegen` |
-| One backend file of tests | `npx --workspace=@fhara/api vitest run convex/<file>.test.ts` |
+| One backend file of tests | `npx --workspace=@fhara/api vitest run runtime/<file>.test.ts` |
 | One worker file of tests | `npx --workspace=@fhara/worker vitest run tests/<file>.test.ts` |
 | Narrow typecheck | `npm run --workspace=@fhara/api typecheck` / `npm run --workspace=@fhara/web typecheck` / `npm run --workspace=@fhara/worker typecheck` |
 | Unused files / deps | `npm run knip` (`npm run knip:all` also reports unused exports) |
 
-`apps/api/convex/_generated/` is gitignored. A fresh clone has no generated
-client, so backend and worker typecheck fail until `npx convex dev` (or
+`apps/api/functions/_generated/` is gitignored. A fresh clone has no generated
+client, so backend and worker typecheck fail until `npx runtime dev` (or
 `npm run --workspace=@fhara/api codegen`) has run once. That is expected, not a
 code error.
 
@@ -107,7 +107,7 @@ Run the narrowest check that can catch your mistake, then say what you left out.
 Broad runs are expensive and slow the machine:
 
 1. Change in the backend → `npm run --workspace=@fhara/api typecheck` and the
-   relevant `convex/*.test.ts` file.
+   relevant `runtime/*.test.ts` file.
 2. Change in the worker → `npm run --workspace=@fhara/worker typecheck` and the
    relevant `packages/worker/tests/*.test.ts` file (or `npm test` for the whole
    worker suite, which is fast).
@@ -124,7 +124,7 @@ Broad runs are expensive and slow the machine:
    imports, and duplicate exports. `npm run knip:all` also reports unused
    exports (noisy for the shadcn primitives in `apps/web/components/ui/`).
 
-Backend tests use `convex-test` in memory — they need no deployment and no
+Backend tests use `local-test` in memory — they need no deployment and no
 codegen. Worker tests are pure Vitest. Do not add Playwright or live-provider
 tests to the default suite; they cost quota and are opt-in.
 
@@ -166,20 +166,20 @@ Project skills live in `.agents/skills/<name>/SKILL.md` (mirrored in
 - `smoke` — start the stack, drive the real app, prove a change works.
 - `improve` — audit one area, fix findings, report evidence.
 
-The installed `convex-*` skills come from `convex/agent-skills`; do not edit
+The installed `runtime-*` skills come from `runtime/agent-skills`; do not edit
 them by hand. Update `skills-lock.json` through the installer instead.
 
-<!-- convex-ai-start -->
+<!-- runtime-ai-start -->
 
-This project uses [Convex](https://convex.dev) as its backend.
+This project uses [Fhara runtime](https://runtime.dev) as its backend.
 
-When working on Convex code, **always read
-`convex/_generated/ai/guidelines.md` first** for important guidelines on
-how to correctly use Convex APIs and patterns. The file contains rules that
-override what you may have learned about Convex from training data.
+When working on Fhara runtime code, **always read
+`functions/_generated/ai/guidelines.md` first** for important guidelines on
+how to correctly use Fhara runtime APIs and patterns. The file contains rules that
+override what you may have learned about Fhara runtime from training data.
 
-If that file is missing, run `npx convex ai-files install` (or `npx convex dev`
-once) to generate it. Convex agent skills for common tasks can be installed by
-running `npx convex ai-files install`.
+If that file is missing, run `npx runtime ai-files install` (or `npx runtime dev`
+once) to generate it. Fhara runtime agent skills for common tasks can be installed by
+running `npx runtime ai-files install`.
 
-<!-- convex-ai-end -->
+<!-- runtime-ai-end -->

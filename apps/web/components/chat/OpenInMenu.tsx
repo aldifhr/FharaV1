@@ -1,4 +1,3 @@
-"use client";
 
 import { ChevronRight, Code2, ExternalLink, FolderOpen } from "lucide-react";
 import { useState } from "react";

@@ -7,7 +7,7 @@
  *   wenvRaw("X")                               the raw string after aliases (presence checks, quirks)
  *
  * The source is passed in rather than imported, so this package stays at
- * layer 0 (the knob overrides live in apps/api/convex/lib/appSettings.ts).
+ * layer 0 (the knob overrides live in apps/api/functions/lib/appSettings.ts).
  */
 import { type EnvSource, type ReadOptions, rawFrom, readVar } from "../read";
 import { envVar, type DefOf, type VarNameFor } from "../schema";

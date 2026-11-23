@@ -1,4 +1,3 @@
-"use client";
 
 import { pickByName } from "@/lib/utils";
 import { dicebearSeedFor, isDicebearAvatarParams } from "@/lib/dicebearAvatar";

@@ -1,4 +1,3 @@
-"use client";
 
 /**
  * Settings → General: the time zone of the time line agents see in their
@@ -6,8 +5,8 @@
  * picks it up with the app settings and chat reads it per reply.
  */
 import { useMemo } from "react";
-import { useMutation } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useMutation } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import { useToast } from "@/components/Toasts";
 import { errorText, INPUT, Row, Section, useAppSettings } from "./controls";
 

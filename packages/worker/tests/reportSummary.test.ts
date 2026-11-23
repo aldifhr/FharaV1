@@ -13,7 +13,7 @@ import {
   type ReportSummaryInput,
 } from "@/services/runner/reportSummary";
 import { finalize } from "@/services/runner/finalize";
-import { ROLES } from "@/api/convex/lib/roles";
+import { ROLES } from "@/api/functions/lib/roles";
 import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "@/types";
 
 const agent = (role: string, capabilities: string[]): AgentDefinition => ({

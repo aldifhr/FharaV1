@@ -14,14 +14,10 @@ execution order and a definition of done.
 | 002 | [In-app notifications](002-in-app-notifications.md) | P2 | S | — | TODO |
 | 003 | [Integrations UI on the existing backend](003-integrations-ui.md) | P2 | M | — | TODO |
 | 004 | [Unify appearance (theme + font + system)](004-appearance-unification.md) | P3 | S | — | TODO |
-| 005 | [Decision-driven orchestrator](005-decision-driven-orchestrator.md) | P1 | L | — | DONE (adopted as plan 006 Phase 2) |
-| 006 | [Intelligent, context-aware, decision-driven multi-agent platform](006-intelligent-multi-agent-platform.md) | P1 | L | adopts 005 Phase 2–5 | DONE |
-| 007 | [Project agent registry and conversation participation](007-agent-registry-and-participation.md) | P1 | M | — | DONE |
-| 009 | [Filesystem MCP integration](009-filesystem-mcp-integration.md) | P1 | L | 007 | DONE |
-| 010 | [CTO agent delegation](010-cto-agent-delegation.md) | P1 | L | 006, 007 | TODO |
+| 010 | [CTO agent delegation](010-cto-agent-delegation.md) | P1 | L | — | TODO |
 | 013 | [Real orchestrator decisions and effective completion guards](013-real-decisions-and-guards.md) | P1 | L | 011, 012 | IN PROGRESS (Steps 1-7 landed; live smoke pending) |
 | 014 | [Provider-native execution runtime (hybrid)](014-provider-native-runtime.md) | P1 | L | 011, 012 | IN PROGRESS (plan recorded; rule decisions pending) |
-| 017 | [Orchestrator / Executor / Lead management through a single thread/UI](017-single-thread-agent-management.md) | P2 | M | 007 | TODO |
+| 017 | [Orchestrator / Executor / Lead management through a single thread/UI](017-single-thread-agent-management.md) | P2 | M | — | TODO |
 | 018 | [Path ownership, review snapshot binding, worktree isolation](018-path-ownership-review-snapshot-worktree.md) | P1 | M | 012, 013 | IN PROGRESS (Steps 1-4 implemented, Step 4 default-off; live smoke pending) |
 | 019 | [Chat cards and the GitHub push / PR flow](019-chat-cards-and-github-push.md) | P1 | L | 018 | IN PROGRESS (implemented with unit tests; live GitHub smoke pending) |
 | 020 | [Permission modes and the compact activity log](020-permission-modes.md) | P1 | M | 015, 019 | IN PROGRESS (implemented with unit tests; browser check pending) |
@@ -31,43 +27,27 @@ execution order and a definition of done.
 | 024 | [Organizational Intelligence: org chart, agent profile, workload manager, collaboration graph](024-organizational-intelligence.md) | P2 | L | 021 | IN PROGRESS (implemented with unit tests; browser check pending) |
 | 025 | [Intent-to-execution traceability and execution observations](025-traceability-and-observations.md) | P1 | M | 013, 022 | IN PROGRESS (implemented with unit tests; live smoke pending) |
 | 026 | [Decision Outcome Calibration](026-decision-outcome-calibration.md) | P1 | L | 021, 022, 025 | IN PROGRESS (implemented with unit tests; live smoke and browser check pending) |
-| 027 | [Model Capability Registry and performance routing](027-model-capabilities-and-performance-routing.md) | P2 | L | 022, 024, 025 | REJECTED: the model capability registry and its routing were removed by user request (plan 033); agent performance routing stays |
 | 028 | [Chat activity timeline, decisions tray, in-process command approvals](028-chat-activity-and-decisions-tray.md) | P1 | L | 015, 020 | IN PROGRESS (implemented with unit tests; browser check and live worker smoke pending) |
-| 030 | [Workflow Studio persistence on the backend](030-workflow-studio-backend.md) | P2 | M | 028 | REJECTED: feature removed by user request (studio UI, backend module and tests deleted; `workflows` table kept, unwritten) |
-| 031 | [User-selectable LLM selection mode (fallback vs round robin)](031-llm-selection-mode-fallback-or-round-robin.md) | P2 | M | 027, 022 | IN PROGRESS (implemented with unit tests; browser check pending) |
+| 031 | [User-selectable LLM selection mode (fallback vs round robin)](031-llm-selection-mode-fallback-or-round-robin.md) | P2 | M | 022 | IN PROGRESS (implemented with unit tests; browser check pending) |
 | 032 | [Global LLM selection mode (fallback vs round robin)](032-global-llm-selection-mode.md) | P2 | M | 031 | IN PROGRESS (implemented with unit tests; browser check pending) |
-| 033 | [Remove the model capability registry and capability routing](033-remove-model-capabilities.md) | P2 | L | 027 | IN PROGRESS (implemented with unit tests; browser check pending) |
-| 034 | [OpenCode model catalog in the agent editor](034-opencode-model-catalog.md) | P2 | M | 014 | DONE (implemented with unit tests; live check in the running app) |
-| 035 | [Global OpenCode runtime, per-agent Fhara LLM](035-global-opencode-runtime.md) | P2 | M | 014, 032, 034 | IN PROGRESS (implemented with unit tests; live check done; worker restart pending) |
+| 033 | [Remove the model capability registry and capability routing](033-remove-model-capabilities.md) | P2 | L | — | IN PROGRESS (implemented with unit tests; browser check pending) |
+| 035 | [Global OpenCode runtime, per-agent Fhara LLM](035-global-opencode-runtime.md) | P2 | M | 014, 032 | IN PROGRESS (implemented with unit tests; live check done; worker restart pending) |
 | 036 | [Agent Reach web tool for read-only agents](036-agent-reach-web-tool.md) | P2 | M | — | IN PROGRESS (implemented with unit + executor tests; live CLI smoke done, full task smoke pending) |
-| 037 | [LLM & Models simple flow, one model order](037-llm-models-simple-flow.md) | P2 | M | 032, 035 | IN PROGRESS (implemented with unit + convex-test; browser check pending) |
-| 038 | [OpenCode as a provider, with detection](038-opencode-provider.md) | P2 | M | 034, 035, 037 | IN PROGRESS (implemented with unit + convex-test + live CLI test; browser check pending) |
-| 039 | [Personal chat for every agent](039-personal-chat.md) | P2 | L | 007 | IMPLEMENTED (PC1–PC6 landed with convex-test + web unit tests and `next build`; migration `migrations:backfillConversationKinds` then `migrations:verifyConversationKinds` must run on each deployment; live browser checks pending: open /chats/personal/<cto>, real provider reply, reload keeps history, switch CTO ↔ QA ↔ CTO, Attach dialog + header label, repo question after attach with a worker online, project chat pre-route/@mention unchanged) |
-| 040 | [Team roles: enforced permissions, routing, usage ledger](040-team-roles-routing-usage.md) | P1 | M | 022, 036, 038 | IN PROGRESS (P1 implemented with unit + convex-test; no live run) |
-| 041 | ["Always allow this exact command" for run_command approvals](041-command-always-allow-exact.md) | P2 | S | 020, 028 | IN PROGRESS (implemented with unit + convex-test; browser check pending) |
+| 037 | [LLM & Models simple flow, one model order](037-llm-models-simple-flow.md) | P2 | M | 032, 035 | IN PROGRESS (implemented with unit + local-test; browser check pending) |
+| 038 | [OpenCode as a provider, with detection](038-opencode-provider.md) | P2 | M | 035, 037 | IN PROGRESS (implemented with unit + local-test + live CLI test; browser check pending) |
+| 040 | [Team roles: enforced permissions, routing, usage ledger](040-team-roles-routing-usage.md) | P1 | M | 022, 036, 038 | IN PROGRESS (P1 implemented with unit + local-test; no live run) |
+| 041 | ["Always allow this exact command" for run_command approvals](041-command-always-allow-exact.md) | P2 | S | 020, 028 | IN PROGRESS (implemented with unit + local-test; browser check pending) |
 | 043 | [O-flow: supervised auto-merge, issue intake, research fan-out, phone approvals](043-o-flow-merge-intake-research-phone.md) | P1 | L | 019, 020 | IN PROGRESS (O2, O4, O7, O6 implemented with unit tests; live GitHub merge/issue smoke and phone browser check pending) |
-| 045 | [Role memory: each role writes its own notes per project](045-role-memory.md) | P2 | M | L4, L5 | IMPLEMENTED (convex-test + worker unit tests; browser check pending) |
-| 046 | [Drain an aborted scheduler attempt before a retry](046-scheduler-abort-drain.md) | P1 | M | — | DONE (unit tests; full worker suite has the pre-existing Windows-only failures) |
-| 047 | [Thread deep links and per-project sidebar separation](047-thread-deep-links.md) | P2 | S | — | IMPLEMENTED (typecheck + unit tests + `next build` green with NEXT_PUBLIC_CONVEX_URL; browser check done — deep-linked thread renders as the main view, `Back to chat` returns to the project) |
-| 049 | [Lease fencing for `setTaskStatus`](049-set-task-status-lease-fencing.md) | P3 | S | — | DONE (`setTaskStatus` fenced to the lease owner; `apps/api/convex/regressLeaseFencing.test.ts`) |
 | 050 | [One modal primitive for every overlay](050-one-modal-primitive.md) | P2 | M | — | TODO (web-UI audit: 3 shared modal implementations + 2 bespoke overlays; the context drawer has no focus trap) |
-| 051 | [Lint the web app and pay down its `any` debt](051-lint-and-any-sweep.md) | P2 | L | — | TODO (web-UI audit: no ESLint, 269 `any`, 68 Convex id casts) |
+| 051 | [Lint the web app and pay down its `any` debt](051-lint-and-any-sweep.md) | P2 | L | — | TODO (web-UI audit: no ESLint, 269 `any`, 68 Fhara runtime id casts) |
 | 052 | [Split the oversized chat/settings components](052-split-oversized-components.md) | P3 | L | 050 (optional) | TODO (web-UI audit: six files over 700 lines, one `next/dynamic`) |
 | 053 | [Retire the legacy route layer](053-retire-legacy-routes.md) | P3 | S | - | TODO (web-UI audit: 5 redirect-only routes; decision A/B/C needed) |
-| 054 | [Pull Requests page in the sidebar](054-pull-requests-page.md) | P2 | M | - | DONE (typecheck + convex-test + headless browser check; no PR rows locally to click through) |
-| 055 | [Per-message model picker in the chat composer](055-composer-model-picker.md) | P2 | M | 032, 037 | DONE (typecheck + convex-test + browser check of the picker; no message sent) |
-| 056 | [Port FharaV2 file/index and git tooling (A)](056-port-file-git-tooling.md) | P1 | M | - | DONE (fff index for list/grep, `diff` hunks, `-z` porcelain; tests + typecheck green; full-suite failures are pre-existing) |
-| 057 | [Provider-native runtime parity with FharaV2 (B)](057-provider-native-runtime-parity.md) | P1 | L | 014, 035, 038, 056 | IN PROGRESS (Codex driver done in the worker; app-wide driver selection landed via `opencodeSettings.driver`; session resume and Codex model catalog remain) |
-| 058 | [Port FharaV2 tooling verbatim, stage by stage (C)](058-verbatim-tooling-port.md) | P1 | L | 056, 057 | STAGE 3 DONE (2026-11-17): acp runtime beside opencode/codex — effect-acp client, policy-mapped permission requests, sandboxed fs handlers, native.* events; 21 vitest tests incl. fake-ACP-agent stdio round trip; LIVE SMOKE PASS (2026-11-17: codex-acp 2.6.0, default ChatGPT provider via throwaway CODEX_HOME, read-only task read notes.md and streamed the magic word; stages 4-6 pending) |
-| 059 | [CTO-first work chat, constrained handoff, stack-neutral chat replies](059-cto-first-chat.md) | P1 | M | 040 | DONE (typecheck + targeted convex tests green; prompt-level live check with `opencode/hy4-flash-free` passed; full-app live chat blocked by the deployment's HTTP provider 503/404) |
-| 060 | [FharaV2-style settings.json model for chat via the worker](060-settings-json-chat-model.md) | P1 | M | 059 | IN PROGRESS (settings.json + worker bridge + chat client; live smoke pending) |
-| 061 | [CTO auto-creates the task from a work-shaped chat message](061-cto-auto-create-task.md) | P1 | M | 059, 060 | DONE (API typecheck + 1523 tests + web typecheck green; convex-test covers auto-create, negatives, idempotency and no approval grant; no live provider smoke) |
-| 062 | [The CTO owns unmatched chat questions](062-cto-owns-unmatched-chat.md) | P2 | S | — | DONE (dispatch/owner + tests green; deflection replies no longer keep the thread; live check pending) |
-| 063 | [Task due date](063-task-due-date.md) | P3 | S | — | DONE (schema additive, planner `due` → `dueAt`, TaskDock + TaskThreadHeader render it; worker + web unit tests, api/worker/web typechecks green) |
-| 064 | [Per-task and per-project context totals with header/dock icons](064-project-context-icons.md) | P2 | M | — | DONE (2026-11-17: contextTotals query + 2 tests; header ring icon + popover; dock + board badges; smoke-verified on dev server) |
-| 065 | [Worktrees under ~/.fhara/worktrees, old branding cleaned](065-worktrees-under-fhara-home.md) | P1 | S | — | DONE (2026-11-17: default base moved to ~/.fhara/worktrees; legacy .moagent-worktrees recognized + auto-pruned when empty + always git-excluded; worker dirty-check and deny-list updated; bonus: gitInitLane tests fixed on Windows) |
-| 066 | [Codex & Claude Code as sibling task-model sources (UI + registry)](066-codex-claude-provider-rows.md) | P1 | M | 058 | DONE (2026-11-17: CLI family helpers + per-CLI validation; setEnabled/status/cliRow per cli; chat/run pools exclude the family; UI sibling rows + presets + typed ids; smoke: Codex entry added and listed; routing per-model = follow-up plan) |
+| 057 | [Provider-native runtime parity with FharaV2 (B)](057-provider-native-runtime-parity.md) | P1 | L | 014, 035, 038 | IN PROGRESS (Codex driver done in the worker; app-wide driver selection landed via `opencodeSettings.driver`; session resume and Codex model catalog remain) |
+| 058 | [Port FharaV2 tooling verbatim, stage by stage (C)](058-verbatim-tooling-port.md) | P1 | L | 057 | STAGE 3 DONE (2026-11-17): acp runtime beside opencode/codex — effect-acp client, policy-mapped permission requests, sandboxed fs handlers, native.* events; 21 vitest tests incl. fake-ACP-agent stdio round trip; LIVE SMOKE PASS (2026-11-17: codex-acp 2.6.0, default ChatGPT provider via throwaway CODEX_HOME, read-only task read notes.md and streamed the magic word; stages 4-6 pending) |
+| 060 | [FharaV2-style settings.json model for chat via the worker](060-settings-json-chat-model.md) | P1 | M | — | IN PROGRESS (settings.json + worker bridge + chat client; live smoke pending) |
 | 067 | [Match the workspace mockup (accent + rail + sidebar + chat restyle)](067-mockup-parity.md) | P1 | L | — | IN PROGRESS (all 5 stages landed 2026-11-17: accent tokens + guard, rail, NeedsYou cards, chat surface restyle incl. composer @ / buttons and TaskCard ref/due, QA wording; guards + web typecheck + 197/198 web tests green; only the light+dark visual smoke remains) |
+
+| 068 | [Local-first SQLite backend with a Fhara runtime-compatible runtime (desktop-ready)](068-local-sqlite-backend.md) | P1 | L | — | IN PROGRESS (2026-11-22: Fhara runtime removed entirely, 694 functions on Drizzle/SQLite, all 4 typechecks green, e2e mutation/query pass; 193/1539 backend tests + Electron packaging remain) |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

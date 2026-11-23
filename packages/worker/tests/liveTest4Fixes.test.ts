@@ -21,7 +21,7 @@ import { newFilesOnlyFixWarning } from "@/services/runner/noTargetGuard";
 import { fillMissingReasoning } from "@/services/runner/replan";
 import { usageMetaFor, type FallbackHandle } from "@/effects/llmCall";
 import { withSnapshotScope } from "@/llm/snapshots";
-import { assertRepoPathExists, mainCheckoutOfWorktree, resolveRepoPath } from "@/api/convex/lib/workspacePath";
+import { assertRepoPathExists, mainCheckoutOfWorktree, resolveRepoPath } from "@/api/functions/lib/workspacePath";
 import type { ExecutionPlan } from "@/orchestrator/types";
 
 let root: string;

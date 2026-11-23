@@ -16,7 +16,7 @@ import {
   interruptedSubtaskKeys,
   recordedSideEffects,
   type RecordedStep,
-} from "@/api/convex/lib/restartContinuation";
+} from "@/api/functions/lib/restartContinuation";
 import type { QaVerdict } from "@/types/qa";
 
 /**

@@ -15,7 +15,7 @@ import {
   isReadOnlyCommand,
   toRecordedStep,
   type RecordedStep,
-} from "@/api/convex/lib/restartContinuation";
+} from "@/api/functions/lib/restartContinuation";
 import { planContinuations } from "@/services/runner/state";
 import { withApiDefaults } from "./helpers/fakeApi";
 

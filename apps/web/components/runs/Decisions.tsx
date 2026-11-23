@@ -1,9 +1,8 @@
-"use client";
 
 import { useState } from "react";
-import { useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
-import { DECISION_TYPE_LABELS, type DecisionType } from "@/api/convex/lib/calibration/capture";
+import { useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
+import { DECISION_TYPE_LABELS, type DecisionType } from "@/api/functions/lib/calibration/capture";
 import ContextInspector from "@/components/context/ContextInspector";
 
 /**

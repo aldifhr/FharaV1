@@ -1,7 +1,6 @@
-"use client";
 import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useMutation, useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import { attachCandidates } from "@/lib/personalChat";
 import Modal from "../Modal";
 import { useToast } from "../Toasts";

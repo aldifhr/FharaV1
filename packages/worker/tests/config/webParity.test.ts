@@ -14,10 +14,10 @@ import { b2Bool } from "./legacyEnv";
 type Env = Record<string, string | undefined>;
 const ENVS: Env[] = [
   {},
-  { CONVEX_SERVICE_TOKEN: "" },
-  { CONVEX_SERVICE_TOKEN: " tok " },
-  { CONVEX_SITE_URL: "" },
-  { CONVEX_SITE_URL: "https://x.convex.site/" },
+  { FHARA_SERVICE_TOKEN: "" },
+  { FHARA_SERVICE_TOKEN: " tok " },
+  { FHARA_SITE_URL: "" },
+  { FHARA_SITE_URL: "https://x.runtime.site/" },
   { FHARA_ALLOW_LOCAL_MCP: "1" },
   { FHARA_ALLOW_LOCAL_MCP: "true" },
   { FHARA_ALLOW_LOCAL_MCP: " 1" },
@@ -30,7 +30,7 @@ const ENVS: Env[] = [
   { WORKSPACE_ROOT: "" },
   { WORKSPACE_ROOT: "  /abs/ws " },
   { WORKSPACE_ROOT: "rel" },
-  { CONVEX_URL: "http://legacy" },
+  { FHARA_BACKEND_URL: "http://legacy" },
 ];
 
 const ROOT = path.resolve(import.meta.dirname, "../../../..");
@@ -43,14 +43,14 @@ describe("web server reads (E3 parity)", () => {
   for (const env of ENVS) {
     const label = JSON.stringify(env);
     it(`route handler reads ${label}`, () => {
-      expect(serverEnv("CONVEX_SERVICE_TOKEN", env)).toBe(env.CONVEX_SERVICE_TOKEN);
-      // callback/route.ts: `if (process.env.CONVEX_SITE_URL) return …`
-      expect(Boolean(serverEnv("CONVEX_SITE_URL", env))).toBe(Boolean(env.CONVEX_SITE_URL));
-      expect(serverEnv("CONVEX_SITE_URL", env)).toBe(env.CONVEX_SITE_URL);
+      expect(serverEnv("FHARA_SERVICE_TOKEN", env)).toBe(env.FHARA_SERVICE_TOKEN);
+      // callback/route.ts: `if (process.env.FHARA_SITE_URL) return …`
+      expect(Boolean(serverEnv("FHARA_SITE_URL", env))).toBe(Boolean(env.FHARA_SITE_URL));
+      expect(serverEnv("FHARA_SITE_URL", env)).toBe(env.FHARA_SITE_URL);
       // B2: the unified bool dialect (was === "1").
       expect(serverEnv("FHARA_ALLOW_LOCAL_MCP", env)).toBe(b2Bool(env.FHARA_ALLOW_LOCAL_MCP, false));
-      // NEXT_PUBLIC_CONVEX_URL on the web side never falls back to CONVEX_URL.
-      expect(serverEnvRaw("NEXT_PUBLIC_CONVEX_URL", env, { aliases: false })).toBe(env.NEXT_PUBLIC_CONVEX_URL);
+      // FHARA_BACKEND_URL on the web side never falls back to FHARA_BACKEND_URL.
+      expect(serverEnvRaw("FHARA_BACKEND_URL", env, { aliases: false })).toBe(env.FHARA_BACKEND_URL);
     });
 
     it(`plain-node launchers ${label}`, () => {

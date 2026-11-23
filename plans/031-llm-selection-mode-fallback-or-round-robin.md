@@ -9,7 +9,7 @@
 - Priority: P2
 - Size: M
 - Risk: LOW
-- Dependencies: 027 (capability routing), 022 (model tiers)
+- Dependencies: 022 (model tiers)
 - Planned at: commit `6f21fcc`, 2026-11-10
 
 ## Why this is needed
@@ -41,9 +41,9 @@ so a rotated-to provider that fails still lands on the next candidate.
 
 ## Current state
 
-- `apps/api/convex/schema.ts:300-302` — `llmSelectionPolicy` union: `fixed`,
+- `apps/api/functions/schema.ts:300-302` — `llmSelectionPolicy` union: `fixed`,
   `priority`, `weighted`.
-- `apps/api/convex/agents.ts:201-203` (create) and `:293-295` (update) — same
+- `apps/api/functions/agents.ts:201-203` (create) and `:293-295` (update) — same
   union in the mutation validators.
 - `packages/worker/src/types/agent.ts:23` — the worker's copy of the union.
 - `packages/worker/src/llm/resolver.ts:447-470` — primary pick: lowest
@@ -102,8 +102,8 @@ New `packages/worker/src/llm/roundRobin.ts`:
 ### Step 3: Types and validators
 
 - `packages/worker/src/types/agent.ts:23` — add `"round_robin"`.
-- `apps/api/convex/schema.ts:300-302` — add `v.literal("round_robin")`.
-- `apps/api/convex/agents.ts:201-203`, `:293-295` — add the same literal.
+- `apps/api/functions/schema.ts:300-302` — add `v.literal("round_robin")`.
+- `apps/api/functions/agents.ts:201-203`, `:293-295` — add the same literal.
 
 **Check**: `npm run --workspace=@fhara/api typecheck` → no errors.
 

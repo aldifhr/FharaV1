@@ -2,12 +2,12 @@
 /**
  * One .env for the whole repo (the root `.env`).
  *
- *   node scripts/env.mjs sync              push the Convex keys from .env to the Convex deployment
+ *   node scripts/env.mjs sync              push the FharaRuntime keys from .env to the FharaRuntime deployment
  *   node scripts/env.mjs run -- <cmd...>   run a command with the root .env loaded
  *
  * - The worker already reads the root .env; the web app loads it in
- *   next.config.mjs. Convex functions cannot read files: their env lives on
- *   the deployment, so `sync` copies the keys they use (CONVEX_KEYS) there,
+ *   next.config.mjs. FharaRuntime functions cannot read files: their env lives on
+ *   the deployment, so `sync` copies the keys they use (FHARA_KEYS) there,
  *   setting only the ones that changed. Values are never printed.
  * - Variables already in the process environment win over the file.
  * - `sync` never fails the caller: with no deployment configured it warns
@@ -25,11 +25,11 @@ const API_DIR = path.join(ROOT, "apps", "api");
 const isWin = process.platform === "win32";
 
 /**
- * Keys read by Convex functions, pushed by `sync`. The list comes from
- * @fhara/config (CONVEX_SYNC_KEYS) through its generated manifest, since
+ * Keys read by FharaRuntime functions, pushed by `sync`. The list comes from
+ * @fhara/config (FHARA_SYNC_KEYS) through its generated manifest, since
  * plain node cannot import the TypeScript package.
  */
-export const CONVEX_KEYS = [...ENV_MANIFEST.convexSync];
+export const FHARA_KEYS = [...ENV_MANIFEST.runtimeSync];
 
 /** Root .env merged under the current process env (process env wins). */
 export function loadRootEnv(env = process.env) {
@@ -45,12 +45,12 @@ export function loadRootEnv(env = process.env) {
 /** Which keys need setting on the deployment (new or different values). */
 export function keysToSync(wanted, current) {
   return Object.keys(wanted).filter(
-    (key) => CONVEX_KEYS.includes(key) && wanted[key] !== "" && current[key] !== wanted[key]
+    (key) => FHARA_KEYS.includes(key) && wanted[key] !== "" && current[key] !== wanted[key]
   );
 }
 
-function convex(args, env) {
-  return spawnSync("npx", ["convex", ...args], {
+function runtime(args, env) {
+  return spawnSync("npx", ["runtime", ...args], {
     cwd: API_DIR,
     env,
     encoding: "utf8",
@@ -61,19 +61,19 @@ function convex(args, env) {
 
 function sync() {
   const { merged } = loadRootEnv();
-  const listed = convex(["env", "list"], merged);
+  const listed = runtime(["env", "list"], merged);
   if (listed.status !== 0) {
-    console.warn("[env] skipped Convex sync: no deployment reachable (run `npx convex dev` once, or set CONVEX_SELF_HOSTED_URL).");
+    console.warn("[env] skipped FharaRuntime sync: no deployment reachable (run `npx runtime dev` once, or set FHARA_BACKEND_URL).");
     return 0;
   }
   const current = parseDotenv(listed.stdout ?? "");
-  const wanted = Object.fromEntries(CONVEX_KEYS.filter((k) => merged[k]).map((k) => [k, merged[k]]));
+  const wanted = Object.fromEntries(FHARA_KEYS.filter((k) => merged[k]).map((k) => [k, merged[k]]));
   const changed = keysToSync(wanted, current);
   for (const key of changed) {
-    const set = convex(["env", "set", key, wanted[key]], merged);
-    if (set.status !== 0) console.warn(`[env] could not set ${key} on Convex`);
+    const set = runtime(["env", "set", key, wanted[key]], merged);
+    if (set.status !== 0) console.warn(`[env] could not set ${key} on FharaRuntime`);
   }
-  console.log(changed.length ? `[env] Convex env updated: ${changed.join(", ")}` : "[env] Convex env up to date");
+  console.log(changed.length ? `[env] FharaRuntime env updated: ${changed.join(", ")}` : "[env] FharaRuntime env up to date");
   return 0;
 }
 

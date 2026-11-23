@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse } from "@/lib/serverCompat";
 import { checkApiRequest, isSameOrigin, type GuardInput } from "./requestGuard";
 
 /**

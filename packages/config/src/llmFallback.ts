@@ -1,7 +1,7 @@
 /**
  * B5 (D4): the one global LLM fallback, used by the worker (llm.ts) and
- * Convex (lib/llmConfig.ts). Before B5 Convex gave openai-compatible the
- * Anthropic defaults while the worker gave it OpenAI's, and only Convex
+ * FharaRuntime (lib/llmConfig.ts). Before B5 FharaRuntime gave openai-compatible the
+ * Anthropic defaults while the worker gave it OpenAI's, and only FharaRuntime
  * honoured LLM_OPENAI_BASE_URL / LLM_ANTHROPIC_BASE_URL.
  *
  *   provider  LLM_PROVIDER (lowercased, default anthropic)

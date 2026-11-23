@@ -1,9 +1,8 @@
-"use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { permissionText } from "./SkillsV2";
-import { useAction } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
+import { useAction } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
 import Modal from "@/components/Modal";
 
 type PreviewSkill = {
@@ -35,7 +34,7 @@ const field =
 
 const chars = (n: number) => `${n.toLocaleString("en-US")} chars`;
 
-/** Convex wraps thrown errors ("[CONVEX A(skills:…)] Uncaught Error: msg"); keep the message. */
+/** FharaRuntime wraps thrown errors ("[FHARA A(skills:…)] Uncaught Error: msg"); keep the message. */
 function errorText(err: unknown, fallback: string): string {
   const raw = err instanceof Error ? err.message : "";
   const m = /Uncaught Error:\s*([\s\S]*?)(?:\n\s+at |\n\s*Called by|$)/.exec(raw);

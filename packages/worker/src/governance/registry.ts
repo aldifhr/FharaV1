@@ -7,7 +7,7 @@
  * every call, secret-shaped args are redacted, and the sandbox / argv
  * allowlist rules from `tools.ts` are reused unchanged.
  */
-import { canWritePath, ROLES } from "@/api/convex/lib/roles";
+import { canWritePath, ROLES } from "@/api/functions/lib/roles";
 import { resolveRoleKey } from "@/utils/rolePolicy";
 import {
   audit,
@@ -34,7 +34,7 @@ export interface ToolDefinition {
 
 /**
  * Permission matrix per role (least privilege), derived from the shared
- * role policy (plan 040, apps/api/convex/lib/roles.ts `permissions`): a
+ * role policy (plan 040, apps/api/functions/lib/roles.ts `permissions`): a
  * role that may not write is refused `write_file`, one that may not run
  * commands `run_command`, at the broker even if the agent declares the
  * tool. Every denial is audited. Custom roles keep their declared tools.

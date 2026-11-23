@@ -3,7 +3,7 @@ import {
   normalizePermissionMode,
   type ApprovalKind,
   type PermissionMode,
-} from "@/api/convex/lib/permissionModes";
+} from "@/api/functions/lib/permissionModes";
 import type { FileDiff } from "@/tools/gitDiff";
 import type { RunContext } from "./types";
 

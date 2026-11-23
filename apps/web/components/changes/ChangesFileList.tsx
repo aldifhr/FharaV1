@@ -1,7 +1,6 @@
-"use client";
 // Paradev A2 (plan audit/paradev-plan-2026-11-11.md, P-A): the Changes pane's
 // file list. Idea only from Paradev's DiffPaneFileList; markup is Fhara's.
-import type { ChangesetFile } from "@/api/convex/lib/changeset";
+import type { ChangesetFile } from "@/api/functions/lib/changeset";
 import { statusLetter } from "@/lib/changesView";
 
 const STATUS_WORD: Record<ChangesetFile["status"], string> = {

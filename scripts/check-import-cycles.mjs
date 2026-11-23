@@ -22,7 +22,7 @@ const BASELINE = path.join(import.meta.dirname, "import-cycles.baseline.json");
 
 export const TARGETS = [
   { name: "web", roots: ["apps/web/app", "apps/web/components", "apps/web/lib"], tsConfig: "apps/web/tsconfig.json" },
-  { name: "api", roots: ["apps/api/convex"], tsConfig: "apps/api/convex/tsconfig.json" },
+  { name: "api", roots: ["apps/api/functions"], tsConfig: "apps/api/functions/tsconfig.json" },
   { name: "worker", roots: ["packages/worker/src"], tsConfig: "packages/worker/tsconfig.json" },
   { name: "config", roots: ["packages/config/src"], tsConfig: "packages/config/tsconfig.json" },
 ];

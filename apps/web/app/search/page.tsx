@@ -1,9 +1,8 @@
-"use client";
 
 import { useState } from "react";
-import { useQuery } from "convex/react";
-import { api } from "@/api/convex/_generated/api";
-import Link from "next/link";
+import { useQuery } from "@fhara/runtime/react";
+import { api } from "@fhara/runtime/api";
+import { Link } from "@/lib/spaRouter";
 import Sidebar from "@/components/Sidebar";
 import AgentAvatar from "@/components/AgentAvatar";
 import { agentName, agentRoleText } from "@/lib/agentRoles";

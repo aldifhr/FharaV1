@@ -271,7 +271,7 @@ export async function persistPlan(
     createdBy: "orchestrator" | "fallback";
     classification: string;
     degradedReason?: string;
-    /** Task Estimator result (apps/api/convex/lib/estimate.ts). */
+    /** Task Estimator result (apps/api/functions/lib/estimate.ts). */
     estimate?: unknown;
     /** The run's agents: the Response Owner is routed against them (O2). */
     agents?: AgentDefinition[];

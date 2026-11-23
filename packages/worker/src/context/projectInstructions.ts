@@ -23,9 +23,9 @@ import {
   nestedInstructionDirs,
   type InstructionChain,
   type InstructionSource,
-} from "@/api/convex/lib/projectInstructions";
+} from "@/api/functions/lib/projectInstructions";
 
-export { INSTRUCTION_BLOCK_HEADER } from "@/api/convex/lib/projectInstructions";
+export { INSTRUCTION_BLOCK_HEADER } from "@/api/functions/lib/projectInstructions";
 
 /** Per-file read cap (bytes): a huge AGENTS.md is cut by the budget anyway. */
 const MAX_FILE_BYTES = 64 * 1024;

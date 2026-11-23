@@ -4,9 +4,9 @@ import { effectiveLlmTimeoutMs, type GlobalLLMConfig, type LLMMessage, type LLMP
 import type { ProviderHealthRegistry } from "@/llm/health";
 import type { TokenUsageMeta } from "@/types/llm";
 import { currentSnapshotScope, recordLlmSnapshot } from "@/llm/snapshots";
-import type { CallRole } from "@/api/convex/lib/contextSnapshot";
+import type { CallRole } from "@/api/functions/lib/contextSnapshot";
 import { classifyProviderError } from "@/utils/stallDetector";
-import { isEmptyCompletion } from "@/api/convex/lib/llmRotation";
+import { isEmptyCompletion } from "@/api/functions/lib/llmRotation";
 import { emitObservation, markProgress } from "./observationContext";
 
 export type { TokenUsageMeta } from "@/types/llm";

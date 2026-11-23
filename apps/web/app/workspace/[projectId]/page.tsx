@@ -1,10 +1,6 @@
-import { redirect } from "next/navigation";
+import { redirect, useParams } from "@/lib/spaRouter";
 
-export default async function WorkspacePage({
-  params,
-}: {
-  params: Promise<{ projectId: string }>;
-}) {
-  const { projectId } = await params;
+export default function WorkspacePage() {
+  const { projectId } = useParams<{ projectId: string }>();
   redirect(`/project/${projectId}`);
 }

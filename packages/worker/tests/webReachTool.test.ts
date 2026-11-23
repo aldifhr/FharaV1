@@ -23,14 +23,14 @@ describe("web_reach tool scope", () => {
   });
 
   it("refuses a call the model got wrong, without spawning anything", async () => {
-    const outcome = await runWebReachTool({ channel: "twitter", action: "search", query: "convex" }, { config });
+    const outcome = await runWebReachTool({ channel: "twitter", action: "search", query: "runtime" }, { config });
     expect(outcome.ok).toBe(false);
     expect(outcome.isError).toBe(true);
     expect(outcome.text).toMatch(/not allowed/);
   });
 
   it("reports a missing binary as a tool error, not a crash", async () => {
-    const outcome = await runWebReachTool({ channel: "web", action: "search", query: "convex" }, { config });
+    const outcome = await runWebReachTool({ channel: "web", action: "search", query: "runtime" }, { config });
     expect(outcome.ok).toBe(false);
     expect(outcome.isError).toBe(true);
     expect(outcome.text).toContain("not installed");
@@ -102,7 +102,7 @@ describe("bounded tool loop", () => {
     const replies = [
       "Let me think about this first.",
       JSON.stringify({ tool: "web_reach", arguments: { channel: "web", action: "search", query: "x" } }),
-      "Convex is a reactive backend.",
+      "FharaRuntime is a reactive backend.",
     ];
     let step = 0;
     const base = {
@@ -112,8 +112,8 @@ describe("bounded tool loop", () => {
     };
     const prose = await runToolLoop({ ...base, maxIterations: 3, runLlm: async () => replies[step++] });
     expect(prose.ended).toBe("limit");
-    expect(prose.plainText).toBe("Convex is a reactive backend.");
-    expect(loopAnswer(prose)).toEqual({ ok: true, content: "Convex is a reactive backend." });
+    expect(prose.plainText).toBe("FharaRuntime is a reactive backend.");
+    expect(loopAnswer(prose)).toEqual({ ok: true, content: "FharaRuntime is a reactive backend." });
     const answered = await runToolLoop({ ...base, maxIterations: 3, runLlm: async () => JSON.stringify({ answer: "done" }) });
     expect(answered.ended).toBe("answer");
     expect(loopAnswer(answered)).toEqual({ ok: true, content: "done" });

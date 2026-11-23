@@ -5,7 +5,7 @@ import {
   parseStoredRequirements,
   type CoverageReport,
   type CoverageSubtask,
-} from "@/api/convex/lib/requirements";
+} from "@/api/functions/lib/requirements";
 import type { RunContext } from "./types";
 
 export type CoverageOutcome =

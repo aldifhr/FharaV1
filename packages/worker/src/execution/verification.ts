@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { buildChildEnv } from "@/api/convex/lib/childEnv";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
 import { redactText } from "@/utils/redact";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";

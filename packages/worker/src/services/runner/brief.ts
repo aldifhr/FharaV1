@@ -1,5 +1,5 @@
-import { briefAfterNode, type TaskBrief } from "@/api/convex/lib/brief";
-import { roleLabel } from "@/api/convex/lib/roles";
+import { briefAfterNode, type TaskBrief } from "@/api/functions/lib/brief";
+import { roleLabel } from "@/api/functions/lib/roles";
 import type { PlanSubtask } from "@/types";
 import type { SharedTaskContext } from "@/orchestrator/taskContext";
 import type { NodeOutcome } from "@/scheduler/dagScheduler";

@@ -9,7 +9,7 @@ export const ROUTES = [
 ] as const;
 
 /**
- * Navigate and wait until the app shell has rendered. Convex queries resolve
+ * Navigate and wait until the app shell has rendered. FharaRuntime queries resolve
  * against the local deployment, so pages that gate on data need a real wait.
  */
 export async function gotoApp(page: Page, path: string): Promise<void> {
@@ -25,7 +25,7 @@ export async function gotoApp(page: Page, path: string): Promise<void> {
 }
 
 /**
- * Next.js 16 dev always mounts an empty <nextjs-portal> in the document, so
+ * The dev server may mount an empty devtools portal in the document, so
  * "portal exists" is not an error signal. The overlay only fills that portal
  * (and renders the error dialog + label) when a real runtime error fires, so
  * assert on the portal's children instead of its presence.
@@ -38,7 +38,7 @@ export async function expectNoRuntimeError(page: Page): Promise<void> {
   await expect(page.getByText("This page couldn't load")).toHaveCount(0);
 }
 
-/** Wait for a Convex-backed page to finish its loading skeleton. */
+/** Wait for a FharaRuntime-backed page to finish its loading skeleton. */
 export async function waitForData(page: Page, text: string | RegExp): Promise<void> {
   await expect(page.getByText(text).first()).toBeVisible({ timeout: 20_000 });
 }

@@ -1,17 +1,16 @@
-"use client";
 
 /**
  * Settings modal tabs. Every control here is saved and read by the code:
- *  - server behaviour → Convex `appSettings` (knobs the worker / Convex
+ *  - server behaviour → FharaRuntime `appSettings` (knobs the worker / FharaRuntime
  *    read instead of the env, new-project defaults, child env);
  *  - this-device behaviour → localStorage prefs (lib/uiPrefs.ts,
  *    lib/keybindings.ts) read by the components they change.
  */
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
+import { Link } from "@/lib/spaRouter";
+import { useMutation, useQuery } from "@fhara/runtime/react";
 import { ChevronRight, Plus, RotateCcw, Trash2 } from "lucide-react";
-import { api } from "@/api/convex/_generated/api";
+import { api } from "@fhara/runtime/api";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import GithubAccountRow from "@/components/GithubAccount";
 import { useToast } from "@/components/Toasts";
@@ -827,7 +826,7 @@ export function EnvironmentsTab() {
   return (
     <Section
       title="Environment variables"
-      description="Passed to every process the worker starts for a task: commands, tests, builds, QA dev servers, OpenCode. Worker secrets can not be set here. Stored in your local Convex database."
+      description="Passed to every process the worker starts for a task: commands, tests, builds, QA dev servers, OpenCode. Worker secrets can not be set here. Stored in your local FharaRuntime database."
     >
       {rows === null && <Row label="Loading…" />}
       {rows !== null && (
@@ -1106,7 +1105,7 @@ type About = {
   branch: string | null;
   node: string;
   next: string | null;
-  convex: string | null;
+  runtime: string | null;
   notices: string | null;
 };
 
@@ -1152,7 +1151,7 @@ export function AboutTab() {
               <Muted>
                 Node {about.node}
                 {about.next ? ` · Next ${about.next}` : ""}
-                {about.convex ? ` · Convex ${about.convex}` : ""}
+                {about.runtime ? ` · FharaRuntime ${about.runtime}` : ""}
               </Muted>
             </Row>
           </>

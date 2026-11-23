@@ -12,7 +12,7 @@ import {
   linkSubtasksToRequirements,
   normalizeLlmRequirements,
   type Requirement,
-} from "@/api/convex/lib/requirements";
+} from "@/api/functions/lib/requirements";
 import { withRequirements } from "@/orchestrator/planner";
 import { buildPlanningPrompt } from "@/orchestrator/planner";
 import { withApiDefaults } from "./helpers/fakeApi";

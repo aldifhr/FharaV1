@@ -1,9 +1,7 @@
-"use client"
-
 import * as React from "react"
 import { CircleCheckIcon, LoaderCircleIcon } from "lucide-react"
 import { cn } from "cn"
-import { reasoningForDisplay } from "@/api/convex/lib/chat/reasoningDisplay"
+import { reasoningForDisplay } from "@/api/functions/lib/chat/reasoningDisplay"
 import {
   Collapsible,
   CollapsibleContent,

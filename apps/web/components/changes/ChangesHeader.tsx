@@ -1,11 +1,10 @@
-"use client";
 // Paradev A2 (plan audit/paradev-plan-2026-11-11.md, P-A): branch, base, flow
 // state in plain text, PR facts and the one action (Open PR / Refresh /
 // Retry). Pattern only from Paradev's ChangesControl/ShipControl/PRStatusGroup
 // (their styling uses tinted backgrounds; this uses theme tokens only).
 import { ExternalLink, GitBranch, GitPullRequest, Loader2, RefreshCw, RotateCcw } from "lucide-react";
-import type { ChangesForTask } from "@/api/convex/changes";
-import { selectActionButton, selectStatusLabel } from "@/api/convex/lib/changeset";
+import type { ChangesForTask } from "@/api/functions/changes";
+import { selectActionButton, selectStatusLabel } from "@/api/functions/lib/changeset";
 import { prFactsText, prLine } from "@/lib/changesView";
 
 const BTN = "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-ink/30 disabled:cursor-not-allowed disabled:opacity-50";

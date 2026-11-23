@@ -46,7 +46,7 @@ Dua opsi:
 
 **Rekomendasi**: Opsi A (worktree) — isolate adalah kunci untuk flow multi-task concurrent.
 
-### Exposed API (Convex)
+### Exposed API (Fhara runtime)
 
 #### `worker:createBranch`
 ```ts

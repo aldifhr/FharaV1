@@ -1,0 +1,23 @@
+/**
+ * GOAT G12a: `McpReadSource` over the token-gated FharaRuntime queries in
+ * apps/api/functions/mcpRead.ts, through the worker's WorkerApi client (its
+ * `args()` adds the service token), and (G12b) the token-gated write
+ * mutations in apps/api/functions/mcpWrite.ts.
+ */
+import { api } from "@fhara/runtime/api";
+import type { WorkerApi } from "@/workerApi";
+import type { McpSource } from "./types";
+
+export function runtimeMcpSource(workerApi: WorkerApi, ctoFirst?: { ttlMs: number }): McpSource {
+  return {
+    taskStatus: (input) => workerApi.client.query(api.mcpRead.taskStatus, workerApi.args(input)),
+    taskList: (input) => workerApi.client.query(api.mcpRead.taskList, workerApi.args(input)),
+    memorySearch: (input) => workerApi.client.query(api.mcpRead.memorySearch, workerApi.args(input)),
+    // G12b writes: token-gated mutations in apps/api/functions/mcpWrite.ts.
+    taskCreate: (input) => workerApi.client.mutation(api.mcpWrite.taskCreate, workerApi.args(input)),
+    threadSend: (input) => workerApi.client.mutation(api.mcpWrite.threadSend, workerApi.args(input)),
+    runReportResult: (input) => workerApi.client.mutation(api.mcpWrite.runReportResult, workerApi.args(input)),
+    // G13: with CTO-first on, a technical question goes to the CTO's decision turn before the user.
+    questionAsk: (input) => workerApi.client.mutation(api.mcpWrite.questionAsk, workerApi.args({ ...input, ...(ctoFirst ? { ctoFirst } : {}) })),
+  };
+}

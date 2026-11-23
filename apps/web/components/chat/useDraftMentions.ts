@@ -1,4 +1,3 @@
-"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { AGENT_ROLES, roleLabel } from "@/lib/agentRoles";

@@ -1,6 +1,5 @@
-"use client";
 
-import type { ReplanView, ReplanViewEntry } from "@/api/convex/lib/replanView";
+import type { ReplanView, ReplanViewEntry } from "@/api/functions/lib/replanView";
 
 /**
  * Replan Intelligence on /runs: for each replanned plan version, what

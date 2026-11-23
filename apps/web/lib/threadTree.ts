@@ -1,7 +1,7 @@
 /**
  * Pure thread helpers: the `threads.list` row shape the command menu's recent
  * threads read (lib/commandMenu.ts), their order, where a thread opens, and
- * what a thread deep link names. No React, no Convex, so it is unit tested
+ * what a thread deep link names. No React, no FharaRuntime, so it is unit tested
  * in tests/unit/threadTree.test.mjs.
  *
  * (The sidebar Threads section that grouped, filtered and keyboard-walked

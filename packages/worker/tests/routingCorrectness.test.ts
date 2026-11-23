@@ -16,7 +16,7 @@ import { BudgetTracker } from "@/orchestrator/budget";
 import { loadPolicy } from "@/orchestrator/policy";
 import { classifyCommand } from "@/orchestrator/classifier";
 import { createPlan, heuristicPlan } from "@/orchestrator/planner";
-import { ROLES } from "@/api/convex/lib/roles";
+import { ROLES } from "@/api/functions/lib/roles";
 import type { TaskLlmResolver } from "@/llm/resolver";
 import type { AgentDefinition, PlanSubtask } from "@/types";
 
@@ -131,14 +131,14 @@ describe("planner: nodes are never dropped silently", () => {
 describe("one fix-owner rule: the agent that wrote the code", () => {
   const subtasks: PlanSubtask[] = [
     { key: "fe", title: "fe", description: "", kind: "code_change", capability: "frontend-development", dependencies: [], order: 0, allowedPaths: ["apps/web"] },
-    { key: "be", title: "be", description: "", kind: "code_change", capability: "backend-development", dependencies: [], order: 1, allowedPaths: ["apps/api/convex"] },
+    { key: "be", title: "be", description: "", kind: "code_change", capability: "backend-development", dependencies: [], order: 1, allowedPaths: ["apps/api/functions"] },
     { key: "docs", title: "docs", description: "", kind: "analysis", capability: "documentation-support", dependencies: [], order: 2 },
   ];
   const writer = { ...byRole("backend"), _id: "be-2", name: "Backend 2" };
   const writerByKey = new Map([["be", writer]]);
 
   it("a finding in a backend file goes to the agent that ran the backend node", () => {
-    const owner = ownerForFix({ subtasks, findings: [{ filePath: "apps/api/convex/tasks.ts" }], agents: [...team, writer], writerByKey });
+    const owner = ownerForFix({ subtasks, findings: [{ filePath: "apps/api/functions/tasks.ts" }], agents: [...team, writer], writerByKey });
     expect(owner?.subtask.key).toBe("be");
     expect(owner?.agent._id).toBe("be-2");
   });
@@ -160,7 +160,7 @@ describe("one fix-owner rule: the agent that wrote the code", () => {
         capability: "security-audit",
         success: true,
         summary: "found an authz hole",
-        findings: [{ severity: "critical", filePath: "apps/api/convex/tasks.ts", description: "missing authz", suggestion: "" }],
+        findings: [{ severity: "critical", filePath: "apps/api/functions/tasks.ts", description: "missing authz", suggestion: "" }],
       } as never,
       classification: classifyCommand("audit security"),
       agents: [...team, writer],

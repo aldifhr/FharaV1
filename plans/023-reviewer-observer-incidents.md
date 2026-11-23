@@ -6,7 +6,7 @@
 - Size: L
 - Risk: LOW–MEDIUM (additive schema: three new tables, two optional
   fields; no change to the orchestrator/planner contract; the Reviewer runs
-  in Convex actions, read-only, outside the worker's execution path)
+  in Fhara runtime actions, read-only, outside the worker's execution path)
 - Dependencies: 020 (input guard / steers), 021 (Replan with note), 022
   (contracts, acceptance gates, escalation)
 
@@ -32,11 +32,11 @@
 
 ## Tests
 
-- `apps/api/convex/reviewerObserver.test.ts`: parsing, read-only loop,
+- `apps/api/functions/reviewerObserver.test.ts`: parsing, read-only loop,
   pre-call token gate, second opinion and shadow review leave task /
   subtasks / fileChanges / approvals / plans / taskInputs / agents unchanged,
   token + audit rows, replan paths, shadow budget, project default.
-- `apps/api/convex/incidentsImprove.test.ts`: incident triggers (failed,
+- `apps/api/functions/incidentsImprove.test.ts`: incident triggers (failed,
   done, escalation idempotency, stale recovery), owner/status audit, diff
   helpers, suggestion → diff → Apply (audited) / stale refusal / Dismiss.
 

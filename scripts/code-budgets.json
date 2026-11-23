@@ -1,23 +1,23 @@
 {
-  "apps/api/convex/chat.ts": {
+  "apps/api/functions/chat.ts": {
     "lines": 1527
   },
-  "apps/api/convex/githubPush.ts": {
+  "apps/api/functions/githubPush.ts": {
     "lines": 846
   },
-  "apps/api/convex/integrations.ts": {
+  "apps/api/functions/integrations.ts": {
     "lines": 1066
   },
-  "apps/api/convex/orchestration.ts": {
+  "apps/api/functions/orchestration.ts": {
     "lines": 3084
   },
-  "apps/api/convex/schema.ts": {
+  "apps/api/functions/schema.ts": {
     "lines": 2236
   },
-  "apps/api/convex/skills.ts": {
+  "apps/api/functions/skills.ts": {
     "lines": 1257
   },
-  "apps/api/convex/worker.ts": {
+  "apps/api/functions/worker.ts": {
     "lines": 1538
   },
   "apps/web/app/WorkspaceContext.tsx": {

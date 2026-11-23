@@ -14,7 +14,8 @@ import type { RoleKey } from "@/api/functions/lib/roles";
 
 /**
  * It is a second, independent statement of the role limits: the CTO gets no
- * shell or network through OpenCode; Frontend and Backend write, and QA runs
+ * shell or network through OpenCode; Frontend and Backend write, DevOps writes
+ * only within its enforced scoped paths, and QA runs
  * verification commands. Retired roles are refused by default.
  */
 
@@ -45,6 +46,7 @@ export const ROLE_OPERATION_POLICY: Readonly<Record<RoleKey, Readonly<Record<Pol
   cto: Object.freeze({ ...common, write: "deny", shell: "deny", network: "deny" }),
   frontend: Object.freeze({ ...common, write: "allow", shell: "allow", network: "deny" }),
   backend: Object.freeze({ ...common, write: "allow", shell: "allow", network: "deny" }),
+  devops: Object.freeze({ ...common, write: "allow", shell: "allow", network: "deny" }),
   qa: Object.freeze({ ...common, write: "deny", shell: "allow", network: "deny" }),
   designer: Object.freeze({ ...common, write: "deny", shell: "deny", network: "deny" }),
 });
@@ -54,7 +56,9 @@ export const ROLE_OPERATION_POLICY: Readonly<Record<RoleKey, Readonly<Record<Pol
  * write code, QA is read-only, and the CTO and Designer are read-only.
  * Retired roles have no policy row and are refused by `decideToolAccess`.
  */
-export const ROLE_WRITE_SCOPE: Readonly<Partial<Record<RoleKey, readonly string[]>>> = Object.freeze({});
+export const ROLE_WRITE_SCOPE: Readonly<Partial<Record<RoleKey, readonly string[]>>> = Object.freeze({
+  devops: [".github/**", "Dockerfile*", "docker-compose*", "infra/**"],
+});
 
 /** Default deny: an unknown role or operation is never allowed. */
 export function decideToolAccess(input: { roleKey?: string | null; operation?: string }): PolicyDecision {

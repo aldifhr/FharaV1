@@ -745,6 +745,18 @@ export function isOpencodePermissionDenial(error: string | undefined): boolean {
   return !!error && PERMISSION_DENIED_RE.test(error);
 }
 
+const NATIVE_LIMIT_RE =
+  /(rate\s*limit|too\s+many\s+requests|quota|credit|balance|limit\s+reached|usage\s+limit|capacity|overloaded|429|403\s+forbidden|insufficient)/i;
+
+/** Classify a native CLI failure that is really a provider/model limit. */
+export function nativeLimitReason(text: string | undefined): string | null {
+  if (!text?.trim()) return null;
+  const match = NATIVE_LIMIT_RE.exec(text);
+  if (!match) return null;
+  const line = text.split(/\r?\n/).find((entry) => NATIVE_LIMIT_RE.test(entry)) ?? match[0];
+  return line.trim().slice(0, 300);
+}
+
 function redact(text: string, secret: string | undefined): string {
   if (!secret || secret.length < 6) return text;
   return text.split(secret).join("***");
@@ -793,6 +805,7 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
   const runStartedAt = Date.now();
   let sawJson = false;
   let streamed = false;
+  let limitDetected: string | null = null;
   let pending = "";
   const plainLines: string[] = [];
   let chain: Promise<void> = Promise.resolve();
@@ -838,9 +851,20 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
       case "step_finish":
         usage = addNativeUsage(usage, event);
         break;
-      case "error":
-        errors.push(redact(event.message, secret));
+      case "error": {
+        const message = redact(event.message, secret);
+        errors.push(message);
+        const limit = nativeLimitReason(message);
+        if (limit && !limitDetected) {
+          limitDetected = limit;
+          chain = chain
+            .then(() => input.onEvent?.("native.limit.detected", { provider: command, reason: limit }, "warn"))
+            .catch(() => {});
+          // Stop the CLI as soon as the provider says the model is exhausted.
+          controller.abort();
+        }
         break;
+      }
       default:
         break;
     }
@@ -962,6 +986,10 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
   const textOutput = sawJson ? texts.join("\n").trim() : redact(ran.stdout.trim(), secret);
   const extraPlain = sawJson ? redact(plainLines.join("\n").trim(), secret) : "";
   const failed = ran.code !== 0 || timedOut || errors.length > 0;
+  const limit = failed
+    ? limitDetected ??
+      nativeLimitReason([...errors, textOutput, extraPlain, stderr].filter(Boolean).join("\n"))
+    : null;
 
   await input.onEvent?.(
     "native.run.finished",
@@ -972,6 +1000,7 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
       outputTokens,
       ...(timedOut ? { timedOut: true, timeoutMs } : {}),
       ...(errors.length > 0 ? { errors: errors.slice(0, 3) } : {}),
+      ...(limit ? { limit } : {}),
     },
     failed ? "warn" : "info"
   );
@@ -979,10 +1008,15 @@ export async function runNativeProvider(input: NativeRunInput): Promise<NativeRu
   if (failed) {
     const reason = timedOut
       ? `Native provider timed out after ${timeoutMs}ms`
-      : input.signal?.aborted
-        ? "Execution cancelled"
-        : "";
-    const output = [reason, ...errors, textOutput, extraPlain, ran.code !== 0 ? stderr : ""]
+      : limit
+        ? `Model limit or quota reached: ${limit}`
+        : input.signal?.aborted
+          ? "Execution cancelled"
+          : "";
+    const silentExit = !reason && !textOutput && !extraPlain && !stderr && ran.code !== 0
+      ? `Native CLI exited with code ${ran.code} without output. The model may be rate-limited or unavailable; check the CLI/provider quota or pick another model.`
+      : "";
+    const output = [reason, silentExit, ...errors, textOutput, extraPlain, ran.code !== 0 ? stderr : ""]
       .filter(Boolean)
       .join("\n")
       .slice(0, 12000);

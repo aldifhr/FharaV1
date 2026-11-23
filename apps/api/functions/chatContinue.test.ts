@@ -21,8 +21,7 @@ vi.mock("./lib/chat/llm", async () => {
   const { ChatStreamError } = await import("./lib/chat/streamLimits");
   (globalThis as any).__ChatStreamError = ChatStreamError;
   return {
-    getGlobalLLMConfig: () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m" }),
-    resolveConfigFromProviders: async (_p: unknown, global: unknown) => global,
+    resolveConfigFromProviders: async () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m", provider: "openai-compatible" }),
     completeWithAgent: async (system: string, history: Call["history"], _config: unknown, onChunk?: (c: { content: string; reasoning: string }) => void) => {
       llm.calls.push({ system, history });
       const next = llm.replies.shift();
@@ -193,3 +192,4 @@ describe("cut replies", () => {
     expect(replies.map((r) => r.content)).toEqual(["Selesai.", "Lanjut ke mana?"]);
   });
 });
+

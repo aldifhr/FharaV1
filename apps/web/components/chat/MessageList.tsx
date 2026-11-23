@@ -34,6 +34,12 @@ import type { MessageHistory } from "@/lib/useMessageHistory";
 
 /** References the reply cites that no repo check in it showed: one quiet line, never hidden. */
 const UNVERIFIED_SHOWN = 6;
+function ReplyModelLine({ message }: { message: any }) {
+  const model = String(message?.model ?? "").trim();
+  if (!model) return null;
+  return <div className="mt-1 text-[11px] text-ink-3">Model: {model}</div>;
+}
+
 function unverifiedRefsLabel(refs: string[]): string {
   const shown = refs.slice(0, UNVERIFIED_SHOWN).join(", ");
   const more = refs.length - UNVERIFIED_SHOWN;
@@ -66,6 +72,8 @@ type Props = {
   projectApprovalMode: "ask" | "auto";
   /** Messages query still loading: show a skeleton, not "No messages yet". */
   loading?: boolean;
+  /** Keep grouped tool/activity updates in task threads instead of project chat. */
+  showActivityGroups?: boolean;
   chatSending: boolean;
   conversationTyping: boolean;
   /** Agent expected to answer the pending user message (ghost bubble). */
@@ -96,7 +104,7 @@ type Props = {
 export default function MessageList(props: Props) {
   const {
     timeline, firstNewIndex, agents, tasks = [], subtasksOf, pendingItems, projectEvents = [],
-    projectApprovalMode, loading = false, chatSending,
+    projectApprovalMode, loading = false, showActivityGroups = true, chatSending,
     conversationTyping, typingAgent, scrollRef, scrollToMessageRef,
     onSelectTask, approve, reject, hold, respond, togglePin, onPickProposal, onCreateTaskFrom, onReply, formatTime, taskTitle, blockKey, history,
   } = props;
@@ -249,11 +257,18 @@ export default function MessageList(props: Props) {
     // that spawned it), not a transition back to plain conversation.
     const boundary = key !== prevKey && key !== "conversation";
     const systemText = systemLineText(m);
-    const showTaskCard = key !== "conversation" && m.authorType === "agent" && previous?.authorType === "user" && systemText === null;
     const messageAgent = m.authorType === "agent"
       ? (agents as any)?.find((a: any) => a._id === m.agentId)
       : undefined;
+    const isCto = /^(cto|architect)$/i.test(String(messageAgent?.role ?? ""));
+    const hasEarlierCtoReply = timeline.slice(0, index).some((item: any) => {
+      if (blockKey(item) !== key || item.authorType !== "agent" || systemLineText(item) !== null) return false;
+      const agent = (agents as any)?.find((a: any) => a._id === item.agentId);
+      return /^(cto|architect)$/i.test(String(agent?.role ?? ""));
+    });
+    const showTaskCard = key !== "conversation" && m.authorType === "agent" && isCto && !hasEarlierCtoReply && systemText === null;
     const group = activityGroups.get(index);
+    if (group && !showActivityGroups) return null;
     const open = group ? (groupOpen[group.id] ?? group.expandedByDefault) : true;
     const showSpeaker = boundary || speakerOf(previous) !== speakerOf(m) || Boolean(group && index === group.start);
     const rowClass = `group relative ${showSpeaker ? "mt-6" : "mt-3"} flex gap-3 rounded-xl transition-colors duration-700 ${flashId === String(m._id) ? "bg-hover" : ""}`;
@@ -275,6 +290,44 @@ export default function MessageList(props: Props) {
             <span className="h-px flex-1 bg-line" />
           </div>
         )}
+        {group && index === group.start && (
+          <div className="mt-4 pl-11">
+            <ActivityGroupRow
+              group={group}
+              open={open}
+              onToggle={() => setGroupOpen((prev) => ({ ...prev, [group.id]: !open }))}
+            />
+          </div>
+        )}
+        {!open ? null : systemText !== null ? (
+          <>
+            <SystemLineRow id={`message-${m._id}`} text={systemText} time={formatTime(m._creationTime)} className="my-5" />
+            {m.card && (
+              <div className="mx-auto mt-3 w-full max-w-3xl">
+                <ChatCard card={m.card} />
+              </div>
+            )}
+          </>
+        ) : animate ? (
+          <motion.div
+            key={m._id}
+            id={`message-${m._id}`}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.18) }}
+            className={rowClass}
+          >
+            {renderMessageBody(m, index, messageAgent, showSpeaker)}
+          </motion.div>
+        ) : (
+          <div
+            key={m._id}
+            id={`message-${m._id}`}
+            className={rowClass}
+          >
+            {renderMessageBody(m, index, messageAgent, showSpeaker)}
+          </div>
+        )}
         {showTaskCard && (() => {
           const cardTask = (tasks ?? []).find((t: any) => t._id === key);
           if (!cardTask) return null;
@@ -282,7 +335,7 @@ export default function MessageList(props: Props) {
           const pending = pendingItems.filter((a: any) => a.taskId === key && a.status === "pending" && a.kind !== "plan");
           const qaEvents = (projectEvents ?? []).filter((e: any) => e.taskId === key && e.type === "task.check");
           return (
-            <div className="space-y-2">
+            <div className="ml-11 mt-2 space-y-2">
               {/* An assignment card IS the task card; do not draw it twice. */}
               {m.card?.kind !== "assignment" && (
                 <TaskCard
@@ -311,37 +364,6 @@ export default function MessageList(props: Props) {
             </div>
           );
         })()}
-        {group && index === group.start && (
-          <div className="mt-4 pl-11">
-            <ActivityGroupRow
-              group={group}
-              open={open}
-              onToggle={() => setGroupOpen((prev) => ({ ...prev, [group.id]: !open }))}
-            />
-          </div>
-        )}
-        {!open ? null : systemText !== null ? (
-          <SystemLineRow id={`message-${m._id}`} text={systemText} time={formatTime(m._creationTime)} className="my-5" />
-        ) : animate ? (
-          <motion.div
-            key={m._id}
-            id={`message-${m._id}`}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.18) }}
-            className={rowClass}
-          >
-            {renderMessageBody(m, index, messageAgent, showSpeaker)}
-          </motion.div>
-        ) : (
-          <div
-            key={m._id}
-            id={`message-${m._id}`}
-            className={rowClass}
-          >
-            {renderMessageBody(m, index, messageAgent, showSpeaker)}
-          </div>
-        )}
       </>
     );
     return <div key={m._id}>{inner}</div>;
@@ -355,7 +377,7 @@ export default function MessageList(props: Props) {
       </div>
       <div className="flex min-w-0 max-w-full items-center gap-1.5">
         {/* Optimistic bubble (not saved yet): no actions on a placeholder id. */}
-        {!m.optimistic && <MessageActions
+        {!m.optimistic && !m.simulated && <MessageActions
           inline
           pinned={Boolean(m.pinned)}
           messageId={m._id}
@@ -406,7 +428,7 @@ export default function MessageList(props: Props) {
         ) : m.pinned ? (
           <Pin size={12} className="text-ink" aria-label="Pinned" />
         ) : null}
-        <MessageActions
+        {!m.simulated && <MessageActions
           pinned={Boolean(m.pinned)}
           messageId={m._id}
           content={m.content}
@@ -417,7 +439,7 @@ export default function MessageList(props: Props) {
           // Personal chat replies carry no project: no second opinion (plan 039 D8).
           onSecondOpinion={m.projectId && m.content?.trim() && !isLive(m) ? () => void requestOpinion(String(m._id)) : undefined}
           personal={!m.projectId}
-        />
+        />}
         {hasActivityTimeline(m) && (() => {
           // Activity timeline replaces the Thought line and the separate
           // Checked / Unverified lines for replies that carry it.
@@ -434,20 +456,16 @@ export default function MessageList(props: Props) {
                     unverifiedLabel={Array.isArray(m.unverifiedRefs) && m.unverifiedRefs.length > 0 ? unverifiedRefsLabel(m.unverifiedRefs) : null}
                   />
                 </div>
-                {!live && hasText && (
-                  <button
-                    type="button"
-                    onClick={() => setInspectId(String(m._id))}
-                    className="mt-[3px] shrink-0 text-[12px] text-ink-3 hover:text-ink"
-                  >
-                    Inspect context
-                  </button>
-                )}
               </div>
               {hasText && (
                 <div className="mt-1 w-fit min-w-0 max-w-[min(100%,48rem)] rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-2.5 text-ink">
                   <MessageText content={parseOptions(m.content).text} isAnimating={live || (conversationTyping && index === timeline.length - 1)} />
                 </div>
+              )}
+              {!live && hasText && (
+                <button type="button" onClick={() => setInspectId(String(m._id))} className="mt-1 text-[12px] text-ink-3 hover:text-ink">
+                  Inspect context
+                </button>
               )}
               {hasText && !live && opinions.get(String(m._id)) && <ChatOpinionLine opinion={opinions.get(String(m._id))!} />}
               {hasText && isOfferUsed(m.taskOffer) && (
@@ -485,27 +503,12 @@ export default function MessageList(props: Props) {
                   <div className="min-w-0">
                     <ReasoningLine text={m.reasoning} running={false} seconds={m.reasoningDurationMs} />
                   </div>
-                  {m.authorType === "agent" && !isLive(m) && (
-                    <button
-                      type="button"
-                      onClick={() => setInspectId(String(m._id))}
-                      className="mt-[3px] shrink-0 text-[12px] text-ink-3 hover:text-ink"
-                    >
-                      Inspect context
-                    </button>
-                  )}
                 </div>
               )}
               {!showReasoning && hasText && m.authorType === "agent" && !isLive(m) && !m.card && !m.taskId && (
-                <div className="mt-1">
-                  <button
-                    type="button"
-                    onClick={() => setInspectId(String(m._id))}
-                    className="text-[12px] text-ink-3 hover:text-ink"
-                  >
-                    Inspect context
-                  </button>
-                </div>
+                <>
+                  <ReplyModelLine message={m} />
+                </>
               )}
               <div className="mt-1 w-fit min-w-0 max-w-[min(100%,48rem)] rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-2.5 text-ink">
                 {hasText ? (
@@ -517,6 +520,11 @@ export default function MessageList(props: Props) {
                   <ReasoningLine text={m.reasoning} running={isLive(m)} seconds={m.reasoningDurationMs} />
                 )}
               </div>
+              {m.authorType === "agent" && hasText && !isLive(m) && !m.card && (!m.taskId || Boolean(m.reasoning)) && (
+                <button type="button" onClick={() => setInspectId(String(m._id))} className="mt-1 text-[12px] text-ink-3 hover:text-ink">
+                  Inspect context
+                </button>
+              )}
               {hasText && !isLive(m) && Array.isArray(m.checkedFiles) && m.checkedFiles.length > 0 && (
                 <CheckedFilesLine files={m.checkedFiles} />
               )}
@@ -650,11 +658,11 @@ export default function MessageList(props: Props) {
       ) : (
         <div ref={listRef}>{timeline.map((m: any, index: number) => renderItem(m, index, true))}</div>
       )}
-      {conversationTyping && (
+      {conversationTyping && typingAgent && (
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }} className="mt-6 flex gap-3" aria-live="polite">
-          <InitialAvatar agent avatarParams={typingAgent?.avatarParams} name={typingAgent ? roleLabel(typingAgent.role) : "Team"} size={32} />
+          <InitialAvatar agent avatarParams={typingAgent.avatarParams} name={roleLabel(typingAgent.role)} size={32} />
           <div className="min-w-0 flex-1">
-            <p className="text-[12.5px] font-medium text-ink-2">{typingAgent ? roleLabel(typingAgent.role) : "Team"}</p>
+            <p className="text-[12.5px] font-medium text-ink-2">{roleLabel(typingAgent.role)}</p>
             <div className="mt-1 w-fit rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-2.5">
               <ReasoningLine running />
             </div>

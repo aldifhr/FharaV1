@@ -40,10 +40,10 @@ export function runtimeTest(_schema: unknown, _modules?: unknown): any {
       return callback(executor.context("internalMutation"));
     },
     finishAllScheduledFunctions: async () => {
-      executor.runDueJobs();
+      await executor.runDueJobs();
     },
     finishInProgressScheduledFunctions: async () => {
-      executor.runDueJobs();
+      await executor.runDueJobs();
     },
     fetch: async () => {
       throw new Error("HTTP actions are not supported by the local test runtime");

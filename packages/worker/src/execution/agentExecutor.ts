@@ -1,5 +1,5 @@
 import { markProgress } from "@/effects/observationContext";
-import { createProviderForAgent, getGlobalLLMConfig, type GlobalLLMConfig, type LLMResult } from "@/llm";
+import { createProviderForAgent, type GlobalLLMConfig, type LLMResult } from "@/llm";
 import {
   isTransientLlmError,
   runLlmCallWithFallback,
@@ -250,13 +250,17 @@ export interface SubtaskExecutionInput {
 
 /**
  * The provider chain for this subtask's agent: the resolver's chain when
- * threaded in, otherwise a single handle built from the task config (or
- * the worker env). Health is only recorded for resolver chains — the
- * synthetic single handle has no connection identity to track.
+ * threaded in, otherwise a single handle built from the task's resolved
+ * global config. Missing config fails explicitly; no env fallback exists.
+ * Health is only recorded for resolver chains — the synthetic single handle
+ * has no connection identity to track.
  */
 function handlesFor(input: SubtaskExecutionInput): FallbackHandle[] {
   if (input.llmHandles && input.llmHandles.length > 0) return input.llmHandles;
-  const config = input.llmConfig ?? getGlobalLLMConfig();
+  const config = input.llmConfig;
+  if (!config) {
+    throw new Error("No global LLM model is configured. Add a connection and a model in Settings → LLM & Models.");
+  }
   return [{
     connectionId: "",
     connectionName: "(task config)",
@@ -767,6 +771,18 @@ export function canAffordRetry(
 async function withOnDemandSkills(input: SubtaskExecutionInput): Promise<SubtaskExecutionInput> {
   const { onDemandSkills: skills, librarySkills: library } = input.agent;
   if (!skills?.length && !(library?.length && input.loadLibrarySkill)) return input;
+  // A native runtime must not make a hidden API call just to choose skills.
+  // Its selected global model receives the skill index and can use native tools.
+  if (input.runtime === "native-provider" || input.runtime === "acp") {
+    await input.onEvent("agent.skills_loaded", {
+      capability: input.subtask.capability,
+      loaded: [],
+      loads: 0,
+      llmCalls: 0,
+      skipped: "native runtime uses the globally selected model",
+    });
+    return input;
+  }
   const handles = handlesFor(input);
   try {
     const preload = await preloadOnDemandSkills({
@@ -852,8 +868,7 @@ async function executeSubtaskScoped(rawInput: SubtaskExecutionInput): Promise<Su
     // read as failing (QA audit P0-5).
     if (
       (input.runtime === "native-provider" || input.runtime === "acp") &&
-      subtask.kind !== "qa" &&
-      subtask.kind !== "review"
+      subtask.kind !== "qa"
     ) {
       const driver: NativeProviderDriver = input.runtime === "acp" ? "acp" : input.nativeDriver ?? "opencode";
       const native = await nativeDriverAvailability({
@@ -865,8 +880,19 @@ async function executeSubtaskScoped(rawInput: SubtaskExecutionInput): Promise<Su
       });
       if (!native.available) {
         await input.onEvent("native.runtime.unavailable", { provider: native.provider, driver: native.driver }, "warn");
+        return { status: "failed", error: `Selected global runtime ${native.provider} is unavailable; no alternate provider was used` };
       } else {
-        return await executeNativeProvider({ ...input, nativeDriver: driver });
+        input.assertBudgetForCall?.();
+        const nativeResult = await executeNativeProvider({ ...input, nativeDriver: driver });
+        if (subtask.kind !== "review" || nativeResult.status !== "completed") return nativeResult;
+        const review = parseReview(stripToolCallMarkup(nativeResult.output ?? ""));
+        if (!review) {
+          return { status: "failed", error: "The selected global model returned an unparseable review; refusing to proceed" };
+        }
+        await input.onEvent("review.completed", { verdict: review.verdict, findings: review.findings, snapshotId: snapshotIdForChanges(input.fileChanges) });
+        const findings = review.findings.map((finding) => `- **[${finding.severity}]** \`${finding.filePath}\` — ${finding.description}`).join("\n");
+        const output = review.verdict === "approved" ? "Review approved." : `Review requested changes:\n\n${findings}`;
+        return { ...nativeResult, output, meta: { ...nativeResult.meta, verdict: review.verdict, findings: review.findings, snapshotId: snapshotIdForChanges(input.fileChanges) } };
       }
     }
     switch (subtask.kind) {
@@ -944,14 +970,21 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
 
   const prior = priorContextFor(input);
 
-  const prompt = buildNativePrompt({
+  const prompt = subtask.kind === "review"
+    ? buildReviewPrompt({
+        command,
+        scope: subtask.description,
+        snapshotId: snapshotIdForChanges(input.fileChanges),
+        diffText: input.fileChanges.map((change) => `### ${change.filePath} (${change.changeType})\n${change.diff}`).join("\n\n").slice(0, 40_000),
+      })
+    : buildNativePrompt({
     title: subtask.title,
     description: subtask.description,
     command,
     systemPrompt: agent.systemPrompt,
     priorContext: prior || undefined,
     fileContext: context,
-  });
+      });
 
   // The native provider writes straight to disk, so the "before" content
   // must be captured now: reading it from disk after the run would make
@@ -974,7 +1007,10 @@ async function executeNativeProvider(input: SubtaskExecutionInput): Promise<Subt
       await onEvent("native.credential.missing", { capability: subtask.capability, connection: handle?.connectionName, reason: keyProblem }, "error");
       return { status: "failed", error: keyProblem };
     }
-    llm = handle?.config ?? input.llmConfig ?? getGlobalLLMConfig();
+    llm = handle?.config ?? input.llmConfig;
+    if (!llm && !input.nativeModel?.trim()) {
+      return { status: "failed", error: "No global LLM model is configured. Add a connection and a model in Settings → LLM & Models." };
+    }
     policy = buildOpencodePolicy({ permissions: permissionsForAgent(agent), allowedPaths: subtask.allowedPaths, mutating: subtask.kind === "code_change" || subtask.kind === "shell", roleKey: resolveRoleKey(agent.role ?? "") });
   } else if (driver === "acp") {
     // Plan 058 step 3: ACP agents bring their own credentials (like Codex),

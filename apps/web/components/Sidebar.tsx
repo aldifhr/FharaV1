@@ -2,7 +2,7 @@
 import { usePathname, useRouter } from "@/lib/spaRouter";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@fhara/runtime/react";
-import { Activity, Inbox, Menu, MessageCircle, PanelLeft, Plus, Settings, X } from "lucide-react";
+import { Activity, BookOpen, Brain, FlaskConical, Home, Inbox, Menu, MessageCircle, MessageSquare, Moon, Plug, Plus, ScrollText, Sparkles, Sun, Users, X } from "lucide-react";
 import { api } from "@fhara/runtime/api";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import AgentDetailPanel from "./AgentDetailPanel";
@@ -16,13 +16,14 @@ import ProjectList from "./sidebar/ProjectList";
 import TeamList, { type TeamAgent } from "./sidebar/TeamList";
 import { CreateAgentModal } from "./sidebar/AgentForms";
 import ActivityPopover from "./sidebar/ActivityPopover";
-import { InboxNav, NavGroup, NavRow, RailItem } from "./sidebar/SidebarNav";
+import { InboxNav, NavRow, RailItem } from "./sidebar/SidebarNav";
 import { sidebarNavLinks } from "./sidebar/navLinks";
 import { AccountRow, Logo, SearchBox, SidebarHeader, useShellChords } from "./sidebar/SidebarChrome";
 import { agentName } from "@/lib/agentRoles";
 import { useOptionalWorkspace } from "@/app/WorkspaceContext";
 import { useUiPref } from "@/lib/uiPrefs";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
+import { useTheme } from "./ui/use-theme";
 
 type Sections = { needsYou: boolean; projects: boolean; team: boolean };
 
@@ -30,9 +31,10 @@ type Sections = { needsYou: boolean; projects: boolean; team: boolean };
  * The one app navigation (plan 067, mockup parity): a persistent icon rail —
  * logo, new project, inbox, personal messages, activity, settings + account
  * at the bottom — beside the expandable sidebar with the search (⌘K), Inbox /
- * Personal messages / Needs you, WORK (projects, team), BUILD, DEVELOPMENT
- * and OBSERVE. The sidebar folds on desktop (remembered in uiPrefs); below
- * 980px it is a drawer and the rail hides.
+ * Personal messages / Needs you, WORK (projects, team), and DEVELOPMENT.
+ * Build, development, and observe destinations live on the rail. The sidebar
+ * folds on desktop (remembered in uiPrefs); below 980px it is a drawer and the
+ * rail hides.
  */
 export default function Sidebar({
   projectId,
@@ -132,7 +134,10 @@ export default function Sidebar({
     });
   };
 
-  const { build, development, observe } = sidebarNavLinks({ pathname, projectId });
+  const { development } = sidebarNavLinks({ pathname, projectId });
+  const { theme, toggleTheme } = useTheme();
+  const ThemeIcon = theme === "dark" ? Sun : Moon;
+  const themeLabel = theme === "dark" ? "Light mode" : "Dark mode";
   const inboxActive = pathname === "/inbox";
   const activity = (
     <NavRow icon={Activity} label="Activity" buttonRef={activityRef} expanded={activityOpen} onClick={() => setActivityOpen((v) => !v)} />
@@ -153,13 +158,29 @@ export default function Sidebar({
       {/* Plan 067: the persistent app rail (logo, new project, inbox, DMs,
           activity; settings + account at the bottom). It always shows on
           desktop — the sidebar folds beside it instead of replacing it. */}
-      <aside aria-label="App rail" className="flex h-full w-14 shrink-0 flex-col items-center gap-1.5 border-r border-line bg-panel py-3 max-[979px]:hidden">
+      <aside aria-label="App rail" className="shell-scroll flex h-full w-sidebar-rail shrink-0 flex-col items-center gap-2 overflow-y-auto border-r border-line bg-panel py-4 max-[979px]:hidden">
         <Logo onNavigate={closeDrawer} />
         <RailItem icon={Plus} label="New project" onClick={() => { setCollapsedPref(false); openNewProject(); }} />
         <span aria-hidden="true" className="my-1 h-px w-6 bg-line" />
+        <RailItem icon={Home} label="Home" href="/" active={pathname === "/"} />
         <QueryBoundary fallback={<RailItem icon={Inbox} label="Inbox" href="/inbox" active={inboxActive} />}>
           <InboxNav icon={Inbox} active={inboxActive} rail />
         </QueryBoundary>
+        <SearchBox rail chord={chord} onOpen={openCommand} collapsed={collapsedPref} onToggleCollapsed={() => setCollapsedPref(false)} />
+        <RailItem
+          icon={MessageSquare}
+          label="Project chat"
+          href={projectId ? `/project/${projectId}` : "/chats"}
+          active={pathname.startsWith("/project/") || pathname.startsWith("/workspace/") || pathname === "/chats"}
+        />
+        {development.map((item) => (
+          <RailItem key={item.label} {...item} />
+        ))}
+        <RailItem icon={Users} label="Team" href={projectId ? `/team?project=${projectId}` : "/team"} active={pathname.startsWith("/team")} />
+        <RailItem icon={BookOpen} label="Library" href={projectId ? `/library?project=${projectId}` : "/library"} active={pathname === "/library"} />
+        <RailItem icon={Brain} label="Memory" href={projectId ? `/memory?scope=project&project=${projectId}` : "/memory"} active={pathname.startsWith("/memory")} />
+        <RailItem icon={FlaskConical} label="Sandbox" href={projectId ? `/sandbox?project=${projectId}` : "/sandbox"} active={pathname === "/sandbox"} />
+        <RailItem icon={ScrollText} label="Audit log" href={projectId ? `/audit?project=${projectId}` : "/audit"} active={pathname === "/audit"} />
         <RailItem
           icon={MessageCircle}
           label="Personal messages"
@@ -169,24 +190,10 @@ export default function Sidebar({
         {projectId ? (
           <RailItem icon={Activity} label="Activity" buttonRef={activityRef} expanded={activityOpen} onClick={() => setActivityOpen((v) => !v)} />
         ) : null}
+        <RailItem icon={Sparkles} label="Improve" href={projectId ? `/improve?project=${projectId}` : "/improve"} active={pathname.startsWith("/improve")} />
+        <RailItem icon={Plug} label="Integrations" href="/integrations" active={pathname.startsWith("/integrations")} />
         <div className="mt-auto flex flex-col items-center gap-1">
-          {isDesktop && (
-            <RailItem
-              icon={PanelLeft}
-              label={collapsedPref ? "Expand sidebar" : "Collapse sidebar"}
-              onClick={() => setCollapsedPref(!collapsedPref)}
-            />
-          )}
-          <RailItem icon={Settings} label="Settings" onClick={openShellSettings} />
-          <button
-            type="button"
-            onClick={() => openSettings(projectId, "signin")}
-            aria-label="Account"
-            title="Local workspace · Accounts and sign-in"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-field bg-inset text-[11px] font-semibold text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
-          >
-            F
-          </button>
+          <RailItem icon={ThemeIcon} label={themeLabel} onClick={toggleTheme} />
         </div>
         {activityOpen && projectId && <ActivityPopover anchor={activityRef.current} projectId={projectId} onClose={() => setActivityOpen(false)} />}
       </aside>
@@ -214,32 +221,18 @@ export default function Sidebar({
 
         <div className="flex flex-col gap-3 pb-2 pt-3 px-3">
           <div className="flex items-start gap-1">
-            <div className="min-w-0 flex-1">
-              <SidebarHeader collapsed={false} onToggleCollapsed={isDesktop ? () => setCollapsedPref(true) : undefined} onNavigate={closeDrawer} />
-            </div>
+            {!isDesktop && <div className="min-w-0 flex-1"><SidebarHeader collapsed={false} onNavigate={closeDrawer} /></div>}
             {isDrawer && drawerOpen && (
               <button type="button" onClick={closeDrawer} aria-label="Close menu" className="flex h-9 w-9 items-center justify-center rounded-field text-ink-2 hover:bg-hover hover:text-ink min-[980px]:hidden">
                 <X size={18} />
               </button>
             )}
           </div>
-          <SearchBox chord={chord} onOpen={openCommand} />
+          <SearchBox chord={chord} onOpen={openCommand} {...(isDesktop ? { onToggleCollapsed: () => setCollapsedPref(true) } : {})} />
         </div>
 
         <nav aria-label="Workspace" className="shell-scroll flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-3 pb-4 pt-1">
           <div className="flex flex-col gap-3">
-            <QueryBoundary
-              fallback={<NavRow icon={Inbox} label="Inbox" href="/inbox" onClick={closeDrawer} />}
-            >
-              <InboxNav icon={Inbox} active={inboxActive} rail={false} onNavigate={closeDrawer} />
-            </QueryBoundary>
-            <NavRow
-              icon={MessageCircle}
-              label="Personal messages"
-              href="/messages"
-              active={pathname.startsWith("/messages") || pathname.startsWith("/message")}
-              onClick={closeDrawer}
-            />
             <QueryBoundary
               fallback={
                 <NavRow icon={Inbox} label="Needs you" href="/inbox" onClick={closeDrawer} />
@@ -248,7 +241,7 @@ export default function Sidebar({
               <NeedsYou open={open.needsYou} onToggle={() => toggleSection("needsYou")} onNavigate={closeDrawer} />
             </QueryBoundary>
           </div>
-          <NavGroup label="Work">
+          <div className="flex flex-col gap-4">
             <ProjectList
               filter=""
               currentId={projectId}
@@ -271,22 +264,7 @@ export default function Sidebar({
               onAdd={() => setCreateOpen(true)}
               onOpenAgent={(a) => setDetail(a)}
             />
-          </NavGroup>
-          <NavGroup label="Build">
-            {build.map((item) => (
-              <NavRow key={item.label} {...item} onClick={item.onClick ?? closeDrawer} />
-            ))}
-          </NavGroup>
-          <NavGroup label="Development">
-            {development.map((item) => (
-              <NavRow key={item.label} {...item} onClick={item.onClick ?? closeDrawer} />
-            ))}
-          </NavGroup>
-          <NavGroup label="Observe">
-            {observe.map((item) => (
-              <NavRow key={item.label} {...item} onClick={closeDrawer} />
-            ))}
-          </NavGroup>
+          </div>
         </nav>
 
         <div className="shrink-0 border-t border-line p-2">

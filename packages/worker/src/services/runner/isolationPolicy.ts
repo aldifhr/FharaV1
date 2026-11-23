@@ -65,20 +65,56 @@ export function policyForResume(policy: ExecutionPolicy, hasWorktree: boolean): 
   return policy.worktreeIsolationAuto ? policyForIsolation(policy, hasWorktree) : policy;
 }
 
-/** Porcelain status lines, minus the (legacy in-repo) worktrees directories. */
+/** Generated paths that never need to block worktree isolation. */
+const IGNORED_CLEAN_PATHS = [
+  "node_modules",
+  "dist",
+  "build",
+  "coverage",
+  ".next",
+  ".turbo",
+  ".cache",
+  ".fhara",
+  LEGACY_WORKTREES_DIR,
+  FHARA_PROJECT_DIR,
+];
+
+const GENERATED_LOCKFILES = new Set([
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "bun.lock",
+  "bun.lockb",
+]);
+
+const IGNORED_CHECK_INPUT = /(^|\/)\.(generated|astro)\/|\.d\.ts$|(^|\/)\.env[^/]*$/;
+const IN_NODE_MODULES = /(^|\/)node_modules(\/|$)/;
+
+export function hasIgnoredCheckInputs(listing: string): boolean {
+  return listing
+    .split("\0")
+    .some((entry) => {
+      const file = entry.trim().replace(/\\/g, "/");
+      return !!file && !IN_NODE_MODULES.test(file) && IGNORED_CHECK_INPUT.test(file);
+    });
+}
+
 export function hasUncommittedChanges(porcelain: string): boolean {
   return porcelain
     .split(/\r?\n/)
-    .map((line) => line.slice(3).replace(/^"|"$/g, ""))
-    .some((file) => {
-      const clean = file.trim();
-      if (clean === "") return false;
-      // Plan 065: worktrees default outside the repo now; these two are the
-      // legacy in-repo base (until its cleanup finishes) and the project's
-      // optional worktreesPath target.
-      for (const dir of [LEGACY_WORKTREES_DIR, FHARA_PROJECT_DIR]) {
-        if (clean === dir || clean.startsWith(`${dir}/`)) return false;
+    .filter((line) => line.length >= 3)
+    .some((line) => {
+      const status = line.slice(0, 2);
+      const file = line.slice(3).replace(/^"|"$/g, "").trim();
+      if (status === "!!") return false;
+      if (!file) return false;
+      if (status.includes("R") || status.includes("C")) {
+        const target = file.split(" -> ").pop() ?? file;
+        return hasUncommittedChanges(`?? ${target}`);
       }
+      const segments = file.replace(/\\/g, "/").split("/").filter(Boolean);
+      if (segments.some((segment) => IGNORED_CLEAN_PATHS.includes(segment))) return false;
+      if (GENERATED_LOCKFILES.has(segments.at(-1) ?? "")) return false;
       return true;
     });
 }
@@ -95,7 +131,9 @@ export function probeIsolation(
   if (readiness !== "ready") return { backend, readiness };
   let dirty = true;
   try {
-    dirty = hasUncommittedChanges(git(["status", "--porcelain", "--untracked-files=normal"]));
+    const status = git(["status", "--porcelain", "--untracked-files=normal"]);
+    const ignored = git(["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"]);
+    dirty = hasUncommittedChanges(status) || hasIgnoredCheckInputs(ignored);
   } catch {
     // Unknown counts as dirty: stay sequential in the checkout.
   }

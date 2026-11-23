@@ -35,7 +35,8 @@ describe("appendTaskEvent (numbered events)", () => {
       await appendTaskEvent(ctx, { taskId: otherTaskId, projectId, type: "x" });
     });
     const rows = await t.run((ctx) => ctx.db.query("taskEvents").collect());
-    expect(rows.filter((r) => r.taskId === taskId).map((r) => r.sequence)).toEqual([1, 2, 3]);
+    const byTask = rows.filter((r) => r.taskId === taskId).sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
+    expect(byTask.map((r) => r.sequence)).toEqual([1, 2, 3]);
     expect(rows.filter((r) => r.taskId === otherTaskId).map((r) => r.sequence)).toEqual([1]);
     expect(rows.every((r) => typeof r.createdAt === "number")).toBe(true);
   });

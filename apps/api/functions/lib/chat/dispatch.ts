@@ -59,8 +59,8 @@ export type ChatRoute<T extends TeamMember> =
  *
  * A retired role name stays first so a user's custom agent with that role is
  * still picked; the role that does the work now follows it. Designer is live
- * as a manual role, so it leads its own domain with Frontend as fallback
- * (Support → Backend, Reviewer → QA, DevOps → Backend, Researcher → CTO).
+ * in the fixed team, so it leads its own domain with Frontend as fallback
+ * (Support → Backend, Reviewer → QA, Researcher → CTO).
  */
 export const DOMAIN_ROLES: Record<DispatchDomain, string[]> = {
   architecture: ["cto", "architect"],

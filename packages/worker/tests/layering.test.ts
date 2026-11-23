@@ -55,44 +55,44 @@ const LAYERS: Record<string, number> = {
 
 /** apps/api modules that are pure TypeScript and safe at the foundation layer. */
 const SHARED_FOUNDATION = new Set([
-  "runtime/lib/roles",
+  "functions/lib/roles",
   // Plan L3: pure task-brief helpers (types, caps, prompt section).
-  "runtime/lib/brief",
+  "functions/lib/brief",
   // Skill v2: pure skill prompt helpers (PromptSkill type, budgets).
-  "runtime/lib/skills",
+  "functions/lib/skills",
   // Pure shared helpers (no FharaRuntime APIs): plan validation + estimate +
   // plan-review policy run on both sides.
-  "runtime/lib/ownershipPaths",
-  "runtime/lib/planValidation",
-  "runtime/lib/estimate",
-  "runtime/lib/planReviewPolicy",
+  "functions/lib/ownershipPaths",
+  "functions/lib/planValidation",
+  "functions/lib/estimate",
+  "functions/lib/planReviewPolicy",
   // Plan 022: contract / gates / escalation and model tiers (pure).
-  "runtime/lib/subtaskContract",
-  "runtime/lib/modelTiers",
+  "functions/lib/subtaskContract",
+  "functions/lib/modelTiers",
   // Plan 025: requirements traceability and execution observations (pure).
-  "runtime/lib/requirements",
-  "runtime/lib/observations",
+  "functions/lib/requirements",
+  "functions/lib/observations",
   // Plan 027: agent performance scoring (pure). The model capability
   // registry was removed with plan 033.
-  "runtime/lib/agentPerformance",
+  "functions/lib/agentPerformance",
   // Plan 032: the global LLM selection mode (pure).
-  "runtime/lib/llmSelection",
+  "functions/lib/llmSelection",
   // L2: secret patterns shared with context snapshots (pure).
-  "runtime/lib/secretPatterns",
+  "functions/lib/secretPatterns",
   // Role memory: learnings parse / dedupe / cap helpers (pure).
-  "runtime/lib/roleMemory",
+  "functions/lib/roleMemory",
   // Orchestrator/CTO split O1: the architecture flag type, decision key and
   // parsers (pure, no imports), shared by the planner and the plan validator.
-  "runtime/lib/architectureFlag",
+  "functions/lib/architectureFlag",
   // DeepSeek Harness D4: instruction-chain budget rules and the time line (pure).
-  "runtime/lib/projectInstructions",
-  "runtime/lib/timeContext",
+  "functions/lib/projectInstructions",
+  "functions/lib/timeContext",
   // DeepSeek Harness D5: one stable-prefix prompt layout (pure, no imports),
   // shared by the planner, the executor and chat.
-  "runtime/lib/assemblePrompt",
+  "functions/lib/assemblePrompt",
   // Orchestrator/CTO split O2: System status line constants + guard (pure,
   // no imports), read by compaction to keep System lines out of transcripts.
-  "runtime/lib/systemLine",
+  "functions/lib/systemLine",
 ]);
 
 const SRC = path.resolve(import.meta.dirname, "../src");
@@ -117,6 +117,7 @@ function targetUnit(fromRelative: string, specifier: string): string | null {
     const apiPath = specifier.replace(/^@\/?api\//, "").replace(/\.ts$/, "");
     return SHARED_FOUNDATION.has(apiPath) ? "types" : "@api";
   }
+  if (specifier.startsWith("@fhara/runtime")) return "@api";
   if (specifier.startsWith("@/")) return unitOf(specifier.slice(2));
   if (specifier.startsWith(".")) {
     const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(fromRelative), specifier));

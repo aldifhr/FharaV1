@@ -12,8 +12,10 @@ import {
 } from "./lib/reviewer/opinion";
 import { ReviewerBudgetError, runReviewerLoop } from "./lib/reviewer/run";
 import type { RepoToolCall } from "./lib/chat/repoTools";
+import { encryptApiKey } from "./lib/llmCrypto";
 
 const modules = import.meta.glob("./**/*.ts");
+const TEST_KEY = Buffer.alloc(32, 7).toString("base64");
 
 /** OpenAI-compatible non-streaming reply with `content`. */
 function stubLlm(contents: string[]) {
@@ -33,19 +35,22 @@ beforeEach(() => {
   // Scheduled reviews must not run on their own: each test runs the
   // action explicitly (local-test fires runAfter(0) on real timers).
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-  process.env.LLM_PROVIDER = "openai";
-  process.env.LLM_API_KEY = "test-key";
+  process.env.PROVIDER_ENCRYPTION_KEY = TEST_KEY;
 });
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
-  delete process.env.LLM_PROVIDER;
-  delete process.env.LLM_API_KEY;
+  delete process.env.PROVIDER_ENCRYPTION_KEY;
 });
 
 async function seed(opts: { status?: "running" | "done" | "failed"; shadow?: boolean } = {}) {
   const t = runtimeTest(schema, modules);
+  const cipher = await encryptApiKey("test-key");
   const ids = await t.run(async (ctx) => {
+    await ctx.db.insert("llmProviders", {
+      name: "Test", provider: "openai-compatible", model: "m", baseUrl: "https://llm.test/v1",
+      apiKeyCiphertext: cipher, priority: 0, weight: 100, isEnabled: true, createdAt: 1,
+    });
     const projectId = await ctx.db.insert("projects", { name: "P", workspacePath: "/tmp/p" });
     const reviewerId = await ctx.db.insert("agents", { name: "Reviewer", role: "reviewer", status: "idle", systemPrompt: "You review code." });
     const frontendId = await ctx.db.insert("agents", { name: "Frontend", role: "frontend", status: "idle", systemPrompt: "Build UI.\nAlways run typecheck." });

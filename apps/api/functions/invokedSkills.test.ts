@@ -15,8 +15,7 @@ import { normalizeInvokedSkills } from "./lib/invokedSkillsSchema";
 const calls: Array<{ system: string }> = [];
 
 vi.mock("./lib/chat/llm", () => ({
-  getGlobalLLMConfig: () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m" }),
-  resolveConfigFromProviders: async (_p: unknown, global: unknown) => global,
+  resolveConfigFromProviders: async () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m", provider: "openai-compatible" }),
   completeWithAgent: async (system: string) => {
     calls.push({ system });
     return { content: "Here is the plan.", reasoning: "", reasoningDurationMs: 0 };
@@ -159,3 +158,4 @@ describe("task invokedSkills", () => {
     expect(run!.agents.every((a) => a.invokedSkills === undefined)).toBe(true);
   });
 });
+

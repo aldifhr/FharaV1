@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { AGENT_STATUS_LABEL, agentStatusView, statusFromLeases, teamStatusLabel } from "../../lib/teamStatus.ts";
 import { orderTeam } from "../../lib/agentIdentity.ts";
-import { FIXED_TEAM_DISPLAY_ORDER, FIXED_TEAM_SEED_ORDER } from "../../../api/runtime/lib/roles.ts";
+import { FIXED_TEAM_DISPLAY_ORDER, FIXED_TEAM_SEED_ORDER } from "../../../../apps/api/functions/lib/roles.ts";
 
 const entry = (status, extra = {}) => ({ status, taskId: "t", taskTitle: "Task", projectName: null, subtaskKey: null, ...extra });
 
@@ -55,7 +55,7 @@ test("the sidebar row and the agent panel map status through the same helper and
 
 test("team order is fixed by role, never by status; extras follow oldest first", () => {
   assert.deepEqual([...FIXED_TEAM_DISPLAY_ORDER].sort(), [...FIXED_TEAM_SEED_ORDER].sort());
-  assert.deepEqual(FIXED_TEAM_DISPLAY_ORDER, ["cto", "frontend", "backend", "qa"]);
+  assert.deepEqual(FIXED_TEAM_DISPLAY_ORDER, ["cto", "lead", "frontend", "designer", "backend", "devops", "qa"]);
   const agents = [
     { _id: "x2", role: "backend", _creationTime: 90 },
     { _id: "fe", role: "frontend", _creationTime: 1 },

@@ -156,6 +156,7 @@ test("new A4 files keep the UI rules (no tints, hex, pills or pulse; no @name)",
   for (const file of ["components/changes/LineCommentComposer.tsx", "components/changes/DraftCommentsBar.tsx", "components/changes/useLineComments.tsx"]) {
     const src = readFileSync(new URL(`../../${file}`, import.meta.url), "utf8");
     assert.deepEqual(uiRuleCounts(src), { pulse: 0, pill: 0, tint: 0, hex: 0, confirm: 0 }, file);
-    assert.doesNotMatch(src, /["'`>][^"'`<]*@[a-z][\w-]*/i, `${file} has @name copy`);
+    const uiCopy = src.replace(/^\s*import\b[\s\S]*?;\s*$/gm, "");
+    assert.doesNotMatch(uiCopy, /["'`>][^"'`<\r\n]*@[a-z][\w-]*/i, `${file} has @name copy`);
   }
 });

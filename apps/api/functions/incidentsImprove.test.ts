@@ -5,8 +5,10 @@ import { api, internal } from "@fhara/runtime/api";
 import schema from "./schema";
 import { applyEdits, resolveSuggestion, type SuggestionCandidate } from "./lib/improve/suggest";
 import { diffStats, unifiedDiff } from "./lib/improve/textDiff";
+import { encryptApiKey } from "./lib/llmCrypto";
 
 const modules = import.meta.glob("./**/*.ts");
+const TEST_KEY = Buffer.alloc(32, 7).toString("base64");
 
 function stubLlm(content: string) {
   const fetchMock = vi.fn(async () =>
@@ -18,19 +20,22 @@ function stubLlm(content: string) {
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-  process.env.LLM_PROVIDER = "openai";
-  process.env.LLM_API_KEY = "test-key";
+  process.env.PROVIDER_ENCRYPTION_KEY = TEST_KEY;
 });
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
-  delete process.env.LLM_PROVIDER;
-  delete process.env.LLM_API_KEY;
+  delete process.env.PROVIDER_ENCRYPTION_KEY;
 });
 
 async function seed() {
   const t = runtimeTest(schema, modules);
+  const cipher = await encryptApiKey("test-key");
   const ids = await t.run(async (ctx) => {
+    await ctx.db.insert("llmProviders", {
+      name: "Test", provider: "openai-compatible", model: "m", baseUrl: "https://llm.test/v1",
+      apiKeyCiphertext: cipher, priority: 0, weight: 100, isEnabled: true, createdAt: 1,
+    });
     const projectId = await ctx.db.insert("projects", { name: "P", workspacePath: "/tmp/p" });
     const agentId = await ctx.db.insert("agents", { name: "Frontend", role: "frontend", status: "idle", systemPrompt: "Build UI.\nKeep diffs small." });
     const taskId = await ctx.db.insert("tasks", {

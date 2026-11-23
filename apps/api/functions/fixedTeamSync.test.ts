@@ -4,7 +4,7 @@
  * policy without touching user choices. A prompt is replaced only when it
  * is exactly an earlier seed (D10). Each patched row leaves an audit entry.
  *
- * Retired roles (reviewer, researcher, devops, support) were removed from
+ * Retired roles (reviewer, researcher, support) were removed from
  * the role system entirely; the sync no longer disables or retires them.
  * Old stored agents with those roles are simply ignored by the sync.
  */
@@ -13,7 +13,6 @@ import { describe, expect, test } from "vitest";
 import { internal } from "@fhara/runtime/api";
 import schema from "./schema";
 import { syncedTools } from "./agents";
-import { ROLES } from "./lib/roles";
 import { AGENT_SEED_PROMPTS, PREVIOUS_SEED_PROMPTS } from "./lib/prompts/agents";
 
 const modules = import.meta.glob("./**/*.ts");
@@ -82,15 +81,18 @@ describe("fixed-team sync: unedited seed prompts and fresh seeds", () => {
     expect(again).toHaveLength(synced.length);
   });
 
-  test("fresh seed rows follow the fixed-team policy; Designer is manual, not seeded", async () => {
+  test("fresh seed rows follow the fixed-team policy, including scoped DevOps and read-only Designer", async () => {
     const t = makeT();
     await t.mutation(internal.agents.syncFixedTeamInternal, {});
     const agents = await t.run(async (ctx) => await ctx.db.query("agents").collect());
     const tools = (role: string) => agents.find((agent) => agent.role === role)?.supportedTools ?? [];
     expect(tools("frontend")).toContain("write_file");
     expect(tools("backend")).toContain("write_file");
+    expect(tools("devops")).toContain("write_file");
     expect(tools("qa")).not.toContain("write_file");
     expect(tools("cto")).not.toContain("write_file");
-    expect(agents.some((agent) => agent.role === "designer")).toBe(false);
+    expect(tools("designer")).toEqual(["read_file"]);
+    expect(agents.filter((agent) => agent.role === "designer")).toHaveLength(1);
+    expect(agents.map((agent) => agent.role)).toContain("devops");
   });
 });

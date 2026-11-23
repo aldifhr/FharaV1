@@ -70,8 +70,10 @@ async function spawnOpenCode(
   argv: string[],
   prompt: string,
   timeoutMs: number,
-  spawnImpl?: (command: string, argv: string[], stdin: string) => Promise<ChatLlmSpawnResult>
+  spawnImpl?: (command: string, argv: string[], stdin: string) => Promise<ChatLlmSpawnResult>,
+  signal?: AbortSignal
 ): Promise<ChatLlmSpawnResult> {
+  if (signal?.aborted) throw new Error("aborted");
   if (spawnImpl) return await spawnImpl(command, argv, prompt);
   return await new Promise((resolve, reject) => {
     const child = spawn(command, argv, {
@@ -81,10 +83,19 @@ async function spawnOpenCode(
       windowsHide: true,
       stdio: ["pipe", "pipe", "pipe"],
     });
+    const onAbort = () => {
+      clearTimeout(timer);
+      child.kill();
+      reject(new Error("aborted"));
+    };
     const timer = setTimeout(() => {
       child.kill();
       reject(new Error(`OpenCode chat call timed out after ${timeoutMs}ms`));
     }, timeoutMs);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+    child.on("close", cleanup);
+    child.on("error", cleanup);
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => { stdout += String(chunk); });
@@ -107,16 +118,23 @@ async function spawnOpenCode(
 
 export async function runChatLlm(
   args: ChatLlmArgs,
-  opts: { command?: string; timeoutMs?: number; spawnImpl?: (command: string, argv: string[], stdin: string) => Promise<ChatLlmSpawnResult> } = {}
+  opts: {
+    command?: string;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+    /** Use this prompt verbatim instead of the chat-specific composition. */
+    prompt?: string;
+    spawnImpl?: (command: string, argv: string[], stdin: string) => Promise<ChatLlmSpawnResult>;
+  } = {}
 ): Promise<ChatLlmResult> {
   const model = String(args.model ?? "").trim() || (await readChatModelFromSettings());
   if (!model) return { ok: false, text: "No model configured in settings.json (defaultModelSelection.model)." };
   if (!isSafeChatModel(model)) return { ok: false, text: "Invalid chat model id: only letters, digits, . _ : @ / - are allowed." };
-  const prompt = composeChatPrompt(String(args.system ?? ""), Array.isArray(args.messages) ? args.messages : []);
+  const prompt = opts.prompt ?? composeChatPrompt(String(args.system ?? ""), Array.isArray(args.messages) ? args.messages : []);
   const command = String(opts.command ?? wenv("ORCHESTRATOR_NATIVE_PROVIDER_COMMAND") ?? "opencode").trim() || "opencode";
   const timeoutMs = Math.max(5_000, Number(opts.timeoutMs ?? wenv("FHARA_CHAT_LLM_TIMEOUT_MS") ?? 120_000));
   try {
-    const ran = await spawnOpenCode(command, ["run", "-m", model, "--pure"], prompt, timeoutMs, opts.spawnImpl);
+    const ran = await spawnOpenCode(command, ["run", "-m", model, "--pure"], prompt, timeoutMs, opts.spawnImpl, opts.signal);
     const text = String(ran.stdout ?? "").trim();
     if (ran.code !== 0 || !text) {
       return { ok: false, text: `OpenCode chat call failed (${model}, exit ${ran.code}): ${String(ran.stderr ?? "").slice(-400)}` };

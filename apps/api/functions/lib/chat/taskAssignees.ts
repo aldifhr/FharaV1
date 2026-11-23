@@ -44,7 +44,7 @@ const ROLE_KEYWORDS: Array<[string, RegExp]> = [
 /**
  * The team member for a role name. A retired name resolves to its successor
  * (a hint or a stored owner can still say "designer"), which is what the
- * four-role roster has to do with the old nine.
+ * fixed roster has to do with the old nine.
  */
 const byRole = <T extends Member>(team: T[], role: string | undefined): T | undefined => {
   const key = role ? normalizeRoleKey(role) : "";

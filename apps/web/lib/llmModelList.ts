@@ -35,7 +35,6 @@ interface PresetLike {
   label: string;
   provider: string;
   baseUrl: string;
-  apiKeyEnv: string;
   needsKey: boolean;
 }
 
@@ -45,7 +44,6 @@ export interface ProviderFormState {
   apiKey: string;
   baseUrl: string;
   provider: string;
-  apiKeyEnv: string;
   weight: string;
   modelPatterns: string;
   isEnabled: boolean;
@@ -59,7 +57,6 @@ export function formForPreset(preset: PresetLike, previous?: Partial<ProviderFor
     apiKey: previous?.apiKey ?? "",
     baseUrl: preset.baseUrl,
     provider: preset.provider,
-    apiKeyEnv: preset.apiKeyEnv,
     weight: "100",
     modelPatterns: "",
     isEnabled: true,
@@ -88,7 +85,6 @@ export function providerPayload(form: ProviderFormState): Record<string, unknown
     name: form.name.trim(),
     provider: form.provider,
     baseUrl: form.baseUrl.trim(),
-    apiKeyEnv: form.apiKeyEnv.trim() || "LLM_API_KEY",
     ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}),
     weight: Number(form.weight) || 100,
     modelPatterns: patterns,

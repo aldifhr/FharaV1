@@ -57,7 +57,6 @@ import { TERMINAL_TASK_STATUSES, dispatchTaskFromChat, outsideRepoReply, startOf
 import { shouldAutoCreateTask } from "./lib/chat/autoTask";
 import {
   completeWithAgent,
-  getGlobalLLMConfig,
   resolveConfigFromProviders,
   type ChatLlmConfig,
   type CompleteResult,
@@ -660,7 +659,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         })) as ChatContextData;
 
     const { agents, team: teamAgents, projectName, history, llmProviders } = data;
-    const globalConfig = await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig(), modelPrefs, resolveOpts);
+    const globalConfig = await resolveConfigFromProviders(llmProviders, modelPrefs, resolveOpts);
 
     // Repo snapshot (read-only, workspace-confined) so structural chat questions ("how is this repo structured?") can
     // be answered from evidence instead of guesses. No project (personal chat not attached): no snapshot, no workspace
@@ -769,7 +768,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     // it run on the worker's CLI through the queue. Anything else keeps the
     // existing streaming path. The check is provider identity, never a model
     // name from a chat message.
-    const completeChat = (
+    const completeChat = async (
       scope: ChatSnapshotScope,
       agentId: Id<"agents">,
       config: ChatLlmConfig,
@@ -778,7 +777,23 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       onChunk?: Parameters<typeof completeWithSnapshot>[5]
     ) => {
       if (String(config.provider ?? "").toLowerCase() === "opencode" && scopeProjectId) {
-        return callChatLlmViaWorker(ctx, scopeProjectId, config, system, msgs);
+        try {
+          return await callChatLlmViaWorker(ctx, scopeProjectId, config, system, msgs);
+        } catch (error) {
+          const errors: string[] = [error instanceof Error ? error.message : String(error)];
+          // A native CLI model can hang or time out. The ordered chain still
+          // carries the other candidates: try them before failing the reply.
+          for (const fallback of config.fallbacks ?? []) {
+            try {
+              return String(fallback.provider ?? "").toLowerCase() === "opencode"
+                ? await callChatLlmViaWorker(ctx, scopeProjectId, fallback, system, msgs)
+                : await completeWithAgent(system, msgs, fallback, onChunk);
+            } catch (next) {
+              errors.push(next instanceof Error ? next.message : String(next));
+            }
+          }
+          throw new Error(errors.join("; "));
+        }
       }
       return completeWithSnapshot(ctx, scope, system, msgs, config, onChunk);
     };
@@ -864,6 +879,8 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         content: result.content,
         reasoning: result.reasoning || undefined,
         reasoningDurationMs: result.reasoningDurationMs || undefined,
+        model: String(raw.servedBy?.model ?? config.model ?? "") || undefined,
+        modelProvider: String(raw.servedBy?.provider ?? config.provider ?? "") || undefined,
         streaming: false,
         ...(raw.truncated && result.content.trim() ? { cutOff: TRUNCATED_CUT_OFF } : {}),
       });
@@ -982,6 +999,8 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         content,
         reasoning: trace || undefined,
         reasoningDurationMs,
+        model: String(config.model ?? "") || undefined,
+        modelProvider: String(config.provider ?? "") || undefined,
         streaming: false,
         ...(loop.checkedFiles.length ? { checkedFiles: loop.checkedFiles.slice(0, 20) } : {}),
         ...(lastTruncated && loop.answer.trim() ? { cutOff: TRUNCATED_CUT_OFF } : {}),
@@ -1009,7 +1028,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       return await runContinueTurn(ctx, {
         target: cut, agent: cutAgent, projectName,
         prior: buildChatMessages(historyBefore(history, String(cut.messageId)), { selfAgentId: String(cutAgent._id), nameOf: agentNameOf }),
-        config: await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig(), { ...(cutAgent as any), ...modelPrefs }, resolveOpts),
+        config: await resolveConfigFromProviders(llmProviders, { ...(cutAgent as any), ...modelPrefs }, resolveOpts),
         scope: snapScope(cutAgent._id as any, cut.messageId, "chat"),
         clean: (t) => stripInternalPhrasing(stripToolCallMarkup(streamVisibleText(t))),
       });
@@ -1076,7 +1095,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         .filter(Boolean)
         .join("\n");
       try {
-        const config = await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig(), { ...(agent as any), ...modelPrefs }, resolveOpts);
+        const config = await resolveConfigFromProviders(llmProviders, { ...(agent as any), ...modelPrefs }, resolveOpts);
         const result = await (useToolLoop ? streamGroundedReply : streamReplyToAgent)(
           agent._id as any,
           config,
@@ -1149,7 +1168,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       const greeters = pickGreetingResponders(mentionedAgents, team);
       for (const agent of greeters) {
         try {
-          const perAgentConfig = await resolveConfigFromProviders(llmProviders, globalConfig, { ...(agent as any), ...modelPrefs }, resolveOpts);
+          const perAgentConfig = await resolveConfigFromProviders(llmProviders, { ...(agent as any), ...modelPrefs }, resolveOpts);
           await streamReplyToAgent(
             agent._id as any,
             perAgentConfig,
@@ -1430,7 +1449,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       let content: string;
       let result: StreamReplyResult;
       try {
-        const perAgentConfig = await resolveConfigFromProviders(llmProviders, getGlobalLLMConfig(), { ...(agent as any), ...modelPrefs }, resolveOpts);
+        const perAgentConfig = await resolveConfigFromProviders(llmProviders, { ...(agent as any), ...modelPrefs }, resolveOpts);
         result = await (useToolLoop ? streamGroundedReply : streamReplyToAgent)(
           agent._id as any,
           perAgentConfig,

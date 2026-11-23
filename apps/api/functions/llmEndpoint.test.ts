@@ -12,6 +12,7 @@ import {
 } from "./lib/chat/llmEndpoint";
 import { completeWithAgent, completeWithFallback, resolveConfigChain } from "./lib/chat/llm";
 import type { PoolConnectionPayload } from "./lib/llmResolver";
+import { encryptApiKey } from "./lib/llmCrypto";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -168,30 +169,31 @@ describe("completeWithAgent routing", () => {
       { _id: "p1", name: "A", provider: "openai-compatible", model: "a", baseUrl: "http://a/v1", apiKeyEnv: "X_A", priority: 0, weight: 1, models: [{ _id: "m1", modelId: "a", isAvailable: true }] },
       { _id: "p2", name: "B", provider: "openai-compatible", model: "b", baseUrl: "http://b/v1", apiKeyEnv: "X_B", priority: 1, weight: 1, models: [{ _id: "m2", modelId: "b", isAvailable: true }] },
     ] as unknown as PoolConnectionPayload[];
-    const env = { provider: "openai", model: "g", baseUrl: "http://g/v1", apiKey: "global" };
-    expect((await resolveConfigChain(pool, env)).map((c) => c.model)).toEqual(["a", "b"]);
+    expect((await resolveConfigChain(pool)).map((c) => c.model)).toEqual(["a", "b"]);
     // An agent that still carries the retired fields resolves the global chain.
     const legacy = { role: "backend", llmProviderId: "p2", llmModelId: "m2", llmSelectionPolicy: "fixed" } as { role: string };
-    expect((await resolveConfigChain(pool, env, legacy)).map((c) => c.model)).toEqual(["a", "b"]);
+    expect((await resolveConfigChain(pool, legacy)).map((c) => c.model)).toEqual(["a", "b"]);
     // Override on (loadProviderPool attaches roleTiers): the role's model first, the list after.
     const tiered = pool.map((row) => ({ ...row, roleTiers: { worker: "m2" } }));
-    expect((await resolveConfigChain(tiered, env, { role: "backend" })).map((c) => c.model)).toEqual(["b", "a"]);
-    expect((await resolveConfigChain(tiered, env, { role: "reviewer", callRole: "reviewer" })).map((c) => c.model)).toEqual(["a", "b"]);
+    expect((await resolveConfigChain(tiered, { role: "backend" })).map((c) => c.model)).toEqual(["b", "a"]);
+    expect((await resolveConfigChain(tiered, { role: "reviewer", callRole: "reviewer" })).map((c) => c.model)).toEqual(["a", "b"]);
   });
 });
 
 // ─── Reviewer uses its fallback model ──────────────────────────────────────
 
 describe("reviewer fallback model", () => {
-  beforeEach(() => {
+  let cipherA: string;
+  let cipherB: string;
+  beforeEach(async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    process.env.REVIEW_KEY_A = "key-a";
-    process.env.REVIEW_KEY_B = "key-b";
+    process.env.PROVIDER_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
+    cipherA = await encryptApiKey("key-a");
+    cipherB = await encryptApiKey("key-b");
   });
   afterEach(() => {
     vi.useRealTimers();
-    delete process.env.REVIEW_KEY_A;
-    delete process.env.REVIEW_KEY_B;
+    delete process.env.PROVIDER_ENCRYPTION_KEY;
   });
 
   test("a primary that 404s falls back to the next model in the global list (retired per-agent fields ignored)", async () => {
@@ -200,11 +202,11 @@ describe("reviewer fallback model", () => {
       const now = Date.now();
       const primary = await ctx.db.insert("llmProviders", {
         name: "Gateway", provider: "openai-compatible", model: "qwen", baseUrl: "http://10.0.0.5:8080/v1",
-        apiKeyEnv: "REVIEW_KEY_A", priority: 0, weight: 1, isEnabled: true, createdAt: now,
+        apiKeyCiphertext: cipherA, priority: 0, weight: 1, isEnabled: true, createdAt: now,
       });
       const backup = await ctx.db.insert("llmProviders", {
         name: "Backup", provider: "openai", model: "gpt-backup", baseUrl: "https://backup.example/v1",
-        apiKeyEnv: "REVIEW_KEY_B", priority: 1, weight: 1, isEnabled: true, createdAt: now,
+        apiKeyCiphertext: cipherB, priority: 1, weight: 1, isEnabled: true, createdAt: now,
       });
       const primaryModel = await ctx.db.insert("llmModels", { providerId: primary, modelId: "qwen", isAvailable: true, createdAt: now, updatedAt: now });
       const backupModel = await ctx.db.insert("llmModels", { providerId: backup, modelId: "gpt-backup", isAvailable: true, createdAt: now, updatedAt: now });
@@ -240,11 +242,11 @@ describe("reviewer fallback model", () => {
         const now = Date.now();
         const primary = await ctx.db.insert("llmProviders", {
           name: "Gateway", provider: "openai-compatible", model: "qwen", baseUrl: "http://10.0.0.5:8080/v1",
-          apiKeyEnv: "REVIEW_KEY_A", priority: 0, weight: 1, isEnabled: true, createdAt: now,
+          apiKeyCiphertext: cipherA, priority: 0, weight: 1, isEnabled: true, createdAt: now,
         });
         const backup = await ctx.db.insert("llmProviders", {
           name: "Backup", provider: "openai", model: "gpt-backup", baseUrl: "https://backup.example/v1",
-          apiKeyEnv: "REVIEW_KEY_B", priority: 1, weight: 1, isEnabled: true, createdAt: now,
+          apiKeyCiphertext: cipherB, priority: 1, weight: 1, isEnabled: true, createdAt: now,
         });
         await ctx.db.insert("llmModels", { providerId: primary, modelId: "qwen", isAvailable: true, createdAt: now, updatedAt: now });
         const backupModel = await ctx.db.insert("llmModels", { providerId: backup, modelId: "gpt-backup", isAvailable: true, createdAt: now, updatedAt: now });
@@ -277,7 +279,7 @@ describe("reviewer fallback model", () => {
       const now = Date.now();
       const primary = await ctx.db.insert("llmProviders", {
         name: "Gateway", provider: "openai-compatible", model: "qwen", baseUrl: "http://10.0.0.5:8080/v1",
-        apiKeyEnv: "REVIEW_KEY_A", priority: 0, weight: 1, isEnabled: true, createdAt: now,
+        apiKeyCiphertext: cipherA, priority: 0, weight: 1, isEnabled: true, createdAt: now,
       });
       await ctx.db.insert("llmModels", { providerId: primary, modelId: "qwen", isAvailable: true, createdAt: now, updatedAt: now });
       const projectId = await ctx.db.insert("projects", { name: "P", workspacePath: "/tmp/p" });

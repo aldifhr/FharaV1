@@ -24,8 +24,7 @@ const calls: Call[] = [];
 let replyFor: (call: Call) => string = () => "Oke.";
 
 vi.mock("./lib/chat/llm", () => ({
-  getGlobalLLMConfig: () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m" }),
-  resolveConfigFromProviders: async (_p: unknown, global: unknown) => global,
+  resolveConfigFromProviders: async () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m", provider: "openai-compatible" }),
   completeWithAgent: async (system: string, msgs: { role: string; content: string }[]) => {
     const call = { system, msgs: msgs.map((m) => ({ ...m, content: m.content.replace(/\n\nCurrent time: [^\n]*$/, "") })) /* D4: drop the time tail */ };
     calls.push(call);
@@ -441,3 +440,4 @@ describe("(5) leaked tool-call tags never reach a stored reply", () => {
     expect((row as any).content).toBe("Oke.");
   });
 });
+

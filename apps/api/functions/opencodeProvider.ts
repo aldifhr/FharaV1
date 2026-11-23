@@ -194,7 +194,6 @@ export const setEnabled = mutation({
       presetId: cli,
       model: "",
       baseUrl: "",
-      apiKeyEnv: "",
       priority: providers.reduce((max, p) => Math.max(max, p.priority + 1), 0),
       weight: 100,
       isEnabled: args.enabled,

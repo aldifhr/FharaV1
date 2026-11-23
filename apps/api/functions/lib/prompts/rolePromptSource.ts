@@ -12,8 +12,10 @@ import { ROLE_KEYS, type RoleKey } from "../roles";
 /** The markdown file under ./roles/ that holds each role's template. */
 export const ROLE_PROMPT_FILES: Record<RoleKey, string> = {
   cto: "CTO.md",
+  lead: "LEAD.md",
   frontend: "FRONTEND.md",
   backend: "BACKEND.md",
+  devops: "DEVOPS.md",
   qa: "QA.md",
   designer: "DESIGNER.md",
 };

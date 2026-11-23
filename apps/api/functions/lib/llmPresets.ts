@@ -7,7 +7,8 @@
  * backend (model discovery uses `authStyleFor`).
  *
  * Only plain API-key (or local, keyless) vendors. No OAuth or
- * client-impersonating presets.
+ * client-impersonating presets. No environment credentials: the key is
+ * stored encrypted when the connection is saved (plan 072).
  */
 
 /** Wire formats the resolver and the chat client understand. */
@@ -23,11 +24,6 @@ export interface LlmProviderPreset {
   apiKeyUrl?: string;
   /** False for local servers that accept requests without a key. */
   needsKey: boolean;
-  /**
-   * Env var read when no key is stored (Advanced). Vendor-specific so a
-   * keyless local server never receives another vendor's LLM_API_KEY.
-   */
-  apiKeyEnv: string;
   /** Placeholder for the model id field. */
   modelHint?: string;
 }
@@ -35,7 +31,6 @@ export interface LlmProviderPreset {
 export const LLM_PROVIDER_PRESETS: readonly LlmProviderPreset[] = [
   {
     id: "anthropic",
-    apiKeyEnv: "ANTHROPIC_API_KEY",
     label: "Anthropic",
     provider: "anthropic",
     baseUrl: "https://api.anthropic.com/v1",
@@ -45,7 +40,6 @@ export const LLM_PROVIDER_PRESETS: readonly LlmProviderPreset[] = [
   },
   {
     id: "openai",
-    apiKeyEnv: "OPENAI_API_KEY",
     label: "OpenAI",
     provider: "openai",
     baseUrl: "https://api.openai.com/v1",
@@ -55,7 +49,6 @@ export const LLM_PROVIDER_PRESETS: readonly LlmProviderPreset[] = [
   },
   {
     id: "openrouter",
-    apiKeyEnv: "OPENROUTER_API_KEY",
     label: "OpenRouter",
     provider: "openai-compatible",
     baseUrl: "https://openrouter.ai/api/v1",
@@ -65,7 +58,6 @@ export const LLM_PROVIDER_PRESETS: readonly LlmProviderPreset[] = [
   },
   {
     id: "gemini",
-    apiKeyEnv: "GEMINI_API_KEY",
     label: "Google Gemini",
     provider: "openai-compatible",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -75,7 +67,6 @@ export const LLM_PROVIDER_PRESETS: readonly LlmProviderPreset[] = [
   },
   {
     id: "deepseek",
-    apiKeyEnv: "DEEPSEEK_API_KEY",
     label: "DeepSeek",
     provider: "openai-compatible",
     baseUrl: "https://api.deepseek.com/v1",
@@ -85,7 +76,6 @@ export const LLM_PROVIDER_PRESETS: readonly LlmProviderPreset[] = [
   },
   {
     id: "groq",
-    apiKeyEnv: "GROQ_API_KEY",
     label: "Groq",
     provider: "openai-compatible",
     baseUrl: "https://api.groq.com/openai/v1",
@@ -95,7 +85,6 @@ export const LLM_PROVIDER_PRESETS: readonly LlmProviderPreset[] = [
   },
   {
     id: "mistral",
-    apiKeyEnv: "MISTRAL_API_KEY",
     label: "Mistral",
     provider: "openai-compatible",
     baseUrl: "https://api.mistral.ai/v1",
@@ -105,7 +94,6 @@ export const LLM_PROVIDER_PRESETS: readonly LlmProviderPreset[] = [
   },
   {
     id: "together",
-    apiKeyEnv: "TOGETHER_API_KEY",
     label: "Together AI",
     provider: "openai-compatible",
     baseUrl: "https://api.together.xyz/v1",
@@ -115,7 +103,6 @@ export const LLM_PROVIDER_PRESETS: readonly LlmProviderPreset[] = [
   },
   {
     id: "ollama",
-    apiKeyEnv: "OLLAMA_API_KEY",
     label: "Ollama (local)",
     provider: "openai-compatible",
     baseUrl: "http://localhost:11434/v1",
@@ -124,7 +111,6 @@ export const LLM_PROVIDER_PRESETS: readonly LlmProviderPreset[] = [
   },
   {
     id: "lmstudio",
-    apiKeyEnv: "LMSTUDIO_API_KEY",
     label: "LM Studio (local)",
     provider: "openai-compatible",
     baseUrl: "http://localhost:1234/v1",
@@ -132,7 +118,6 @@ export const LLM_PROVIDER_PRESETS: readonly LlmProviderPreset[] = [
   },
   {
     id: "custom",
-    apiKeyEnv: "LLM_API_KEY",
     label: "Custom (OpenAI-compatible)",
     provider: "openai-compatible",
     baseUrl: "",

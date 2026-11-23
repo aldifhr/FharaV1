@@ -10,6 +10,7 @@ import {
   clampPanelWidth,
   isWidePanel,
   toggledPanelWidth,
+  panelMaxWidthForViewport,
 } from "../../lib/useResizablePanel.ts";
 
 test("widths stay inside the panel limits", () => {
@@ -25,4 +26,13 @@ test("the wide toggle flips between the default and wide presets", () => {
   assert.equal(isWidePanel(PANEL_WIDE_WIDTH - 20), true);
   assert.equal(toggledPanelWidth(PANEL_DEFAULT_WIDTH), PANEL_WIDE_WIDTH);
   assert.equal(toggledPanelWidth(PANEL_MAX_WIDTH), PANEL_DEFAULT_WIDTH);
+});
+
+test("the docked panel width and wide toggle respect narrow desktop viewports", () => {
+  const max = panelMaxWidthForViewport(980);
+  assert.equal(max, 411);
+  assert.equal(isWidePanel(max, max), true);
+  assert.equal(toggledPanelWidth(max, max), PANEL_MIN_WIDTH);
+  assert.equal(toggledPanelWidth(PANEL_MIN_WIDTH, max), max);
+  assert.equal(panelMaxWidthForViewport(2400), PANEL_MAX_WIDTH);
 });

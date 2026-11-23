@@ -4,7 +4,7 @@ import { ENV_SCHEMA, schemaDefault, setEnvIssueSink, type EnvVar } from "@fhara/
 import { wenv, wenvRaw, type WorkerVarName } from "@fhara/config/worker";
 import { setSettingOverrides, settingEnv } from "@/api/functions/lib/appSettings";
 import { loadPolicy, DEFAULT_SUBTASK_TIMEOUT_MS } from "@/orchestrator/policy";
-import { getGlobalLLMConfig, llmMaxTokens, llmTimeoutMs, DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_TIMEOUT_MS } from "@/llm";
+import { llmMaxTokens, llmTimeoutMs, DEFAULT_LLM_MAX_TOKENS, DEFAULT_LLM_TIMEOUT_MS } from "@/llm";
 import { stallThresholdsFromEnv } from "@/utils/stallDetector";
 import { executionRuntimeFromEnv, nativeTimeoutMs, DEFAULT_NATIVE_TIMEOUT_MS } from "@/execution/nativeProvider";
 import { opencodeAllowUnisolated } from "@/execution/opencodeDetect";
@@ -154,11 +154,6 @@ const RECORD_CASES: Array<[string, (env: Env) => unknown, (env: Env) => unknown]
   ["STAGEHAND_MODEL", (e) => wenv("STAGEHAND_MODEL", e), L.legacyStagehandModel],
   ["STAGEHAND_API_KEY", (e) => wenv("STAGEHAND_API_KEY", e), L.legacyStagehandKey],
   ["PROVIDER_ENCRYPTION_KEY", (e) => wenv("PROVIDER_ENCRYPTION_KEY", e), L.legacyEncryptionKey],
-  ["LLM_PROVIDER", (e) => getGlobalLLMConfig(e), L.legacyGlobalLLMConfig],
-  ["LLM_MODEL", (e) => getGlobalLLMConfig(e), L.legacyGlobalLLMConfig],
-  ["LLM_BASE_URL", (e) => getGlobalLLMConfig(e), L.legacyGlobalLLMConfig],
-  ["LLM_API_KEY", (e) => getGlobalLLMConfig(e), L.legacyGlobalLLMConfig],
-  ["OPENAI_API_KEY", (e) => getGlobalLLMConfig(e), L.legacyGlobalLLMConfig],
 ];
 
 /** index.ts constants: same names as legacyIndexConstants returns. */
@@ -239,7 +234,6 @@ describe("worker reader parity (E1)", () => {
     const pairs: Array<[string, string, (env: Env) => unknown, (env: Env) => unknown]> = [
       ["FHARA_BACKEND_URL", "FHARA_BACKEND_URL", (e) => wenv("FHARA_BACKEND_URL", e), L.legacyFharaRuntimeUrl],
       ["ORCHESTRATOR_EXECUTION_RUNTIME", "ORCHESTRATOR_RUNTIME", (e) => executionRuntimeFromEnv(e), L.legacyExecutionRuntime],
-      ["LLM_API_KEY", "OPENAI_API_KEY", (e) => getGlobalLLMConfig(e), L.legacyGlobalLLMConfig],
       ["WORKER_LLM_MAX_CONCURRENCY", "ORCHESTRATOR_MAX_CONCURRENT_LLM_CALLS", (e) => wenv("WORKER_LLM_MAX_CONCURRENCY", e), L.legacyWorkerGateLimit],
     ];
     for (const [primary, alias, now, before] of pairs) {
@@ -294,10 +288,6 @@ describe("schema defaults equal the removed literals (E1)", () => {
     WORKER_OPENCODE_CATALOG_POLL_MS: 15_000,
     WORKER_LLM_MAX_CONCURRENCY: 1,
     WORKER_SUBSCRIBE: true,
-    LLM_PROVIDER: "anthropic",
-    LLM_MODEL: "claude-sonnet-4-20250514",
-    LLM_BASE_URL: "https://api.anthropic.com/v1",
-    LLM_API_KEY: "",
     LLM_ROUND_ROBIN_STICKY_LIMIT: 1,
     ORCHESTRATOR_LLM_MAX_TOKENS: 8192,
     ORCHESTRATOR_LLM_TIMEOUT_MS: 300_000,

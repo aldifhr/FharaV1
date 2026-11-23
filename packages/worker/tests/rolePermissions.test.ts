@@ -81,7 +81,7 @@ describe("role permission table", () => {
     }
   });
 
-  it("only Frontend and Backend write; CTO, QA and Designer are read-only", () => {
+  it("Frontend and Backend write application code; DevOps writes only scoped infrastructure", () => {
     const writers = ROLE_KEYS.filter((key) => ROLES[key].permissions.write === true);
     expect(writers.sort()).toEqual(["backend", "frontend"]);
     for (const key of ["cto", "qa", "designer"] as const) {
@@ -95,9 +95,16 @@ describe("role permission table", () => {
     expect(ROLES.qa.permissions.shell).toBe("verify");
   });
 
-  it("Backend writes CI/infra files as ordinary code", () => {
+  it("DevOps writes only CI/container/infra paths", () => {
     const backend = ROLES.backend.permissions;
-    for (const ok of [".github/workflows/ci.yml", "Dockerfile", "apps/web/Dockerfile", "docker-compose.yml", "infra/terraform/main.tf", "README.md"]) {
+    const devops = ROLES.devops.permissions;
+    for (const ok of [".github/workflows/ci.yml", "Dockerfile", "docker-compose.yml", "infra/terraform/main.tf"]) {
+      expect(canWritePath(devops, ok), ok).toBe(true);
+    }
+    for (const denied of ["apps/web/Dockerfile", "README.md", "package.json", "src/main.ts"]) {
+      expect(canWritePath(devops, denied), denied).toBe(false);
+    }
+    for (const ok of ["apps/web/Dockerfile", "README.md"]) {
       expect(canWritePath(backend, ok), ok).toBe(true);
     }
     // A writer role trusts the plan's ownership gate; canWritePath only

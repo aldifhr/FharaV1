@@ -38,3 +38,7 @@ export function getFunction(path: string): FunctionDefinition {
   if (!found) throw new Error(`Unknown local function: ${path}`);
   return found;
 }
+
+export function isPublicEndpoint(path: string, endpoint: "query" | "mutation" | "action"): boolean {
+  return getFunction(path).kind === endpoint;
+}

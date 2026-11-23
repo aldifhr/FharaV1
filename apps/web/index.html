@@ -3,10 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="theme-color" content="#6c5ce7" />
     <title>Agent Workspace</title>
     <meta name="description" content="Multi-agent workspace for planning, running, and reviewing tasks." />
     <script>
-      try{for(var i=localStorage.length-1;i>=0;i--){var k=localStorage.key(i);if(k&&k.indexOf('moagent')===0){var n='fhara'+k.slice(7);if(localStorage.getItem(n)===null)localStorage.setItem(n,localStorage.getItem(k));localStorage.removeItem(k)}}}catch(e){}try{var t=localStorage.getItem('theme');var d=t==='dark'||((!t||t==='system')&&window.matchMedia('(prefers-color-scheme: dark)').matches);var r=document.documentElement;r.classList.toggle('dark',d);r.setAttribute('data-theme',d?'dark':'light');r.style.colorScheme=d?'dark':'light';var f=localStorage.getItem('fhara-font');if(f)r.setAttribute('data-font',f)}catch(e){}
+      try{for(var i=localStorage.length-1;i>=0;i--){var k=localStorage.key(i);if(k&&k.indexOf('moagent')===0){var n='fhara'+k.slice(7);if(localStorage.getItem(n)===null)localStorage.setItem(n,localStorage.getItem(k));localStorage.removeItem(k)}}}catch(e){}try{var t=localStorage.getItem('fhara-theme');if(t!=='dark'&&t!=='light'&&t!=='system'){t=localStorage.getItem('theme');if(t==='dark'||t==='light'||t==='system')localStorage.setItem('fhara-theme',t)}var d=t==='dark'||((!t||t==='system')&&window.matchMedia('(prefers-color-scheme: dark)').matches);var r=document.documentElement;r.classList.toggle('dark',d);r.setAttribute('data-theme',d?'dark':'light');r.style.colorScheme=d?'dark':'light';var f=localStorage.getItem('fhara-font');if(f)r.setAttribute('data-font',f)}catch(e){}
     </script>
   </head>
   <body>

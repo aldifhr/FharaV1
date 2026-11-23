@@ -26,6 +26,7 @@ export function Inspector({
   children,
   label,
   width,
+  maxWidth,
   onWidthChange,
 }: {
   title: ReactNode;
@@ -43,6 +44,7 @@ export function Inspector({
   label?: string;
   /** With onWidthChange: a resizable width instead of the fixed w-inspector. */
   width?: number;
+  maxWidth?: number;
   onWidthChange?: (width: number) => void;
 }) {
   const [mounted, setMounted] = useState(false);
@@ -75,6 +77,7 @@ export function Inspector({
         aria-labelledby={label ? undefined : titleId}
         aria-label={label}
         width={width}
+        maxWidth={maxWidth}
         onWidthChange={onWidthChange}
       >
         <InspectorHeader titleId={titleId} title={title} subtitle={subtitle} icon={icon} status={status} actions={actions} onClose={onClose} />
@@ -91,7 +94,7 @@ const SURFACE = {
   floating:
     "relative m-2 flex max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-panel border border-line bg-panel text-ink shadow-xl outline-none max-sm:m-0 max-sm:w-full max-sm:max-w-none max-sm:rounded-none",
   // Docked beside the main area (the task thread on desktop).
-  docked: "relative flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-l border-line bg-panel text-ink outline-none",
+  docked: "relative flex h-full min-h-0 max-w-[42vw] shrink-0 flex-col overflow-hidden border-l border-line bg-panel text-ink outline-none",
   // Phone sheet: fills the screen.
   sheet: "relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-panel text-ink outline-none",
 } as const;
@@ -103,6 +106,7 @@ const SURFACE = {
 export function InspectorSurface({
   variant,
   width,
+  maxWidth,
   onWidthChange,
   resizeLabel = "Resize panel",
   ref,
@@ -114,6 +118,7 @@ export function InspectorSurface({
 }: {
   variant: keyof typeof SURFACE;
   width?: number;
+  maxWidth?: number;
   onWidthChange?: (width: number) => void;
   resizeLabel?: string;
   ref?: Ref<HTMLDivElement>;
@@ -138,7 +143,7 @@ export function InspectorSurface({
       className={`${SURFACE[variant]} ${widthClass}`}
     >
       {sized && onWidthChange && (
-        <ResizeEdge width={width} onWidthChange={onWidthChange} label={resizeLabel} edgeOffset={variant === "floating" ? 8 : 0} />
+        <ResizeEdge width={width} maxWidth={maxWidth} onWidthChange={onWidthChange} label={resizeLabel} edgeOffset={variant === "floating" ? 8 : 0} />
       )}
       {children}
     </div>
@@ -148,16 +153,18 @@ export function InspectorSurface({
 /** The drag/keyboard resize edge on a surface's left side (useResizablePanel). */
 function ResizeEdge({
   width,
+  maxWidth,
   onWidthChange,
   label,
   edgeOffset,
 }: {
   width: number;
+  maxWidth?: number;
   onWidthChange: (width: number) => void;
   label: string;
   edgeOffset: number;
 }) {
-  const { handleProps } = useResizablePanel({ width, onWidthChange, edgeOffset });
+  const { handleProps } = useResizablePanel({ width, onWidthChange, max: maxWidth, edgeOffset });
   return (
     <div
       {...handleProps}
@@ -198,11 +205,11 @@ export function InspectorHeader({
   divider?: boolean;
 }) {
   return (
-    <div className={`flex shrink-0 items-start gap-3 px-4 pb-3 pt-[max(1rem,env(safe-area-inset-top))] ${divider ? "border-b border-line" : ""}`}>
+    <div className={`flex min-h-[68px] shrink-0 items-center gap-3 bg-panel px-5 py-3 ${divider ? "border-b border-line" : ""}`}>
       {icon && <span className="shrink-0">{icon}</span>}
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
-          <h2 id={titleId} className="min-w-0 truncate text-[15px] font-semibold leading-tight">
+          <h2 id={titleId} className="min-w-0 truncate text-[16px] font-semibold leading-tight tracking-[-0.02em]">
             {title}
           </h2>
           {status}
@@ -238,7 +245,7 @@ export function InspectorTabs<T extends string>({
   label: string;
 }) {
   return (
-    <div role="tablist" aria-label={label} className="flex shrink-0 gap-4 border-b border-line px-4">
+    <div role="tablist" aria-label={label} className="flex shrink-0 items-center gap-1 border-b border-line bg-panel px-4 py-2">
       {options.map((option) => {
         const active = option.value === value;
         return (
@@ -248,8 +255,8 @@ export function InspectorTabs<T extends string>({
             role="tab"
             aria-selected={active}
             onClick={() => onChange(option.value)}
-            className={`-mb-px border-b-2 py-2 text-[13px] outline-none transition focus-visible:text-ink ${
-              active ? "border-ink font-medium text-ink" : "border-transparent text-ink-3 hover:text-ink"
+            className={`rounded-lg px-3 py-1.5 text-[13px] outline-none transition focus-visible:text-ink ${
+              active ? "bg-hover font-medium text-ink shadow-sm" : "text-ink-3 hover:bg-hover/70 hover:text-ink"
             }`}
           >
             {option.label}

@@ -6,11 +6,18 @@ import {
   runNativeProvider,
   killTree,
   buildNativePrompt,
+  nativeLimitReason,
   type SpawnImpl,
 } from "@/execution/nativeProvider";
 import { spawnReturning } from "./helpers/spawn";
 
 describe("nativeProvider", () => {
+  it("recognises a model limit in native CLI output", () => {
+    expect(nativeLimitReason("error: 429 too many requests for model x")).toMatch(/429/);
+    expect(nativeLimitReason("quota exceeded for this account")).toMatch(/quota/i);
+    expect(nativeLimitReason("all fine")).toBeNull();
+  });
+
   it("builds the provider-native invocation as exact argv", () => {
     const { command, args } = nativeArgv("opencode", ["do the thing"]);
     expect(command).toBe("opencode");
@@ -73,6 +80,46 @@ describe("nativeProvider", () => {
     });
     expect(result.status).toBe("failed");
     expect(result.output).toContain("boom");
+  });
+
+  it("detects a model limit while streaming and stops the run early", async () => {
+    const events: Array<{ type: string; payload?: unknown }> = [];
+    const spawnImpl: SpawnImpl = async (_command, _args, options) => {
+      options.onStdout?.(`${JSON.stringify({ type: "error", error: { message: "429 rate limit reached" } })}\n`);
+      return { stdout: "", stderr: "", code: 1 };
+    };
+    const result = await runNativeProvider({
+      workspacePath: "D:\\work",
+      prompt: "do it",
+      spawnImpl,
+      onEvent: async (type, payload) => {
+        events.push({ type, payload });
+      },
+    });
+    expect(events.some((event) => event.type === "native.limit.detected")).toBe(true);
+    expect(result.status).toBe("failed");
+    expect(result.output).toContain("Model limit or quota reached");
+  });
+
+  it("explains a model limit and a silent CLI exit", async () => {
+    const limited = await runNativeProvider({
+      workspacePath: "D:\\work",
+      prompt: "do it",
+      spawnImpl: spawnReturning({ stderr: "error: 429 too many requests", code: 1 }),
+      onEvent: async (_type, payload) => {
+        if (_type === "native.run.finished") expect(payload).toMatchObject({ limit: expect.stringMatching(/429/) });
+      },
+    });
+    expect(limited.status).toBe("failed");
+    expect(limited.output).toContain("Model limit or quota reached");
+
+    const silent = await runNativeProvider({
+      workspacePath: "D:\\work",
+      prompt: "do it",
+      spawnImpl: spawnReturning({ stderr: "", stdout: "", code: 1 }),
+    });
+    expect(silent.status).toBe("failed");
+    expect(silent.output).toContain("may be rate-limited or unavailable");
   });
 
   it("never puts the prompt in argv (Windows command-line limit)", async () => {

@@ -1,13 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { prefillPromptForRole, roleTemplateFor } from "../../../api/runtime/lib/prompts/roleTemplate.ts";
-import { ROLE_PROMPT_TEMPLATES } from "../../../api/runtime/lib/prompts/rolePrompts.data.ts";
+import { prefillPromptForRole, roleTemplateFor } from "../../../../apps/api/functions/lib/prompts/roleTemplate.ts";
+import { ROLE_PROMPT_TEMPLATES } from "../../../../apps/api/functions/lib/prompts/rolePrompts.data.ts";
 
 test("picking a role in the create form prefills its role template", () => {
   assert.equal(prefillPromptForRole("", "frontend"), ROLE_PROMPT_TEMPLATES.frontend);
   assert.equal(roleTemplateFor("backend"), ROLE_PROMPT_TEMPLATES.backend);
-  // A retired name prefills the role that does the work now.
-  assert.equal(prefillPromptForRole("", "designer"), ROLE_PROMPT_TEMPLATES.frontend);
+  assert.equal(prefillPromptForRole("", "designer"), ROLE_PROMPT_TEMPLATES.designer);
 });
 
 test("switching roles swaps an untouched template but keeps typed instructions", () => {

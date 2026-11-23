@@ -65,10 +65,12 @@ describe("buildOpencodePolicy", () => {
     expect(evaluateOpencodeRule(qa.bash, "rm -rf src")).toBe("deny");
   });
 
-  it("Backend can edit CI/infra paths as ordinary code", () => {
-    const p = buildOpencodePolicy({ permissions: ROLES.backend.permissions, mutating: true });
+  it("DevOps edit policy stays scoped to infrastructure files", () => {
+    const p = buildOpencodePolicy({ permissions: ROLES.devops.permissions, mutating: true, roleKey: "devops" });
     expect(evaluateOpencodeRule(p.edit, ".github/workflows/ci.yml")).toBe("allow");
-    expect(evaluateOpencodeRule(p.edit, "src/a.ts")).toBe("allow");
+    expect(evaluateOpencodeRule(p.edit, "src/a.ts")).toBe("deny");
+    const backend = buildOpencodePolicy({ permissions: ROLES.backend.permissions, mutating: true });
+    expect(evaluateOpencodeRule(backend.edit, "src/a.ts")).toBe("allow");
   });
 });
 

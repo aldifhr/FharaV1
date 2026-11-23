@@ -17,8 +17,7 @@ const hooks: { onCall?: () => Promise<void>; sawSignal: boolean; calls: number }
 vi.mock("./lib/chat/llm", async () => {
   const { ChatStoppedError } = await import("./lib/chat/replyStop");
   return {
-    getGlobalLLMConfig: () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m" }),
-    resolveConfigFromProviders: async (_p: unknown, global: unknown) => global,
+    resolveConfigFromProviders: async () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m", provider: "openai-compatible" }),
     // Streams a first chunk, lets the test press Stop, then hangs until the
     // reply's stop signal aborts it (the real client rejects the same way).
     completeWithAgent: async (_s: string, _m: unknown, _c: unknown, onChunk?: (c: { content: string; reasoning: string }) => void, opts?: { signal?: AbortSignal }) => {
@@ -144,3 +143,4 @@ describe("replyToChat with Stop", () => {
     expect(replies.some((r) => /Full answer|couldn't|could not/i.test(r.content))).toBe(false);
   });
 });
+

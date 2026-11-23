@@ -17,8 +17,6 @@ const ALLOWED: Record<string, string> = {
   "execution/opencodeHome.ts:const source = input.sourceEnv ?? process.env;": "HOME / XDG_* source for the OpenCode child env (platform vars)",
   "execution/qa.ts:wenv(\"QA_CHROMIUM_PATH\", settingEnv) || process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim() || undefined;":
     "Playwright's own platform var as the QA_CHROMIUM_PATH fallback",
-  "llm/resolver.ts:env: Record<string, string | undefined> = process.env":
-    "a provider's user-named apiKeyEnv (dynamic name, not a Fhara var)",
   "services/appSettings.ts:export function knobEnvSnapshot(env: Record<string, string | undefined> = process.env): Array<{ key: string; value: string }> {":
     "reports the worker's raw env for every worker knob to Settings (scan over SETTING_KNOBS)",
   "tools/proxyFetch.ts:export function proxyEnv(env: Env = process.env): ProxyEnv | null {": "HTTP(S)_PROXY / NO_PROXY (platform vars)",

@@ -8,7 +8,7 @@ loadEnv({ path: path.join(repoRoot, ".env") });
 import http from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { openLocalDatabase } from "./db";
-import { registerModules } from "./runtime/registry";
+import { isPublicEndpoint, registerModules } from "./runtime/registry";
 import { LocalExecutor } from "./runtime/executor";
 import { handleWebApiRoute, loadWebApiRoutes } from "./http/webApi";
 
@@ -112,6 +112,10 @@ async function main(): Promise<void> {
             send(response, 401, { error: "invalid service token" });
             return;
           }
+        }
+        if (!isPublicEndpoint(body.path, match[1] as "query" | "mutation" | "action")) {
+          send(response, 404, { error: "function not found" });
+          return;
         }
         const result = await executor.execute(body.path, body.args ?? {});
         send(response, 200, { value: result ?? null, version: db.version() });

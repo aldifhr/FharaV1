@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { getFunctionName } from "../compat/server";
 import type { LocalDatabase } from "../db";
 import { getFunction } from "./registry";
@@ -24,6 +25,9 @@ function storageDir(): string {
 }
 
 export class LocalExecutor {
+  private readonly executionContext = new AsyncLocalStorage<{ lockHeld: boolean; transactionOpen: boolean }>();
+  private executionTail: Promise<void> = Promise.resolve();
+
   constructor(readonly db: LocalDatabase) {}
 
   context(kind: string): any {
@@ -80,6 +84,56 @@ export class LocalExecutor {
   }
 
   async execute(functionRef: string, args: Record<string, unknown> = {}): Promise<any> {
+    const current = this.executionContext.getStore();
+    if (current) {
+      if (current.lockHeld) return this.executeWithinContext(functionRef, args, current);
+      const fn = getFunction(functionRef);
+      if (fn.kind !== "query" && fn.kind !== "internalQuery" && fn.kind !== "mutation" && fn.kind !== "internalMutation") {
+        return this.executeWithinContext(functionRef, args, current);
+      }
+      return this.withExecutionLock(async () => {
+        current.lockHeld = true;
+        try {
+          return await this.executeWithinContext(functionRef, args, current);
+        } finally {
+          current.lockHeld = false;
+        }
+      });
+    }
+
+    const fn = getFunction(functionRef);
+    const context = { lockHeld: false, transactionOpen: false };
+    const run = () => this.executionContext.run(context, () => this.executeWithinContext(functionRef, args, context));
+    if (fn.kind === "query" || fn.kind === "internalQuery" || fn.kind === "mutation" || fn.kind === "internalMutation") {
+      return this.withExecutionLock(async () => {
+        context.lockHeld = true;
+        try {
+          return await run();
+        } finally {
+          context.lockHeld = false;
+        }
+      });
+    }
+    return run();
+  }
+
+  private async withExecutionLock<T>(fn: () => Promise<T>): Promise<T> {
+    const previous = this.executionTail;
+    let release!: () => void;
+    this.executionTail = new Promise<void>((resolve) => (release = resolve));
+    await previous;
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+
+  private async executeWithinContext(
+    functionRef: string,
+    args: Record<string, unknown>,
+    context: { lockHeld: boolean; transactionOpen: boolean }
+  ): Promise<any> {
     const fn = getFunction(functionRef);
     const errors = validateArgs(args, fn.definition.args);
     if (errors.length > 0) throw new Error(`Invalid arguments for ${functionRef}: ${errors.join("; ")}`);
@@ -87,30 +141,32 @@ export class LocalExecutor {
     const handler = typeof fn.definition === "function" ? fn.definition : fn.definition.handler;
     const run = () => handler(ctx, args);
     if (fn.kind === "mutation" || fn.kind === "internalMutation") {
-      let result: unknown;
-      this.db.transaction(() => {
-        result = run();
-      });
-      return await result;
+      if (context.transactionOpen) return await run();
+      context.transactionOpen = true;
+      try {
+        return await this.db.transactionAsync(run);
+      } finally {
+        context.transactionOpen = false;
+      }
     }
     return await run();
   }
 
-  runDueJobs(): number {
+  async runDueJobs(): Promise<number> {
     const rows = this.db.listDueJobs(50);
-    let ran = 0;
-    for (const row of rows) {
-      this.db.setJobStatus(row.id, "running");
-      void this.execute(row.path, JSON.parse(row.args))
-        .catch((error) => {
-          this.db.setJobStatus(row.id, "failed");
-          console.error(`[local] scheduled job ${row.path} failed:`, error);
-        })
-        .finally(() => {
-          this.db.deleteJob(row.id);
-          ran++;
-        });
-    }
-    return ran;
+    await Promise.all(
+      rows.map((row) => {
+        this.db.setJobStatus(row.id, "running");
+        return this.execute(row.path, JSON.parse(row.args))
+          .catch((error) => {
+            this.db.setJobStatus(row.id, "failed");
+            console.error(`[local] scheduled job ${row.path} failed:`, error);
+          })
+          .finally(() => {
+            this.db.deleteJob(row.id);
+          });
+      })
+    );
+    return rows.length;
   }
 }

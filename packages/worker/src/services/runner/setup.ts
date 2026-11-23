@@ -14,7 +14,8 @@ import type { ExecutionPolicy } from "@/orchestrator/policy";
 import type { BudgetSnapshot, BudgetTracker } from "@/orchestrator/budget";
 import type { AgentResult } from "@/orchestrator/taskContext";
 import { normalizeFindings } from "@/orchestrator/taskContext";
-import type { GlobalLLMConfig } from "@/llm";
+import type { GlobalLLMConfig, ProviderFactory } from "@/llm";
+import { nativeCompletionProvider } from "@/execution/nativeCompletion";
 import {
   materializePool,
   TaskLlmResolver,
@@ -73,7 +74,17 @@ export async function buildTaskLlmResolver(
   const pool = await materializePool(llmProviders);
   // L4: tiers apply only with FHARA_LLM_ROLE_OVERRIDE on (Settings override, then env).
   const roleOverride = wenv("FHARA_LLM_ROLE_OVERRIDE", settingEnv);
-  return new TaskLlmResolver(pool, providerHealth, { tiers, globalMode, roleOverride });
+  // Plan 074: the ordered global list is the only routing authority. A native
+  // CLI entry is served by the completion adapter when the list reaches it;
+  // no per-call-type flag decides which provider may answer.
+  const providerFactory: ProviderFactory = (config) => nativeCompletionProvider(config.model);
+  return new TaskLlmResolver(pool, providerHealth, {
+    tiers,
+    globalMode,
+    roleOverride,
+    includeNativeCli: true,
+    providerFactory,
+  });
 }
 
 /**

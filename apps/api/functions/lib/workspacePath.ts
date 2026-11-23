@@ -27,7 +27,7 @@ export function resolveRepoPath(
 ): string {
   const raw = (configured ?? "").trim();
   if (!raw) throw new Error("The project has no workspace path; set one in the project settings");
-  if (path.isAbsolute(raw)) return path.normalize(raw);
+  if (path.isAbsolute(raw)) return path.resolve(raw);
   const cwd = options.cwd ?? process.cwd();
   // B7: the shared rule (@fhara/config resolveProjectPath). This process
   // cannot see packages/worker, so a relative root is measured from its cwd;

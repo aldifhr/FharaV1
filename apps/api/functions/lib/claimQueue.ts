@@ -15,9 +15,24 @@ export const CLAIM_SCAN_LIMIT = 1000;
 /** The oldest queued task this claim may take, or null. */
 export async function firstClaimableTask(ctx: MutationCtx, automationHeld: boolean): Promise<Doc<"tasks"> | null> {
   let scanned = 0;
+  const heldProjects = new Map<string, boolean>();
+  const projectIsHeld = async (task: Doc<"tasks">): Promise<boolean> => {
+    const key = String(task.projectId);
+    if (!heldProjects.has(key)) {
+      heldProjects.set(key, Boolean((await ctx.db.get(task.projectId))?.worktreeQueueHold));
+    }
+    return heldProjects.get(key) === true;
+  };
   const queue = ctx.db.query("tasks").withIndex("by_status", (q) => q.eq("status", "queued")).order("asc");
   for await (const task of queue) {
-    if (!isLegacyDirect(task) && !(automationHeld && isAutomaticTask(task))) return task;
+    if (
+      task.queueHeld !== true &&
+      !(await projectIsHeld(task)) &&
+      !isLegacyDirect(task) &&
+      !(automationHeld && isAutomaticTask(task))
+    ) {
+      return task;
+    }
     scanned += 1;
     if (scanned >= CLAIM_SCAN_LIMIT) break;
   }

@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { FHARA_BUILTIN_COMMANDS, builtinCommandsForScope } from "../../../api/runtime/lib/slashCommands.ts";
+import { FHARA_BUILTIN_COMMANDS, builtinCommandsForScope } from "../../../../apps/api/functions/lib/slashCommands.ts";
 import { personalSlashNames } from "../../lib/personalChat.ts";
 import {
   committedUsage,

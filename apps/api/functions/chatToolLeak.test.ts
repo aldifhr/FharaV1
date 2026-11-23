@@ -23,8 +23,7 @@ const calls: Call[] = [];
 let script: Array<string | ((call: Call) => string)> = [];
 
 vi.mock("./lib/chat/llm", () => ({
-  getGlobalLLMConfig: () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m", provider: "openai-compatible" }),
-  resolveConfigFromProviders: async (_p: unknown, global: unknown) => global,
+  resolveConfigFromProviders: async () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m", provider: "openai-compatible" }),
   completeWithAgent: async (
     system: string,
     msgs: { role: string; content: string }[],
@@ -242,3 +241,4 @@ describe("worker capability", () => {
     });
   });
 });
+

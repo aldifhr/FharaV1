@@ -1,5 +1,5 @@
 import { splitMultiConcernNodes } from "./concernSplit";
-import { createProviderForAgent, getGlobalLLMConfig, type GlobalLLMConfig } from "@/llm";
+import { createProviderForAgent, type GlobalLLMConfig } from "@/llm";
 import { withSnapshotScope } from "@/llm/snapshots";
 import {
   runLlmCallWithFallback,
@@ -168,16 +168,19 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
       // a single task-wide config, unless no resolver was threaded in.
       // Plan 027: the planner needs structured output and room for its prompt.
       const planningPrompt = buildPlanningPrompt(input);
-      const handles: FallbackHandle[] = input.llmResolver
-        ? input.llmResolver.handlesFor(orchestrator, {
-            callRole: "planner",
-          })
-        : [{
+        let handles: FallbackHandle[];
+        if (input.llmResolver) {
+          handles = input.llmResolver.handlesFor(orchestrator, { callRole: "planner" });
+        } else if (input.llmConfig) {
+          handles = [{
             connectionId: "",
             connectionName: "(task config)",
-            config: input.llmConfig ?? getGlobalLLMConfig(),
+            config: input.llmConfig,
             provider: createProviderForAgent(orchestrator, input.llmConfig),
           }];
+        } else {
+          throw new Error("No global LLM model is configured. Add a connection and a model in Settings → LLM & Models.");
+        }
       const { result: response, servedBy } = await withSnapshotScope({ callRole: "planner", agentId: orchestrator._id, agentRole: orchestrator.role }, () => runLlmCallWithFallback(handles, [
         { role: "user", content: planningPrompt },
       ], {

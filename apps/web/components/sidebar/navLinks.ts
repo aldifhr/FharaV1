@@ -4,9 +4,9 @@ import type { NavIcon } from "./SidebarNav";
 export type NavLink = { icon: NavIcon; label: string; href?: string; onClick?: () => void; active: boolean };
 
 /**
- * The BUILD, DEVELOPMENT and OBSERVE rows of the sidebar, shared with the
- * command menu so both always list the same destinations (dashboard restyle
- * F2/F6). Development holds Pull requests and Runs. LLM & Models and Integrations are not here: they live in Settings
+ * Build and observe destinations used by the sidebar and command menu, plus
+ * development destinations kept in the command menu and shown on the icon rail.
+ * LLM & Models and Integrations are not here: they live in Settings
  * (tabs "models" and "integrations").
  */
 export function sidebarNavLinks({

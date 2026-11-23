@@ -7,10 +7,12 @@ export type { ArchitectureFlag, ArchitectureReason } from "@/api/functions/lib/a
 
 export const CAPABILITY = {
   COORDINATION: "project-coordination",
+  PROJECT_CONTEXT: "project-context",
   ARCHITECTURE: "architecture",
   DESIGN: "ui-ux-design",
   FRONTEND: "frontend-development",
   BACKEND: "backend-development",
+  DEVOPS: "devops",
   BROWSER_TESTING: "browser-testing",
   CODE_REVIEW: "code-review",
   SECURITY: "security-audit",

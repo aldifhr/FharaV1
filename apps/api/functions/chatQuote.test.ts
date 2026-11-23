@@ -14,8 +14,7 @@ import { quoteContextLine, quoteSnippet, quotedResponderId, stripMarkdown } from
 const calls: Array<{ system: string; msgs: { role: string; content: string }[] }> = [];
 
 vi.mock("./lib/chat/llm", () => ({
-  getGlobalLLMConfig: () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m" }),
-  resolveConfigFromProviders: async (_p: unknown, global: unknown) => global,
+  resolveConfigFromProviders: async () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m", provider: "openai-compatible" }),
   completeWithAgent: async (system: string, msgs: { role: string; content: string }[]) => {
     calls.push({ system, msgs: msgs.map((m) => ({ ...m, content: m.content.replace(/\n\nCurrent time: [^\n]*$/, "") })) /* D4: drop the time tail */ });
     return { content: "Maksudnya bagian header.", reasoning: "", reasoningDurationMs: 0 };
@@ -190,3 +189,4 @@ describe("quote helpers", () => {
     expect(line.length).toBeLessThan(700);
   });
 });
+

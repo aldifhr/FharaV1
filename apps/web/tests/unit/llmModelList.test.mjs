@@ -17,7 +17,6 @@ const anthropic = {
   label: "Anthropic",
   provider: "anthropic",
   baseUrl: "https://api.anthropic.com/v1",
-  apiKeyEnv: "ANTHROPIC_API_KEY",
   needsKey: true,
 };
 const ollama = {
@@ -25,7 +24,6 @@ const ollama = {
   label: "Ollama (local)",
   provider: "openai-compatible",
   baseUrl: "http://localhost:11434/v1",
-  apiKeyEnv: "OLLAMA_API_KEY",
   needsKey: false,
 };
 
@@ -50,7 +48,6 @@ test("a preset fills everything but the key", () => {
   assert.equal(form.name, "Anthropic");
   assert.equal(form.baseUrl, "https://api.anthropic.com/v1");
   assert.equal(form.provider, "anthropic");
-  assert.equal(form.apiKeyEnv, "ANTHROPIC_API_KEY");
   assert.equal(form.apiKey, "");
   assert.equal(formForPreset(ollama, { apiKey: "kept" }).apiKey, "kept");
 });

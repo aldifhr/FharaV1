@@ -27,6 +27,8 @@ const DESIGN =
   /\b(design|ui\/ux|wireframe|mockup|layout direction|pricing direction|pricing layout|pricing tier|proposal)\b/i;
 const BACKEND =
   /\b(backend|back-end|api|server|endpoint|database|db|schema|runtime|query|mutation|auth|webhook)\b/i;
+const DEVOPS =
+  /\b(devops|dev ops|ci\/cd|ci|cd|pipeline|github actions|docker(?:file)?|kubernetes|k8s|deploy(?:ment)?|release|infra(?:structure)?)\b/i;
 // Plain text/data files (notes, configs, fixtures) are not frontend work:
 // when a change command touches only these — no frontend/backend/design
 // keywords and no code file extensions — defaulting to frontend makes the
@@ -346,6 +348,7 @@ function classifyCommandBase(command: string): Classification {
   const hasFrontend = FRONTEND.test(text);
   const hasDesign = DESIGN.test(text);
   const hasBackend = BACKEND.test(text);
+  const hasDevops = DEVOPS.test(text);
   const hasTesting = TESTING.test(text);
   const hasSecurity = SECURITY.test(text);
 
@@ -357,6 +360,7 @@ function classifyCommandBase(command: string): Classification {
       new Set([
         ...(hasFrontend ? [CAPABILITY.FRONTEND] : []),
         ...(hasBackend ? [CAPABILITY.BACKEND] : []),
+        ...(hasDevops ? [CAPABILITY.DEVOPS] : []),
         ...(hasDesign ? [CAPABILITY.DESIGN] : []),
         CAPABILITY.RESEARCH,
         CAPABILITY.CODE_REVIEW,
@@ -430,12 +434,13 @@ function classifyCommandBase(command: string): Classification {
     };
   }
 
-  const domains = [hasFrontend, hasBackend, hasDesign].filter(Boolean).length;
+  const domains = [hasFrontend, hasBackend, hasDesign, hasDevops].filter(Boolean).length;
   if (domains >= 2) {
     const suggested: string[] = [];
     if (hasDesign) suggested.push(CAPABILITY.DESIGN);
     if (hasFrontend) suggested.push(CAPABILITY.FRONTEND);
     if (hasBackend) suggested.push(CAPABILITY.BACKEND);
+    if (hasDevops) suggested.push(CAPABILITY.DEVOPS);
     suggested.push(CAPABILITY.CODE_REVIEW, CAPABILITY.BROWSER_TESTING);
 
     return {
@@ -450,12 +455,15 @@ function classifyCommandBase(command: string): Classification {
     const plainFileOnly =
       !hasFrontend &&
       !hasBackend &&
+      !hasDevops &&
       !hasDesign &&
       PLAIN_DATA_FILE.test(text) &&
       !CODE_FILE.test(text);
     const suggested: string[] = [
       hasDesign
         ? CAPABILITY.DESIGN
+        : hasDevops
+          ? CAPABILITY.DEVOPS
         : plainFileOnly
           ? CAPABILITY.BACKEND
           : hasFrontend || !hasBackend
@@ -477,6 +485,7 @@ function classifyCommandBase(command: string): Classification {
   const plainFileOnly =
     !hasFrontend &&
     !hasBackend &&
+    !hasDevops &&
     !hasDesign &&
     PLAIN_DATA_FILE.test(text) &&
     !CODE_FILE.test(text);
@@ -485,7 +494,7 @@ function classifyCommandBase(command: string): Classification {
     strategy: "single",
     reasons: ["defaulted to a focused implementation task"],
     suggestedCapabilities: [
-      plainFileOnly ? CAPABILITY.BACKEND : CAPABILITY.FRONTEND,
+      hasDevops ? CAPABILITY.DEVOPS : plainFileOnly ? CAPABILITY.BACKEND : CAPABILITY.FRONTEND,
       CAPABILITY.CODE_REVIEW,
     ],
   };

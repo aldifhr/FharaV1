@@ -386,7 +386,6 @@ describe("model tier precedence (plan 022)", () => {
       name: "Conn",
       provider: "openai-compatible",
       baseUrl: "https://llm.example/v1",
-      apiKeyEnv: "",
       apiKey: "k",
       priority: 1,
       weight: 1,

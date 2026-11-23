@@ -1,9 +1,4 @@
-import {
-  createGlobalLLMProvider,
-  getGlobalLLMConfig,
-  type GlobalLLMConfig,
-  type LLMProvider,
-} from "@/llm";
+import { createGlobalLLMProvider, type GlobalLLMConfig, type LLMProvider, type ProviderFactory } from "@/llm";
 import { decryptApiKey } from "./crypto";
 import { providerHealth, type ProviderHealthRegistry } from "./health";
 import { fixedRotationCursor, rotationCursor, type RotationCursor } from "./roundRobin";
@@ -13,7 +8,6 @@ import type { LlmSelectionMode } from "@/api/functions/lib/llmSelection";
 import { matchesModelPattern, orderPoolPairs } from "@/api/functions/lib/llmOrder";
 import { isNativeCliConnection, isOpencodeConnection, withoutNativeCli } from "@/api/functions/lib/opencodeProvider";
 import { registerSecretValues } from "@/utils/redact";
-import { isSafeApiKeyEnv } from "@/api/functions/lib/apiKeyEnv";
 
 export { matchesModelPattern };
 
@@ -32,12 +26,12 @@ export { matchesModelPattern };
  * Connections whose circuit is open (health registry) are excluded; if
  * that exhausts every candidate the resolver throws an explicit error
  * naming the providers instead of silently returning something wrong. An
- * empty pool falls back to the worker env (LLM_*).
+ * empty pool is an explicit error: there is no env-derived configuration.
  *
  * Credentials: pool rows carry only `apiKeyCiphertext`; `materializePool`
- * decrypts it (hard error naming the provider on failure) or falls back to
- * the env var named by the connection's `apiKeyEnv`. Plaintext key fields
- * are never read.
+ * decrypts it (hard error naming the provider on failure). A connection
+ * without stored key material fails at call time; no environment variable
+ * is ever consulted for a provider credential (plan 072).
  */
 
 /** Model registry entry as delivered in the backend pool payload. */
@@ -64,7 +58,6 @@ export interface PoolConnectionRow {
   /** Transitional compat: first available modelId. */
   model?: string;
   baseUrl: string;
-  apiKeyEnv: string;
   /** @deprecated Legacy plaintext key. Read only as fallback until migration. */
   apiKey?: string;
   apiKeyCiphertext?: string;
@@ -75,13 +68,12 @@ export interface PoolConnectionRow {
   models?: PoolModel[];
 }
 
-/** A connection with its credential materialized (decrypted or env-sourced). */
+/** A connection with its credential materialized (decrypted). */
 export interface PoolConnection {
   _id: string;
   name: string;
   provider: string;
   baseUrl: string;
-  apiKeyEnv: string;
   apiKey: string;
   priority: number;
   weight: number;
@@ -148,12 +140,9 @@ function modelMatchesNeed(model: PoolModel, need: ResolveNeed): boolean {
  * Materialize raw pool rows: drop disabled connections, synthesize a model
  * list from the legacy `model` column for unmigrated rows, and resolve each
  * connection's key — decrypting the ciphertext (hard error naming the
- * provider on failure) or reading the env var named by `apiKeyEnv`.
+ * provider on failure). No environment variable is read for credentials.
  */
-export async function materializePool(
-  rows: PoolConnectionRow[] | undefined,
-  env: Record<string, string | undefined> = process.env
-): Promise<PoolConnection[]> {
+export async function materializePool(rows: PoolConnectionRow[] | undefined): Promise<PoolConnection[]> {
   const pool: PoolConnection[] = [];
   for (const row of rows ?? []) {
     if (row.isEnabled === false) continue;
@@ -171,10 +160,6 @@ export async function materializePool(
       // wired up keep their key in this column; the pool must keep serving
       // them until the migration rotates the credential into ciphertext.
       apiKey = row.apiKey.trim();
-    } else if (row.apiKeyEnv) {
-      // Same rule as the backend: a connection may only name a provider-key
-      // env var, never a platform secret that would be sent to its baseUrl.
-      apiKey = isSafeApiKeyEnv(row.apiKeyEnv) ? env[row.apiKeyEnv] ?? "" : "";
     }
     // L2: a provider key is a known secret from now on (masked everywhere).
     if (apiKey) registerSecretValues([apiKey]);
@@ -183,7 +168,6 @@ export async function materializePool(
       name: row.name,
       provider: row.provider,
       baseUrl: row.baseUrl,
-      apiKeyEnv: row.apiKeyEnv,
       apiKey,
       priority: row.priority,
       weight: row.weight,
@@ -221,24 +205,6 @@ function toResolved(pair: CandidatePair): ResolvedLlm {
   };
 }
 
-/** The worker env as the only "connection" (no providers in Settings). */
-function envResolution(need: ResolveNeed): AgentResolution {
-  const config = getGlobalLLMConfig();
-  return {
-    primary: {
-      connectionId: "",
-      connectionName: "(worker env)",
-      provider: config.provider,
-      baseUrl: config.baseUrl,
-      model: config.model,
-      apiKey: config.apiKey,
-      config,
-    },
-    fallbackChain: [],
-    routing: { model: config.model, connection: "(worker env)", callRole: need.callRole, reason: "worker env model (no providers configured)" },
-  };
-}
-
 /**
  * Resolve the chain for one call (L4): the global model list through the
  * shared orderChain (lib/llmChain.ts, the same order backend chat and the
@@ -260,28 +226,67 @@ export function resolveForAgent(
     tierModelRowId?: string;
     /**
      * Plan 038: keep the OpenCode row's entries in the chain. Only the
-     * subtask route (executionRouteFor) sets it; every API call resolves
-     * over the HTTP connections alone.
+     * subtask route (executionRouteFor) sets it; pure HTTP callers leave it off.
      */
     includeOpencode?: boolean;
+    /**
+     * Plan 074: the app-wide selection is native. Native CLI entries may then
+     * serve API-path callers (setup, planner, decision, memory, commit) too;
+     * callers that cannot run a CLI still leave this off.
+     */
+    includeNativeCli?: boolean;
+    /** Builds non-HTTP providers (native CLI adapters). */
+    providerFactory?: ProviderFactory;
   } = {}
 ): AgentResolution {
   const rotation = options.rotation ?? rotationCursor;
-  // Plan 066: the whole native-CLI family is task-side only; chat and every
-  // non-execution worker call never sees any of them, and (until the per-model
-  // routing plan lands) only opencode entries stay eligible for the route walk.
+  // Native CLI entries are task-side by default. With a global native runtime
+  // they also serve the API path (plan 074); chat never opts in.
   pool = pool.filter(
-    (connection) => !isNativeCliConnection(connection) || (options.includeOpencode && isOpencodeConnection(connection))  );
-  // Empty pool: the worker env is the configuration (Settings has no providers).
-  if (pool.length === 0) return envResolution(need);
+    (connection) =>
+      !isNativeCliConnection(connection) ||
+      options.includeNativeCli ||
+      (options.includeOpencode && isOpencodeConnection(connection))
+  );
+  // No env-derived configuration (plan 072). Setup (e.g. defaultConfig())
+  // must stay harmless for callers whose LLM calls are mocked, so return a
+  // placeholder that cannot be used: provider construction fails explicitly
+  // with the credential error if a real call is attempted.
+  if (pool.length === 0) {
+    const config: GlobalLLMConfig = { provider: "(not configured)", model: "(not configured)", baseUrl: "", apiKey: "" };
+    return {
+      primary: {
+        connectionId: "",
+        connectionName: "(no global model configured)",
+        provider: config.provider,
+        baseUrl: "",
+        model: config.model,
+        apiKey: "",
+        config,
+      },
+      fallbackChain: [],
+      routing: {
+        model: "(not configured)",
+        connection: "(none)",
+        callRole: need.callRole,
+        reason: "No global LLM model is configured. Add a connection and a model in Settings → LLM & Models.",
+      },
+    };
+  }
 
   const matches = (pair: CandidatePair) => modelMatchesNeed(pair.model, need);
   const candidates = orderPoolPairs(pool, matches);
   const candidateNames = [...new Set(pool.map((c) => `"${c.name}"`))].join(", ");
   const agentLabel = agent?.name ? ` for agent "${agent.name}"` : "";
   if (candidates.length === 0) {
+    const allModels = pool.flatMap((c) => c.models);
+    const why = allModels.length === 0
+      ? "no model is registered for these connections"
+      : allModels.every((m) => !m.isAvailable)
+        ? "every registered model is disabled"
+        : "the registered models are excluded by the connection's model patterns";
     throw new Error(
-      `No LLM provider can serve${agentLabel}: no enabled connection offers a matching model (need: ${JSON.stringify(need)}). Candidates: ${candidateNames || "(none)"}.`
+      `No LLM provider can serve${agentLabel}: ${why} (need: ${JSON.stringify(need)}). Candidates: ${candidateNames || "(none)"}. Add an available model to the connection in Settings → LLM & Models, check its model patterns, and make sure its key is stored (environment keys are no longer used).`
     );
   }
   // Health filter: circuit-open connections are excluded before the mode
@@ -330,9 +335,9 @@ export interface ResolvedProviderHandle {
  * keeps resolution pure and surfaces the error at call time, exactly
  * where the pre-resolver code constructed providers (inside the call).
  */
-function lazyProvider(config: GlobalLLMConfig): LLMProvider {
+function lazyProvider(config: GlobalLLMConfig, factory?: ProviderFactory): LLMProvider {
   let real: LLMProvider | undefined;
-  const get = () => (real ??= createGlobalLLMProvider(config));
+  const get = () => (real ??= createGlobalLLMProvider(config, factory));
   return {
     complete: (messages, model, opts) => get().complete(messages, model, opts),
     stream: (messages, onChunk, model, opts) => {
@@ -359,6 +364,10 @@ export interface TaskLlmResolverOptions {
   tiers?: ModelTiers;
   /** L4: FHARA_LLM_ROLE_OVERRIDE. Off (default): tiers are ignored. */
   roleOverride?: boolean;
+  /** Plan 074: the app-wide runtime is native, so CLI models serve the API path. */
+  includeNativeCli?: boolean;
+  /** Plan 074: builds the native CLI completion provider. */
+  providerFactory?: ProviderFactory;
 }
 
 export class TaskLlmResolver {
@@ -383,6 +392,8 @@ export class TaskLlmResolver {
       globalMode: this.options.globalMode,
       tierModelRowId: this.tierModelFor(agent, need),
       ...(extra.includeOpencode ? { includeOpencode: true } : {}),
+      ...(this.options.includeNativeCli ? { includeNativeCli: true } : {}),
+      ...(this.options.providerFactory ? { providerFactory: this.options.providerFactory } : {}),
     });
   }
 
@@ -401,7 +412,16 @@ export class TaskLlmResolver {
    * not during resolution.
    */
   handlesFor(agent?: AgentLlmAssignment, need: ResolveNeed = {}): ResolvedProviderHandle[] {
-    return handlesFromResolution(this.resolutionFor(agent, need));
+    return handlesFromResolution(this.resolutionFor(agent, need), this.options.providerFactory);
+  }
+
+  /**
+   * Call-ready handles for a chain that was already resolved (a subtask route
+   * picked at onStart). Applies this resolver's provider factory so a native
+   * CLI entry gets its completion adapter, not an empty API-key error.
+   */
+  handlesFrom(resolution: AgentResolution): ResolvedProviderHandle[] {
+    return handlesFromResolution(resolution, this.options.providerFactory);
   }
 
   /**
@@ -435,7 +455,7 @@ export class TaskLlmResolver {
    * Plan 038: the route for one subtask (native OpenCode or the API), from
    * the same ordered chain as every other call. With every OpenCode entry
    * skipped and no HTTP entry after it, the API resolution over the HTTP
-   * connections alone applies (the worker env when there are none).
+   * connections alone applies; with none of those the call fails explicitly.
    */
   executionRouteFor(
     agent: AgentLlmAssignment | undefined,
@@ -555,12 +575,12 @@ export function routeFromResolution(
 }
 
 /** Handles (primary first, then the fallback chain) for a resolution. */
-export function handlesFromResolution(resolution: AgentResolution): ResolvedProviderHandle[] {
+export function handlesFromResolution(resolution: AgentResolution, factory?: ProviderFactory): ResolvedProviderHandle[] {
   return [resolution.primary, ...resolution.fallbackChain].map((entry) => ({
     connectionId: entry.connectionId,
     connectionName: entry.connectionName,
     config: entry.config,
-    provider: lazyProvider(entry.config),
+    provider: lazyProvider(entry.config, factory),
     modelRowId: entry.modelRowId,
     inputPricePer1k: entry.inputPricePer1k,
     outputPricePer1k: entry.outputPricePer1k,

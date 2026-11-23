@@ -19,7 +19,7 @@ export default function TaskHoldNotice({
   task,
   compact = false,
 }: {
-  task: { _id: string; status: string; pausedBy?: string; hold?: Hold; errorMessage?: string };
+  task: { _id: string; status: string; pausedBy?: string; hold?: Hold; errorMessage?: string; queueHeld?: boolean };
   compact?: boolean;
 }) {
   const resume = useMutation(api.taskControl.resume);
@@ -30,36 +30,42 @@ export default function TaskHoldNotice({
     const timer = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(timer);
   }, []);
-  // Lane git-init: the project folder is not a repository (or has no
-  // commits): held, or failed before this lane with the raw error.
   const repoHeld = task.status === "paused" && task.pausedBy === "held" && task.hold?.kind === "repo";
   const repo = repoHeld ? { reason: task.hold!.reason } : task.status === "failed" ? classifyRepoHold(task.errorMessage) : null;
-  if (repo) return <GitInitNote message={repo.reason} target={{ taskId: task._id }} compact={compact} />;
-  if (task.status !== "paused" || task.pausedBy !== "held" || !task.hold) return null;
+  const queueHeld = task.queueHeld === true;
   const run = async () => {
     setPending(true);
     try {
       await resume({ taskId: task._id as never });
-      toast("success", "Task resumed", "It retries the provider now.");
+      toast("success", "Task resumed", queueHeld ? "The project queue can run again." : "It retries the provider now.");
     } catch (err) {
       toast("error", "Couldn't resume task", err instanceof Error ? err.message : "Please try again.");
     } finally {
       setPending(false);
     }
   };
+  const boxClass = compact ? "mt-2 rounded-lg border border-line bg-panel-2 px-2 py-1.5" : "rounded-xl border border-line bg-panel-2 p-3.5";
+  const buttonClass = compact
+    ? "mt-1.5 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-ink outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
+    : "mt-2.5 flex items-center gap-1.5 rounded-lg bg-ink px-3 py-1.5 text-[13px] font-medium text-canvas outline-none hover:bg-ink/85 focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50";
+  if (repo) return <GitInitNote message={repo.reason} target={{ taskId: task._id }} compact={compact} />;
+  if (queueHeld) {
+    return (
+      <div className={boxClass}>
+        <p className={compact ? "text-[11px] text-ink-2" : "text-[14px] text-ink-2"}>
+          Worktree setup failed. Queued work is held until you resume it.
+        </p>
+        <button type="button" disabled={pending} onClick={() => void run()} className={buttonClass}>
+          <Play size={compact ? 11 : 14} /> Resume queue
+        </button>
+      </div>
+    );
+  }
+  if (task.status !== "paused" || task.pausedBy !== "held" || !task.hold) return null;
   return (
-    <div className={compact ? "mt-2 rounded-lg border border-line bg-panel-2 px-2 py-1.5" : "rounded-xl border border-line bg-panel-2 p-3.5"}>
+    <div className={boxClass}>
       <p className={compact ? "text-[11px] text-ink-2" : "text-[14px] text-ink-2"}>{holdNoticeText(task.hold, now)}</p>
-      <button
-        type="button"
-        disabled={pending}
-        onClick={() => void run()}
-        className={
-          compact
-            ? "mt-1.5 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-ink outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
-            : "mt-2.5 flex items-center gap-1.5 rounded-lg bg-ink px-3 py-1.5 text-[13px] font-medium text-canvas outline-none hover:bg-ink/85 focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
-        }
-      >
+      <button type="button" disabled={pending} onClick={() => void run()} className={buttonClass}>
         <Play size={compact ? 11 : 14} /> Resume now
       </button>
     </div>

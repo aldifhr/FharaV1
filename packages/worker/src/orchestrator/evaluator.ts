@@ -1,5 +1,5 @@
 import * as fs from "node:fs/promises";
-import { hashContent } from "@/tools/gitDiff";
+import { hashContent, hashContentExact } from "@/tools/gitDiff";
 import { resolveSandboxPathAsync } from "@/tools/sandbox";
 import type { EvaluationCheck, EvaluationVerdict } from "@/types/execution";
 
@@ -194,7 +194,7 @@ async function verifyOnDisk(
       }
       const content = await fs.readFile(resolved, "utf-8");
       const expected = change.newContentHash;
-      if (expected && hashContent(content) !== expected) {
+      if (expected && hashContent(content) !== expected && hashContentExact(content) !== expected) {
         problems.push(`${change.filePath} content does not match the approved diff`);
       }
       // Baseline check: a "modified" file whose on-disk content is identical

@@ -25,6 +25,7 @@ export function isAgentEnabled(agent: AgentDefinition): boolean {
 const WRITE_CAPABILITIES = new Set([
   "frontend-development",
   "backend-development",
+  "devops",
 ]);
 
 const UNAVAILABLE_STATUSES = new Set(["offline", "disabled", "unavailable"]);

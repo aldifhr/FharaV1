@@ -1,6 +1,6 @@
 import schema from "../../../apps/api/functions/schema";
 
-export type StorageKind = "text" | "number" | "integer" | "json";
+export type StorageKind = "text" | "number" | "integer" | "boolean" | "json";
 
 export interface FieldMeta {
   name: string;
@@ -29,7 +29,8 @@ export interface TableMeta {
 function storageKind(validator: any): StorageKind {
   const kind = validator?.kind;
   if (kind === "number" || kind === "float64" || kind === "float32") return "number";
-  if (kind === "int64" || kind === "boolean") return "integer";
+  if (kind === "boolean") return "boolean";
+  if (kind === "int64") return "integer";
   if (kind === "string" || kind === "id" || kind === "literal") return "text";
   if (kind === "union") {
     const members: any[] = Array.isArray(validator.members) ? validator.members : [];

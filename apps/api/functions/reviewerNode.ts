@@ -15,7 +15,7 @@
 import { internalAction } from "@fhara/runtime/functions";
 import { v } from "@fhara/runtime/values";
 import { internal } from "@fhara/runtime/api";
-import { completeWithFallback, getGlobalLLMConfig, resolveConfigChain, type ChatLlmConfig } from "./lib/chat/llm";
+import { completeWithFallback, resolveConfigChain, type ChatLlmConfig } from "./lib/chat/llm";
 import { buildRepoToolProtocol } from "./lib/prompts/chat";
 import {
   OPINION_MAX_TOOL_CALLS,
@@ -67,7 +67,7 @@ export const runReview = internalAction({
       // Primary (agent > reviewer tier > pool) then the Reviewer agent's
       // fallback model when one is configured. Once a step falls back, the
       // rest of the loop stays on the fallback.
-      let chain: ChatLlmConfig[] = await resolveConfigChain(context.providers, getGlobalLLMConfig(), context.prefs);
+      let chain: ChatLlmConfig[] = await resolveConfigChain(context.providers, context.prefs);
       model = chain[0].model;
       const result = await runReviewerLoop({
         system,

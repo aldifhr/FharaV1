@@ -6,7 +6,8 @@ export type Theme = "light" | "dark";
 /** What the user picked: a fixed theme, or follow the device (prefers-color-scheme). */
 export type ThemePreference = Theme | "system";
 
-const STORAGE_KEY = "theme";
+const STORAGE_KEY = "fhara-theme";
+const LEGACY_STORAGE_KEY = "theme";
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
 function systemTheme(): Theme {
@@ -15,13 +16,19 @@ function systemTheme(): Theme {
 
 function readPreference(): ThemePreference {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    let stored = localStorage.getItem(STORAGE_KEY);
+    if (stored !== "dark" && stored !== "light" && stored !== "system") {
+      stored = localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (stored === "dark" || stored === "light" || stored === "system") {
+        localStorage.setItem(STORAGE_KEY, stored);
+      }
+    }
     if (stored === "dark" || stored === "light" || stored === "system") return stored;
   } catch {
     /* storage denied */
   }
-  // Nothing saved: follow the device, as the inline script in app/layout.tsx does.
-  return "system";
+  // The workspace reference and default surface use the light palette.
+  return "light";
 }
 
 function applyToDocument(theme: Theme) {
@@ -46,16 +53,14 @@ const ThemeContext = createContext<ThemeContextValue>({
 });
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [preference, setPreference] = useState<ThemePreference>("system");
-  const [theme, setThemeState] = useState<Theme>("light");
+  const [preference, setPreference] = useState<ThemePreference>(() => readPreference());
+  const [theme, setThemeState] = useState<Theme>(() =>
+    preference === "system" ? systemTheme() : preference
+  );
 
-  // Mirror what the inline script already applied on first paint.
+  // Apply the saved preference before the system listener is installed.
   useEffect(() => {
-    const pref = readPreference();
-    const resolved = pref === "system" ? systemTheme() : pref;
-    setPreference(pref);
-    setThemeState(resolved);
-    applyToDocument(resolved);
+    applyToDocument(theme);
   }, []);
 
   // "System" follows the device live: re-resolve when the OS setting flips.

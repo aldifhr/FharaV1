@@ -4,18 +4,28 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type Poin
 /** Width limits shared by the right-docked panels (task thread, inspector). */
 export const PANEL_MIN_WIDTH = 280;
 export const PANEL_MAX_WIDTH = 720;
-export const PANEL_DEFAULT_WIDTH = 390;
+export const PANEL_DEFAULT_WIDTH = 460;
 export const PANEL_WIDE_WIDTH = 640;
 const KEYBOARD_STEP = 16;
 
 /** A width kept inside the panel limits. */
 export const clampPanelWidth = (width: number, min = PANEL_MIN_WIDTH, max = PANEL_MAX_WIDTH) => Math.min(max, Math.max(min, width));
 
+/** Keep a docked panel from taking over the project chat on narrow desktops. */
+export const panelMaxWidthForViewport = (viewportWidth: number) =>
+  clampPanelWidth(Math.floor(viewportWidth * 0.42));
+
 /** Whether a panel is at (or near) its wide preset. */
-export const isWidePanel = (width: number) => width >= PANEL_WIDE_WIDTH - 20;
+export const isWidePanel = (width: number, max = PANEL_MAX_WIDTH) =>
+  max > PANEL_DEFAULT_WIDTH
+    ? width >= Math.min(PANEL_WIDE_WIDTH - 20, max)
+    : width > PANEL_MIN_WIDTH;
 
 /** The width the wide/narrow toggle goes to next. */
-export const toggledPanelWidth = (width: number) => (isWidePanel(width) ? PANEL_DEFAULT_WIDTH : PANEL_WIDE_WIDTH);
+export const toggledPanelWidth = (width: number, max = PANEL_MAX_WIDTH) =>
+  isWidePanel(width, max)
+    ? (max <= PANEL_DEFAULT_WIDTH ? PANEL_MIN_WIDTH : Math.min(PANEL_DEFAULT_WIDTH, max))
+    : Math.min(PANEL_WIDE_WIDTH, max);
 
 /**
  * Drag and keyboard resizing for a panel docked to the right edge (split out of

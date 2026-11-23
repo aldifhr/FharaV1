@@ -14,7 +14,7 @@
  * later written under a fixture project or conversation.
  */
 import { v } from "@fhara/runtime/values";
-import { cenv, cenvRaw } from "@fhara/config/runtime";
+import { cenv } from "@fhara/config/runtime";
 import { internalMutation, type MutationCtx } from "@fhara/runtime/functions";
 import type { Id } from "@fhara/runtime/data";
 import {
@@ -49,7 +49,13 @@ interface LooseDb {
 const loose = (ctx: MutationCtx): LooseDb => ctx.db as unknown as LooseDb;
 
 function assertAllowed(): void {
-  const verdict = fixturesAllowed({ cloudUrl: cenvRaw("FHARA_BACKEND_URL"), flag: cenv("FHARA_FIXTURES") });
+  const verdict = fixturesAllowed({
+    cloudUrl:
+      process.env.FHARA_BACKEND_URL ??
+      process.env.LOCAL_BACKEND_URL ??
+      "http://127.0.0.1:8787",
+    flag: cenv("FHARA_FIXTURES"),
+  });
   if (!verdict.ok) throw new Error(`devFixtures refused: ${verdict.reason}`);
 }
 

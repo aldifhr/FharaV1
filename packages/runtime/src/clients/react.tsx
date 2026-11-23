@@ -77,6 +77,24 @@ export class FharaRuntimeReactClient {
     }
   }
 
+  async refreshAll(): Promise<void> {
+    const keys = [...this.cache.keys()];
+    await Promise.all(
+      keys.map(async (key) => {
+        const separator = key.indexOf("|");
+        const path = key.slice(0, separator);
+        const args = JSON.parse(key.slice(separator + 1)) as Record<string, unknown>;
+        try {
+          const value = await this.call("query", { __fharaPath: path }, args);
+          this.cache.set(key, value);
+        } catch {
+          // keep the previous value on a transient refetch failure
+        }
+      })
+    );
+    this.emit();
+  }
+
   allQueries(reference: unknown): Array<{ args: Record<string, unknown>; value: unknown }> {
     const path = getFunctionName(reference);
     const results: Array<{ args: Record<string, unknown>; value: unknown }> = [];
@@ -102,7 +120,7 @@ export function useFharaRuntime(): FharaRuntimeReactClient {
 
 export function useQuery<T = any>(reference: unknown, args: unknown): any {
   const client = useFharaRuntime();
-  const [value, setValue] = useState<T | undefined>(() => client.peek(reference, args) as T | undefined);
+  const [value, setValue] = useState<T | undefined>(() => args === "skip" ? undefined : client.peek(reference, args) as T | undefined);
   const argsKey = useMemo(() => JSON.stringify(args ?? {}), [args]);
 
   useEffect(() => {
@@ -147,8 +165,7 @@ function makeCallable(
 ): CallableMutation {
   const invoke = async (args: any = {}) => {
     const result = await client[kind](reference, args);
-    await client.refresh(reference, {});
-    client.emit();
+    await client.refreshAll();
     return result;
   };
   const callable = invoke as CallableMutation;

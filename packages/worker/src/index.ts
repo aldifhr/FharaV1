@@ -18,6 +18,7 @@ import { setCommandSink } from "./utils/accessLog";
 import { processNextMcpTest } from "./services/mcpTests";
 import { processNextRepoToolCall } from "./services/repoTools";
 import { pollOpencodeCatalog } from "./services/opencodeCatalog";
+import { pollCodexCatalog } from "./services/codexCatalog";
 import { effectiveWorkspaceRoot, reportKnobEnv, syncAppSettings } from "./services/appSettings";
 import { REPO_TOOLS_CAPABILITY } from "@/api/functions/lib/chat/repoTools";
 import { installConsoleRedaction, registerEnvSecrets } from "./utils/redact";
@@ -411,6 +412,15 @@ async function main() {
     void pollOpencodeCatalog({ api, workerId, hostname: os.hostname(), log });
   };
 
+  // Plan 075: read the authenticated Codex account's model list locally.
+  let lastCodexCatalogPoll = 0;
+  const pollCodexCatalogs = () => {
+    const now = Date.now();
+    if (stopping || now - lastCodexCatalogPoll < OPENCODE_CATALOG_POLL_MS) return;
+    lastCodexCatalogPoll = now;
+    void pollCodexCatalog({ api, workerId, hostname: os.hostname(), log });
+  };
+
   let lastClaimPoll = 0;
   const idle = (ms: number) =>
     new Promise<void>((resolve) => {
@@ -445,6 +455,7 @@ async function main() {
     pollMcpTests();
     pollDecisionTurns();
     pollOpencodeCatalogs();
+    pollCodexCatalogs();
     try {
       if (inFlight.size >= CONCURRENCY) {
         await sleep(200);

@@ -57,7 +57,7 @@ export default function BoardTaskCard({
     const role = agentById.get(s.assignedAgentId ?? "")?.role;
     if (role) assigned.add(roleLabel(role));
   }
-  const held = Boolean(t.status === "paused" && t.pausedBy === "held" && t.hold);
+  const held = Boolean((t.status === "paused" && t.pausedBy === "held" && t.hold) || t.queueHeld);
   const warning = t.status === "done" && t.completionWarning ? String(t.completionWarning) : null;
   const hasMeta = (!isOpen && held) || Boolean(warning) || Boolean(pr);
   const current = phaseOf(t, subtasks);

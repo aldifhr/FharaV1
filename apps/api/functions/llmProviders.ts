@@ -2,10 +2,9 @@ import { action, internalQuery, query, mutation } from "@fhara/runtime/functions
 import { internal } from "@fhara/runtime/api";
 import { v } from "@fhara/runtime/values";
 import { assertServiceToken } from "./lib/authz";
-import { assertSafeApiKeyEnv, isSafeApiKeyEnv } from "./lib/apiKeyEnv";
 import { changedFields, recordAudit, setFields } from "./lib/recordAudit";
-import { encryptApiKey, decryptApiKey } from "./lib/llmCrypto";
-import { loadProviderPool, type PoolConnectionPayload } from "./lib/llmResolver";
+import { encryptApiKey } from "./lib/llmCrypto";
+import { loadProviderPool, resolveConnectionKey, type PoolConnectionPayload } from "./lib/llmResolver";
 import { listProviderModels } from "./lib/llmModelList";
 import { nextPosition } from "./lib/llmOrder";
 import { materializePositions } from "./llmModels";
@@ -30,10 +29,10 @@ export const encryptionStatus = query({
  * `apiKeyCiphertext`. The frontend only learns whether a key is configured
  * (spec §5: write-only credentials, expose only `apiKeyConfigured`).
  */
-export function toPublicProvider<T extends { apiKey?: string; apiKeyCiphertext?: string }>(
+export function toPublicProvider<T extends { apiKey?: string; apiKeyCiphertext?: string; apiKeyEnv?: string }>(
   doc: T
-): Omit<T, "apiKey" | "apiKeyCiphertext"> & { apiKeyConfigured: boolean } {
-  const { apiKey, apiKeyCiphertext, ...rest } = doc;
+): Omit<T, "apiKey" | "apiKeyCiphertext" | "apiKeyEnv"> & { apiKeyConfigured: boolean } {
+  const { apiKey, apiKeyCiphertext, apiKeyEnv: _apiKeyEnv, ...rest } = doc;
   return { ...rest, apiKeyConfigured: Boolean(apiKeyCiphertext || apiKey) };
 }
 
@@ -71,7 +70,6 @@ export const create = mutation({
     provider: v.string(),
     model: v.string(),
     baseUrl: v.string(),
-    apiKeyEnv: v.string(),
     apiKey: v.optional(v.string()),
     /** Unset = after every existing connection (Settings orders models, not connections). */
     priority: v.optional(v.number()),
@@ -87,7 +85,6 @@ export const create = mutation({
     if (isOpencodeConnection(args)) {
       throw new Error("OpenCode is added from its own row in Settings, not as an HTTP provider");
     }
-    assertSafeApiKeyEnv(args.apiKeyEnv);
     const { token: _token, apiKey, ...fields } = args;
     const now = Date.now();
     const existingProviders = await ctx.db.query("llmProviders").collect();
@@ -136,7 +133,6 @@ export const updateProvider = mutation({
     provider: v.optional(v.string()),
     model: v.optional(v.string()),
     baseUrl: v.optional(v.string()),
-    apiKeyEnv: v.optional(v.string()),
     apiKey: v.optional(v.string()),
     priority: v.optional(v.number()),
     weight: v.optional(v.number()),
@@ -146,7 +142,6 @@ export const updateProvider = mutation({
   },
   handler: async (ctx, args) => {
     assertServiceToken(args.token);
-    if (args.apiKeyEnv !== undefined) assertSafeApiKeyEnv(args.apiKeyEnv);
     const { id, token: _token, apiKey, ...updates } = args;
     const before = await ctx.db.get(id);
     // Plan 038: a row never switches between OpenCode and HTTP.
@@ -251,17 +246,10 @@ export const fetchModels = action({
         // (release audit P0-3): the caller's baseUrl is ignored here, so a
         // request cannot redirect a saved credential to another host.
         base = connection.baseUrl.trim().replace(/\/$/, "");
-        if (connection.apiKeyCiphertext) {
-          apiKey = await decryptApiKey(connection.apiKeyCiphertext, connection.name);
-        } else if (isSafeApiKeyEnv(connection.apiKeyEnv)) {
-          const env: Record<string, string | undefined> =
-            (globalThis as any).process?.env ?? {};
-          apiKey = env[connection.apiKeyEnv]?.trim() || undefined;
-        } else {
-          // A legacy row naming a platform secret: never read it, never
-          // call out without the key the row expects.
+        apiKey = (await resolveConnectionKey(connection)) || undefined;
+        if (!apiKey) {
           throw new Error(
-            "An API key is required (enter one, or fetch models for a saved provider)"
+            "No API key is stored for this connection. Save the key in Settings → LLM & Models; no environment credential is used."
           );
         }
       }

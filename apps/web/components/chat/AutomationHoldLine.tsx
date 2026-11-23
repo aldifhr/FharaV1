@@ -1,7 +1,6 @@
 
 import { useQuery } from "@fhara/runtime/react";
 import { api } from "@fhara/runtime/api";
-import HostPressureLine from "./HostPressureLine";
 
 /**
  * One plain line above the composer while the global automation hold
@@ -10,15 +9,11 @@ import HostPressureLine from "./HostPressureLine";
  */
 export default function AutomationHoldLine() {
   const hold = useQuery(api.appSettings.automationHold, {});
-  // G10's host pressure line rides here, so ChatPanel needs no new slot.
-  if (!hold) return <HostPressureLine />;
+  if (!hold) return null;
   return (
-    <>
-      <HostPressureLine />
-      <p className="w-full shrink-0 truncate bg-panel px-3 pb-1 text-[12.5px] text-ink-2 sm:px-8 lg:px-10" role="status" data-testid="automation-hold-line">
-        Automation is held: auto-merge, issue intake and automatic fixes wait. Your own tasks still run.
-        <span className="text-ink-3"> Resume in Settings → Scheduled tasks.</span>
-      </p>
-    </>
+    <p className="w-full shrink-0 truncate bg-panel px-3 pb-1 text-[12.5px] text-ink-2 sm:px-8 lg:px-10" role="status" data-testid="automation-hold-line">
+      Automation is held: auto-merge, issue intake and automatic fixes wait. Your own tasks still run.
+      <span className="text-ink-3"> Resume in Settings → Scheduled tasks.</span>
+    </p>
   );
 }

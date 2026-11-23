@@ -6,6 +6,7 @@ import * as Schema from "effect/Schema";
  */
 export const AGENT_ROLE_IDS = [
   "cto",
+  "lead",
   "designer",
   "frontend",
   "backend",
@@ -41,6 +42,13 @@ export const AGENT_ROLE_SUMMARIES = [
     id: "cto",
     displayName: "CTO",
     description: "Plans the work, makes architecture decisions and splits tasks across roles.",
+    readOnly: true,
+    writeScope: [],
+  },
+  {
+    id: "lead",
+    displayName: "Lead",
+    description: "Clarifies project outcomes, priorities, acceptance criteria and stakeholder context.",
     readOnly: true,
     writeScope: [],
   },

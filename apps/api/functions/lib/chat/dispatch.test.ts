@@ -158,13 +158,15 @@ describe("routing: missing roles", () => {
   });
 });
 
-describe("routing: the four-role fixed team", () => {
-  // The roster is CTO / Frontend / Backend / QA. Every topic that used to
+describe("routing: the six-role fixed team", () => {
+  // The roster is CTO / Frontend / Designer / Backend / DevOps / QA. Every topic that used to
   // belong to a retired role still has an owner.
-  const four: M[] = [
+  const fixedTeam: M[] = [
     { _id: "cto", name: "CTO", role: "cto" },
     { _id: "fe", name: "Frontend", role: "frontend" },
+    { _id: "designer", name: "Designer", role: "designer" },
     { _id: "be", name: "Backend", role: "backend" },
+    { _id: "ops", name: "DevOps", role: "devops" },
     { _id: "qa", name: "QA", role: "qa" },
   ];
   it.each([
@@ -173,13 +175,13 @@ describe("routing: the four-role fixed team", () => {
     ["tolong audit fungsi parseConfig di lib/config.ts", "qa"], // Reviewer → QA
     ["please review the auth middleware code", "qa"],
     ["cek keamanan endpoint login", "backend"], // security-audit lives on Backend
-    ["CI gagal di github actions", "backend"], // DevOps → Backend
+    ["CI gagal di github actions", "devops"],
     ["bandingkan zod vs valibot", "cto"], // Researcher → CTO
-    ["warna ini cocok?", "frontend"], // Designer → Frontend
+    ["warna ini cocok?", "designer"],
     ["kenapa query lambat?", "backend"],
     ["kenapa tes di packages/worker flaky?", "qa"],
   ])("%s → %s", (text, role) => {
-    expect(to(route(text, four))).toBe(role);
+    expect(to(route(text, fixedTeam))).toBe(role);
   });
 });
 

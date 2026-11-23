@@ -13,6 +13,7 @@ import {
   isTaskBranch,
   makeTaskBranchName,
   parseTaskBranch,
+  refuseOptionLikeRefName,
   taskBranchPrefixes,
   taskWorktreesFromPorcelain,
 } from "@/api/functions/lib/taskBranch";
@@ -116,6 +117,16 @@ describe("task branch names", () => {
   it("new branches use the fhara/ prefix", () => {
     expect(makeTaskBranchName("k1", "Add Dark Mode!")).toBe("fhara/k1/add-dark-mode");
     expect(makeTaskBranchName("k1", "???")).toBe("fhara/k1/task");
+    expect(makeTaskBranchName("tasks:mwskvugd:f26abb2f-0706", "Create vite apps")).toBe(
+      "fhara/tasks-mwskvugd-f26abb2f-0706/create-vite-apps"
+    );
+  });
+
+  it("caps long ids and refuses option-like refs", () => {
+    const long = makeTaskBranchName(`tasks:${"a".repeat(120)}`, "Do it");
+    expect(long.length).toBeLessThan(120);
+    expect(() => refuseOptionLikeRefName("--upload-pack=x")).toThrow(/Invalid ref/);
+    expect(() => refuseOptionLikeRefName("main")).not.toThrow();
   });
 
   it("parses current and legacy moagent/ branches", () => {

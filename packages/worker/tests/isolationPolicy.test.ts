@@ -9,6 +9,7 @@ import { loadPolicy, type ExecutionPolicy } from "@/orchestrator/policy";
 import {
   DIRTY_CHECKOUT_LINE,
   decideAutoIsolation,
+  hasIgnoredCheckInputs,
   hasUncommittedChanges,
   policyForIsolation,
   policyForResume,
@@ -21,6 +22,22 @@ import type { RunnerDeps } from "@/services/runner/types";
 afterEach(() => setSettingOverrides({}));
 
 const clean: IsolationProbe = { backend: "local", readiness: "ready", dirty: false };
+
+describe("dirty checkout ignores generated install output", () => {
+  test("lockfiles and build folders do not turn a checkout dirty", () => {
+    expect(hasUncommittedChanges("?? package-lock.json\n?? dist/\n?? node_modules/\n")).toBe(false);
+    expect(hasUncommittedChanges("?? src/App.tsx\n")).toBe(true);
+    expect(hasUncommittedChanges(" M package-lock.json\n")).toBe(false);
+    expect(hasUncommittedChanges(" M src/App.tsx\n")).toBe(true);
+  });
+
+  test("only ignored check inputs count, never node_modules", () => {
+    expect(hasIgnoredCheckInputs("node_modules/\0node_modules/.pnpm/lock.yaml\0dist/\0")).toBe(false);
+    expect(hasIgnoredCheckInputs(".env.local\0")).toBe(true);
+    expect(hasIgnoredCheckInputs("src/.generated/types.ts\0")).toBe(true);
+    expect(hasIgnoredCheckInputs("src/schema.d.ts\0")).toBe(true);
+  });
+});
 
 describe("ORCHESTRATOR_WORKTREE_ISOLATION=auto: the decision", () => {
   test("turns on for a clean repo with a commit on a local or self-hosted backend", () => {
@@ -111,6 +128,19 @@ describe("ORCHESTRATOR_WORKTREE_ISOLATION=auto: the worker-side probe", () => {
     expect(probeIsolation("/nowhere", "https://x.runtime.cloud", git)).toEqual({ backend: "cloud" });
     expect(probeIsolation("/nowhere", undefined, git)).toEqual({ backend: "unknown" });
     expect(git).not.toHaveBeenCalled();
+  });
+
+  test("ignored check inputs make the checkout dirty, install output does not", () => {
+    let ignored = "node_modules/\0node_modules/.pnpm/lock.yaml\0dist/\0";
+    const git = vi.fn((args: string[]): string => {
+      if (args[0] === "rev-parse" && args[1] === "--is-inside-work-tree") return "true";
+      if (args[0] === "status") return "";
+      if (args[0] === "ls-files") return ignored;
+      return "";
+    });
+    expect(probeIsolation("/w", "http://127.0.0.1:3210", git)).toEqual({ backend: "local", readiness: "ready", dirty: false });
+    ignored = "node_modules/\0.env.local\0";
+    expect(probeIsolation("/w", "http://127.0.0.1:3210", git).dirty).toBe(true);
   });
 
   test("a real folder: no git → no commits → clean → dirty", () => {

@@ -130,33 +130,6 @@ describe("B3: numbers are validated (no NaN), \"\" reads as the default", () => 
   });
 });
 
-describe("B5: one LLM fallback for the worker and FharaRuntime", () => {
-  it("openai-compatible takes the OpenAI defaults in both, and both honour the flavour URL", async () => {
-    const { getGlobalLLMConfig: worker } = await import("@/llm");
-    const { getGlobalLLMConfig: runtime } = await import("@/api/functions/lib/llmConfig");
-    const cases: Array<Record<string, string>> = [
-      { LLM_PROVIDER: "openai-compatible" },
-      { LLM_PROVIDER: "openai-compatible", LLM_OPENAI_BASE_URL: "http://o/v1", LLM_BASE_URL: "http://b/v1" },
-      { LLM_PROVIDER: "anthropic", LLM_ANTHROPIC_BASE_URL: "http://a/v1" },
-      { LLM_PROVIDER: "OpenAI", LLM_MODEL: "m" },
-      {},
-    ];
-    const saved = { ...process.env };
-    try {
-      for (const env of cases) {
-        for (const k of ["LLM_PROVIDER", "LLM_MODEL", "LLM_BASE_URL", "LLM_OPENAI_BASE_URL", "LLM_ANTHROPIC_BASE_URL", "LLM_API_KEY", "OPENAI_API_KEY"]) delete process.env[k];
-        Object.assign(process.env, env);
-        expect(runtime()).toEqual(worker(env));
-      }
-      expect(worker({ LLM_PROVIDER: "openai-compatible" })).toMatchObject({ model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1" });
-      expect(worker({ LLM_PROVIDER: "openai-compatible", LLM_OPENAI_BASE_URL: "http://o/v1", LLM_BASE_URL: "http://b/v1" }).baseUrl).toBe("http://o/v1");
-    } finally {
-      for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
-      Object.assign(process.env, saved);
-    }
-  });
-});
-
 describe("B6: the worker decrypts with PROVIDER_ENCRYPTION_KEY_OLD during a rotation", () => {
   const keyB64 = (fill: number) => Buffer.alloc(32, fill).toString("base64");
   async function seal(plaintext: string, b64: string): Promise<string> {
@@ -246,7 +219,7 @@ describe("startup: .env is loaded before any module-load read; the log shows the
     const nodePath = await import("node:path");
     const src = nodePath.resolve(import.meta.dirname, "../../src");
     const index = fs.readFileSync(nodePath.join(src, "index.ts"), "utf8");
-    const firstImport = index.split("\n").find((l) => l.startsWith("import "));
+    const firstImport = index.split("\n").find((l) => l.startsWith("import "))?.replace(/\r$/, "");
     expect(firstImport).toBe('import "./utils/loadEnv";');
     const loadEnv = fs.readFileSync(nodePath.join(src, "utils/loadEnv.ts"), "utf8");
     expect(loadEnv).toContain("dotenv.config({ path: ROOT_ENV_FILE })");

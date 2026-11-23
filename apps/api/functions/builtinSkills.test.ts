@@ -33,7 +33,7 @@ describe("built-in skill metadata", () => {
       expect(skill.roles.length).toBeGreaterThan(0);
       if (skill.upstream) expect(["MIT", "Apache-2.0"]).toContain(skill.upstream.license);
     }
-    // Designer is a live manual role with design guidance in its prompt; the
+    // Designer has design guidance in its prompt; the
     // built-in design skills stay on Frontend, which implements the UI.
     expect(builtinSkillKeysForRole("designer")).toEqual([]);
     expect(builtinSkillKeysForRole("frontend")).toEqual([

@@ -15,7 +15,7 @@
 import { internalAction } from "@fhara/runtime/functions";
 import { v } from "@fhara/runtime/values";
 import { internal } from "@fhara/runtime/api";
-import { completeWithFallback, getGlobalLLMConfig, resolveConfigChain } from "./lib/chat/llm";
+import { completeWithFallback, resolveConfigChain } from "./lib/chat/llm";
 import { estimateTokens } from "./lib/reviewer/opinion";
 import { buildSuggestionPrompt, resolveSuggestion } from "./lib/improve/suggest";
 
@@ -45,7 +45,7 @@ export const runSuggestion = internalAction({
     let model: string | undefined;
     try {
       // Primary (the Reviewer's prefs > pool) then its fallback model.
-      const chain = await resolveConfigChain(context.providers, getGlobalLLMConfig(), context.prefs);
+      const chain = await resolveConfigChain(context.providers, context.prefs);
       model = chain[0].model;
       const answer = await completeWithFallback(system, [{ role: "user", content: user }], chain);
       model = answer.config.model;

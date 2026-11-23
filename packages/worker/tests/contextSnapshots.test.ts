@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { LlmConcurrencyGate, runLlmCallWithFallback, type FallbackHandle } from "@/effects/llmCall";
+import { runWithObservationScope } from "@/effects/observationContext";
 import { flushSnapshots, setSnapshotSink, withSnapshotScope, type SnapshotRecord } from "@/llm/snapshots";
 import type { LLMProvider } from "@/llm";
 
@@ -64,6 +65,27 @@ describe("worker context snapshots", () => {
     await flushSnapshots();
     expect(records).toHaveLength(1);
     expect(records[0].meta.error).toMatch(/400/);
+  });
+
+  test("transient LLM retries refresh the node progress heartbeat per attempt", async () => {
+    let attempts = 0;
+    const progress = vi.fn();
+    const retrying: LLMProvider = {
+      complete: async () => {
+        attempts += 1;
+        if (attempts < 3) throw Object.assign(new Error("provider unavailable"), { status: 503 });
+        return { content: "recovered" };
+      },
+    };
+
+    const { result } = await runWithObservationScope({ progress }, () =>
+      runLlmCallWithFallback([handle(retrying)], [{ role: "user", content: "review" }], { gate, retries: 2 })
+    );
+
+    expect(result.content).toBe("recovered");
+    expect(attempts).toBe(3);
+    // One start heartbeat, one for each provider attempt, and one on success.
+    expect(progress).toHaveBeenCalledTimes(5);
   });
 
   test("CONTEXT_SNAPSHOTS=0 disables capture; a failing sink never breaks the call", async () => {

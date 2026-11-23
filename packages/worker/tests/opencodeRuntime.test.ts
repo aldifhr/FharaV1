@@ -19,6 +19,7 @@ import { executeSubtask, type SubtaskExecutionInput } from "@/execution/agentExe
 import type { AgentDefinition, ExecutionPlan, PlanSubtask } from "@/orchestrator/types";
 import { spawnReturning } from "./helpers/spawn";
 import { createTempGitRepo } from "./helpers/tempRepo";
+import { diffFromContents } from "@/tools/gitDiff";
 
 const SECRET = "sk-test-SECRET-value-123456";
 const LLM = { provider: "openai-compatible", model: "nous", baseUrl: "http://llm.local:20128/v1", apiKey: SECRET };
@@ -386,5 +387,27 @@ describe("executeSubtask on the OpenCode runtime", () => {
     expect(result.status).toBe("completed");
     expect(saved).toEqual([]);
     expect(await fs.readFile(path.join(ws, "src", "a.ts"), "utf-8")).toBe("export const a = 1;\n");
+  });
+
+  it("runs review on the selected global native model and parses its verdict", async () => {
+    let argv: string[] = [];
+    const spawnImpl: SpawnImpl = async (_command, args) => {
+      argv = args;
+      return { stdout: JSON.stringify({ type: "text", part: { text: JSON.stringify({ verdict: "approved", findings: [] }) } }), stderr: "", code: 0 };
+    };
+    const agent: AgentDefinition = { _id: "reviewer", name: "Reviewer", role: "reviewer" };
+    const change = {
+      ...diffFromContents("src/a.ts", "export const a = 1;\n", "export const a = 2;\n"),
+      changeType: "modified" as const,
+    };
+    const { base, events } = input(agent, spawnImpl, {
+      nativeModel: "opencode/hy4-flash-free",
+      subtask: { ...SUBTASK, kind: "review", description: "Review this change" },
+      fileChanges: [change],
+    });
+    const result = await executeSubtask(base);
+    expect(argv[argv.indexOf("-m") + 1]).toBe("opencode/hy4-flash-free");
+    expect(result).toMatchObject({ status: "completed", output: "Review approved.", meta: { verdict: "approved" } });
+    expect(events).toContain("review.completed");
   });
 });

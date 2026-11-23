@@ -13,6 +13,10 @@ import { CAPABILITY, type AgentDefinition } from "@/types";
 
 const ROLE_CAPABILITIES: Array<{ pattern: RegExp; capabilities: string[] }> = [
   {
+    pattern: /^(lead|project lead|team lead)$/i,
+    capabilities: [...ROLES.lead.registryCapabilities],
+  },
+  {
     pattern: /\b(cto|architect|architecture|tech lead|principal)\b/i,
     capabilities: [...ROLES.cto.registryCapabilities],
   },
@@ -23,6 +27,10 @@ const ROLE_CAPABILITIES: Array<{ pattern: RegExp; capabilities: string[] }> = [
   {
     pattern: /\b(frontend|front-end|ui|ux|react|web)\b/i,
     capabilities: [...ROLES.frontend.registryCapabilities],
+  },
+  {
+    pattern: /\b(devops|dev ops|ci|cd|pipeline|github actions|workflow|docker|dockerfile|deploy|deployment|release|infrastructure|infra)\b/i,
+    capabilities: [...ROLES.devops.registryCapabilities],
   },
   {
     pattern: /\b(backend|back-end|api|server|database|db|python|django|fastapi|golang|java|kotlin|rust|ruby|php|laravel|dotnet|node|postgres|mysql)\b/i,

@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AgentDefinition, PlanSubtask } from "@/types";
 import type { RunContext } from "@/services/runner/types";
 import { budgetHaltFeedback, createCancelCheck, retryAllowed, shouldHaltNewNodes } from "@/services/runner/nodes/executionGuard";
 import { createExecutionResolver, nodeTimeoutFor, refreshRoutingSignals, unroutableOutcome } from "@/services/runner/nodes/executionResolver";
+import { TaskLlmResolver } from "@/llm/resolver";
+import { ProviderHealthRegistry } from "@/llm/health";
 import { createNodeObserver, createStallReporter, logHeld, logRouted, logSkippedRoutes } from "@/services/runner/nodes/nodeObserver";
 import { foldQaCheck } from "@/services/runner/nodes/qaNode";
 import { agentHasSlot, schedulerHooks, toSchedulerNodes } from "@/services/runner/nodes/nodeDispatcher";
@@ -120,6 +122,46 @@ describe("nodes/executionResolver", () => {
     const { ctx } = harness();
     const route = { runtime: "native-provider", model: "m", skipped: [] } as never;
     expect(await createExecutionResolver(ctx).runtime("a", agent(), route)).toEqual({ runtime: "native-provider", model: "m" });
+  });
+
+  it("builds prepared API-path handles through the native factory for an OpenCode-only pool", async () => {
+    const pool = [
+      {
+        _id: "opencode",
+        name: "OpenCode",
+        provider: "opencode",
+        baseUrl: "",
+        apiKey: "",
+        priority: 1,
+        weight: 100,
+        models: [{ modelId: "opencode/hy4-flash-free", isAvailable: true }],
+      },
+    ] as never;
+    const factory = vi.fn(() => ({ complete: async () => ({ content: "ok" }) }));
+    const llmResolver = new TaskLlmResolver(pool, new ProviderHealthRegistry(), {
+      includeNativeCli: true,
+      providerFactory: factory,
+    });
+    const { ctx } = harness({ input: { opencodeRuntime: "api", opencodeModel: "", llmResolver } });
+    const execution = createExecutionResolver(ctx);
+    await execution.prepare("a", agent());
+    const { llmHandles } = await execution.handles("a", agent());
+    expect(llmHandles).toHaveLength(1);
+    await expect(llmHandles![0].provider.complete([])).resolves.toEqual({ content: "ok" });
+    expect(factory).toHaveBeenCalled();
+  });
+
+  it("uses the app-wide runtime instead of a provider-specific route", async () => {
+    const routeFor = vi.fn(() => ({ runtime: "native-provider", model: "provider/other", skipped: [] }));
+    const resolutionFor = vi.fn(() => ({ routing: { model: "api-model", connection: "global" } }));
+    const resolver = { hasOpencode: () => true, executionRouteFor: routeFor, resolutionFor, handlesFor: () => [] };
+    const { ctx } = harness({ input: { opencodeRuntime: "opencode", opencodeModel: "opencode/hy4-flash-free", llmResolver: resolver } });
+    const execution = createExecutionResolver(ctx);
+    await execution.prepare("a", agent());
+    const selected = await execution.runtime("a", agent(), undefined);
+    expect(selected).toEqual({ runtime: "native-provider", model: "opencode/hy4-flash-free" });
+    expect(routeFor).not.toHaveBeenCalled();
+    expect(resolutionFor).not.toHaveBeenCalled();
   });
 
   it("gives a node at least the policy timeout", () => {

@@ -19,8 +19,7 @@ let reply: (call: Call) => string = () => "ok";
 const queued = vi.hoisted(() => ({ count: 0 }));
 
 vi.mock("./lib/chat/llm", () => ({
-  getGlobalLLMConfig: () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m", provider: "openai-compatible" }),
-  resolveConfigFromProviders: async (_p: unknown, global: unknown) => global,
+  resolveConfigFromProviders: async () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m", provider: "openai-compatible" }),
   completeWithAgent: async (
     system: string,
     msgs: { role: string; content: string }[],
@@ -248,3 +247,4 @@ describe("a used Create task offer", () => {
     await expect(t.mutation(api.tasks.createFromCommand, { projectId: other, command: "x", offerMessageId: offer._id })).rejects.toThrow(/does not belong/);
   });
 });
+

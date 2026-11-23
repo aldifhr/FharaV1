@@ -7,9 +7,10 @@
  *      fallback order; in round robin it is the rotation set and the order
  *      sets which model starts first (lib/llmOrder.ts, shared by chat and
  *      the worker). Below it: the per-role override toggle (L4, off).
- *   OpenCode (plan 038) is a special row in Providers: detected on the worker,
- *   enabled here, its models take positions in the same list; an OpenCode
- *   entry runs a subtask on the OpenCode CLI, chat skips it.
+ *   OpenCode (plan 038) is a special connection: detected on the worker,
+ *   enabled under Settings → Providers (CliDriversCard), its models take
+ *   positions in the same list; an OpenCode entry runs a subtask on the
+ *   OpenCode CLI, chat skips it.
  *
  * Provider/model writes, discovery and tests go through the server-side
  * route (/api/llm-providers): the FharaRuntime mutations require the service
@@ -48,7 +49,6 @@ type Provider = {
   provider: string;
   model: string;
   baseUrl: string;
-  apiKeyEnv: string;
   priority: number;
   weight: number;
   modelPatterns?: string[];
@@ -98,14 +98,14 @@ function RowMenu({
 }) {
   const { open, toggle, setOpen, ref } = usePopover<HTMLDivElement>();
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative shrink-0" ref={ref}>
       <button
         type="button"
         onClick={toggle}
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="inline-flex h-8 min-w-8 items-center justify-center rounded-lg text-ink-3 transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
+        className="inline-flex h-8 min-w-8 shrink-0 items-center justify-center rounded-lg text-ink-3 transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
       >
         <MoreHorizontal size={15} />
       </button>
@@ -162,6 +162,174 @@ function testLine(result: TestResult): string {
     : `Failed · ${where} · ${result.detail}`;
 }
 
+
+function SectionCard({
+  title,
+  description,
+  action,
+  children,
+}: {
+  title: string;
+  description?: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="grid gap-0 overflow-visible rounded-xl border border-line bg-panel">
+      <div className="flex items-start justify-between gap-3 border-b border-line px-4 py-3">
+        <div className="grid gap-0.5">
+          <h3 className="text-[14px] font-medium text-ink">{title}</h3>
+          {description && <p className={HINT}>{description}</p>}
+        </div>
+        {action}
+      </div>
+      <div className="grid gap-3 px-4 py-3">{children}</div>
+    </section>
+  );
+}
+
+/** Plan 038/066: CLI connections, shown under Settings → Providers. */
+export function CliDriversCard() {
+  const opencode = useQuery(api.opencodeProvider.status, {});
+  const codexRow = useQuery(api.opencodeProvider.cliRow, { cli: "codex" });
+  const claudeRow = useQuery(api.opencodeProvider.cliRow, { cli: "claude-code" });
+  const nativeSettings = useQuery(api.opencodeSettings.get, {});
+  const setNativeDriver = useMutation(api.opencodeSettings.setDriver);
+  const requestOpencodeCheck = useMutation(api.opencodeModels.requestRefresh);
+  const requestOpencodeTest = useMutation(api.opencodeModels.requestTest);
+  const toast = useToast();
+  const [driverBusy, setDriverBusy] = useState(false);
+  const [opencodeBusy, setOpencodeBusy] = useState(false);
+  const [opencodeTestKey, setOpencodeTestKey] = useState<string | null>(null);
+
+  const opencodeLine = opencodeStatusLine(opencode);
+  const opencodeTest = opencode?.test ?? null;
+
+  async function setOpencodeEnabled(enabled: boolean, cli: TaskCli = "opencode") {
+    setOpencodeBusy(true);
+    const label = TASK_CLI_LABEL[cli];
+    try {
+      const data = await providerAdmin("setOpencodeEnabled", { enabled, cli });
+      toast(
+        "success",
+        enabled ? `${label} enabled` : `${label} disabled`,
+        data.carriedOver
+          ? `Your OpenCode runtime model ${data.carriedOver} is now the first entry of the list.`
+          : enabled
+            ? `Add ${label} models to the list; tasks run them on the ${label} CLI.`
+            : "Tasks skip its models and use the next one in the list."
+      );
+    } catch (err) {
+      toast("error", `Failed to update ${label}`, err instanceof Error ? err.message : "");
+    } finally {
+      setOpencodeBusy(false);
+    }
+  }
+
+  async function checkOpencodeAgain() {
+    try {
+      const { requested } = await requestOpencodeCheck({});
+      if (requested === 0) toast("error", "No worker has reported yet", "Start the worker; it checks for OpenCode at startup.");
+    } catch (err) {
+      toast("error", "Failed to ask the worker", err instanceof Error ? err.message : "");
+    }
+  }
+
+  async function testOpencode(key: string, model?: string) {
+    try {
+      const { requested } = await requestOpencodeTest({ ...(model ? { model } : {}) });
+      if (!requested) {
+        toast("error", "No worker has reported yet", "Start the worker, then test again.");
+        return;
+      }
+      setOpencodeTestKey(key);
+    } catch (err) {
+      toast("error", "Failed to ask the worker", err instanceof Error ? err.message : "");
+    }
+  }
+
+  async function changeNativeDriver(driver: "opencode" | "codex") {
+    setDriverBusy(true);
+    try {
+      await setNativeDriver({ driver });
+      toast(
+        "success",
+        "Native runtime driver updated",
+        driver === "codex"
+          ? "Codex CLI runs tasks with its own login and tools."
+          : "OpenCode CLI runs tasks with its own login and tools."
+      );
+    } catch (err) {
+      toast("error", "Failed to update the driver", err instanceof Error ? err.message : "");
+    } finally {
+      setDriverBusy(false);
+    }
+  }
+
+  return (
+    <SectionCard title="CLI agents" description="Installed on the worker machine. Add their models in LLM & Models.">
+      <label className="flex items-center gap-2 text-[12px] text-ink-3">
+        Driver
+        <select
+          value={nativeSettings?.driver ?? "opencode"}
+          disabled={!nativeSettings || driverBusy}
+          onChange={(e) => void changeNativeDriver(e.target.value === "codex" ? "codex" : "opencode")}
+          className="rounded-lg border border-line bg-canvas px-2 py-1 text-[12.5px] text-ink outline-none disabled:opacity-40"
+        >
+          <option value="opencode">OpenCode CLI</option>
+          <option value="codex">Codex CLI</option>
+        </select>
+      </label>
+      <div className="grid gap-1">
+        <div className="flex items-center gap-3 rounded-lg border border-line px-3 py-2">
+          <div className="min-w-0 flex-1">
+            <p className="text-[13.5px] text-ink">OpenCode</p>
+            <p className={`truncate text-[12px] ${opencodeLine.kind === "missing" ? "text-warn" : "text-ink-3"}`} title={opencodeLine.text}>
+              {opencodeLine.text}
+              {opencode && opencode.checkedAt > 0 && ` · checked ${relativeTime(opencode.checkedAt)}`}
+            </p>
+          </div>
+          <label className="flex items-center gap-1.5 text-[12px] text-ink-2">
+            <input type="checkbox" checked={opencode?.enabled ?? false} disabled={!opencode || opencodeBusy} onChange={(e) => void setOpencodeEnabled(e.target.checked)} aria-label="Enable OpenCode" />
+            On
+          </label>
+          <RowMenu
+            label="OpenCode actions"
+            items={[
+              { label: opencode?.pendingTest && opencodeTestKey === "p:opencode" ? "Testing…" : "Test", onClick: () => void testOpencode("p:opencode") },
+              { label: "Check again", onClick: () => void checkOpencodeAgain() },
+            ]}
+          />
+        </div>
+        {(["codex", "claude-code"] as const).map((cli) => {
+          const row = cli === "codex" ? codexRow : claudeRow;
+          const label = TASK_CLI_LABEL[cli];
+          return (
+            <div key={cli} className="flex items-center gap-3 rounded-lg border border-line px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-[13.5px] text-ink">{label}</p>
+                <p className="truncate text-[12px] text-ink-3">Add its models in LLM & Models.</p>
+              </div>
+              <label className="flex items-center gap-1.5 text-[12px] text-ink-2">
+                <input type="checkbox" checked={row?.enabled ?? false} disabled={!row || opencodeBusy} onChange={(e) => void setOpencodeEnabled(e.target.checked, cli)} aria-label={`Enable ${label}`} />
+                On
+              </label>
+            </div>
+          );
+        })}
+      </div>
+      {opencodeLine.kind === "missing" && (
+        <p className={HINT}>Install with <code>{OPENCODE_INSTALL_COMMAND}</code> on the worker, then press Check again.</p>
+      )}
+      {opencodeTestKey === "p:opencode" && !opencode?.pendingTest && opencodeTest && (
+        <p className={opencodeTest.ok ? HINT : ERROR_TEXT}>
+          {opencodeTest.ok ? `OK · ${opencodeTest.model ?? "OpenCode default"} · ${opencodeTest.latencyMs} ms` : `Failed · ${opencodeTest.error ?? "error"}`}
+        </p>
+      )}
+    </SectionCard>
+  );
+}
+
 export default function LlmSettingsSection({
   projectId,
   onProjectChange,
@@ -179,20 +347,19 @@ export default function LlmSettingsSection({
   // Plan 038: the OpenCode provider row (detection, enable, test).
   const opencode = useQuery(api.opencodeProvider.status, {});
   const opencodeCatalog = useQuery(api.opencodeModels.list, {});
-  const requestOpencodeCheck = useMutation(api.opencodeModels.requestRefresh);
+  const codexCatalog = useQuery(api.codexModels.list, {});
+  const requestCodexCatalogRefresh = useMutation(api.codexModels.requestRefresh);
   const requestOpencodeTest = useMutation(api.opencodeModels.requestTest);
   // Plan 066: the sibling CLI rows (registry only; routing comes later).
   const codexRow = useQuery(api.opencodeProvider.cliRow, { cli: "codex" });
   const claudeRow = useQuery(api.opencodeProvider.cliRow, { cli: "claude-code" });
   // Plan 057: which provider CLI the native runtime spawns.
   const nativeSettings = useQuery(api.opencodeSettings.get, {});
-  const setNativeDriver = useMutation(api.opencodeSettings.setDriver);
-  const [driverBusy, setDriverBusy] = useState(false);
   const toast = useToast();
 
-  const [opencodeBusy, setOpencodeBusy] = useState(false);
   // The list row whose Test asked the worker (the probe result is global).
   const [opencodeTestKey, setOpencodeTestKey] = useState<string | null>(null);
+  const [codexRefreshBusy, setCodexRefreshBusy] = useState(false);
   const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
 
   // Provider form (add or edit).
@@ -260,7 +427,6 @@ export default function LlmSettingsSection({
       apiKey: "",
       baseUrl: p.baseUrl,
       provider: p.provider,
-      apiKeyEnv: p.apiKeyEnv,
       weight: String(p.weight ?? 100),
       modelPatterns: (p.modelPatterns ?? []).join(", "),
       isEnabled: p.isEnabled !== false,
@@ -370,37 +536,7 @@ export default function LlmSettingsSection({
     }
   }
 
-  // ---- OpenCode + the sibling CLI rows (plans 038, 066) ----
-
-  async function setOpencodeEnabled(enabled: boolean, cli: TaskCli = "opencode") {
-    setOpencodeBusy(true);
-    const label = TASK_CLI_LABEL[cli];
-    try {
-      const data = await providerAdmin("setOpencodeEnabled", { enabled, cli });
-      toast(
-        "success",
-        enabled ? `${label} enabled` : `${label} disabled`,
-        data.carriedOver
-          ? `Your OpenCode runtime model ${data.carriedOver} is now the first entry of the list.`
-          : enabled
-            ? `Add ${label} models to the list; tasks run them on the ${label} CLI.`
-            : "Tasks skip its models and use the next one in the list."
-      );
-    } catch (err) {
-      toast("error", `Failed to update ${label}`, err instanceof Error ? err.message : "");
-    } finally {
-      setOpencodeBusy(false);
-    }
-  }
-
-  async function checkOpencodeAgain() {
-    try {
-      const { requested } = await requestOpencodeCheck({});
-      if (requested === 0) toast("error", "No worker has reported yet", "Start the worker; it checks for OpenCode at startup.");
-    } catch (err) {
-      toast("error", "Failed to ask the worker", err instanceof Error ? err.message : "");
-    }
-  }
+  // ---- OpenCode model tests (the CLI connection rows live in Providers) ----
 
   async function testOpencode(key: string, model?: string) {
     try {
@@ -415,21 +551,19 @@ export default function LlmSettingsSection({
     }
   }
 
-  async function changeNativeDriver(driver: "opencode" | "codex") {
-    setDriverBusy(true);
+  async function refreshCodexCatalog() {
+    setCodexRefreshBusy(true);
     try {
-      await setNativeDriver({ driver });
-      toast(
-        "success",
-        "Native runtime driver updated",
-        driver === "codex"
-          ? "Codex CLI runs tasks with its own login and tools."
-          : "OpenCode CLI runs tasks with its own login and tools."
-      );
+      const { requested } = await requestCodexCatalogRefresh({});
+      if (!requested) {
+        toast("error", "No worker has reported yet", "Start the worker, then refresh the Codex model list.");
+      } else {
+        toast("success", "Codex model list refresh requested", "The worker will read models available to its signed-in Codex account.");
+      }
     } catch (err) {
-      toast("error", "Failed to update the driver", err instanceof Error ? err.message : "");
+      toast("error", "Failed to refresh Codex models", err instanceof Error ? err.message : "");
     } finally {
-      setDriverBusy(false);
+      setCodexRefreshBusy(false);
     }
   }
 
@@ -439,8 +573,8 @@ export default function LlmSettingsSection({
     if (!providerId) return;
     const connection = providerById.get(providerId);
     if (!connection) return;
-    // OpenCode lists its models through the worker catalog, not over HTTP.
-    if (isOpencodeConnection(connection)) return;
+    // Native CLI entries use their CLI catalog/presets, not an HTTP /models endpoint.
+    if (isNativeCliConnection(connection)) return;
     setModelOptionsLoading(true);
     setModelOptionsError("");
     try {
@@ -544,43 +678,60 @@ export default function LlmSettingsSection({
   const opencodeRowId = opencode?.providerId ?? null;
   const codexRowId = codexRow?.providerId ?? null;
   const claudeRowId = claudeRow?.providerId ?? null;
-  // Which CLI the Add-model form targets (opencode keeps its live catalog;
-  // codex / claude-code offer presets plus free-typed ids).
+  // Which CLI the Add-model form targets (OpenCode and Codex use worker catalogs).
   const addingCli = (["opencode", "codex", "claude-code"] as const).find(
     (cli) => modelForm.providerId === { opencode: opencodeRowId, codex: codexRowId, "claude-code": claudeRowId }[cli]
   );
   const addingOpencode = addingCli === "opencode";
   const options = addingCli
-    ? (addingCli === "opencode" ? opencodeCatalog?.models ?? [] : CLI_MODEL_PRESETS[addingCli] ?? [])
+    ? (addingCli === "opencode"
+      ? opencodeCatalog?.models ?? []
+      : addingCli === "codex" && (codexCatalog?.models.length ?? 0) > 0
+        ? codexCatalog!.models
+        : CLI_MODEL_PRESETS[addingCli] ?? [])
     : modelOptions[modelForm.providerId] ?? [];
   const modelPreset = findPreset(providerById.get(modelForm.providerId)?.presetId);
-  const opencodeLine = opencodeStatusLine(opencode);
   const opencodeOff = opencodeUnavailableReason(opencode);
   const hasOpencodeEntries = (models ?? []).some((m) => m.providerId === opencodeRowId);
   const canAddModel = (sortedProviders?.length ?? 0) > 0 || opencodeRowId !== null || codexRowId !== null || claudeRowId !== null;
   const opencodeTest = opencode?.test ?? null;
 
+  const cliEnabledCount = [opencode?.enabled, codexRow?.enabled, claudeRow?.enabled].filter(Boolean).length;
+  const activeModelCount = orderedModels.filter(
+    (m) => m.isAvailable && providerById.get(m.providerId)?.isEnabled !== false && !opencodeOff
+  ).length;
+  const firstModel = orderedModels[0];
+  const runtimeLabel = nativeSettings?.driver === "codex" ? "Codex CLI" : "OpenCode CLI";
+
   return (
     <>
       <ConfirmDialog request={confirmReq} onCancel={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onOk()} />
-      <div className="mx-auto grid max-w-3xl gap-8">
+      <div className="mx-auto grid max-w-3xl gap-5">
         <header className="grid gap-1">
           <h2 className="text-[24px] font-semibold tracking-tight text-ink">LLM &amp; Models</h2>
-          <p className={HINT}>One list for chat and tasks. The order decides who answers first.</p>
+          <p className={HINT}>One list powers both chat and tasks. Connect a provider, add models, then set the order.</p>
         </header>
 
         {keyStorageMissing && (
-          <p role="status" className="text-[13px] text-warn">
-            API keys can&apos;t be stored yet: <code>PROVIDER_ENCRYPTION_KEY</code> is not set on the FharaRuntime deployment.
-            Run <code>npx runtime env set PROVIDER_ENCRYPTION_KEY &quot;$(openssl rand -base64 32)&quot;</code> and put the
-            same value in <code>.env</code> for the worker. Local servers without a key (Ollama, LM Studio) work without it.
-          </p>
+          <div className="rounded-xl border border-warn/40 bg-warn/5 p-3 text-[12.5px] text-warn">
+            API keys can&apos;t be stored yet: <code>PROVIDER_ENCRYPTION_KEY</code> is not set. Set the same value in
+            <code> .env</code> and the runtime environment. Local servers without a key work without it.
+          </div>
         )}
 
-        {/* 1. Mode */}
-        <section className="grid gap-2" aria-labelledby="llm-mode">
-          <div className="flex items-center justify-between gap-3">
-            <h3 id="llm-mode" className="text-[13px] font-medium text-ink-2">Mode</h3>
+        <section aria-label="Current setup" className="grid gap-4 rounded-xl border border-line bg-panel p-4">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="grid gap-1">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-ink-3">Current setup</p>
+              <p className="text-[15px] text-ink">
+                {firstModel ? `${firstModel.displayName || firstModel.modelId} answers first` : "No model selected yet"}
+              </p>
+              <p className={HINT}>
+                {firstModel
+                  ? `${activeModelCount} active · ${(sortedProviders?.length ?? 0) + cliEnabledCount} connection(s)`
+                  : "Add a connection and a model below to start answering."}
+              </p>
+            </div>
             <Segmented
               label="Model selection mode"
               value={selectionMode}
@@ -591,26 +742,40 @@ export default function LlmSettingsSection({
               ]}
             />
           </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            <div className="rounded-lg border border-line bg-canvas px-3 py-2">
+              <p className="text-[11px] text-ink-3">1 · Connections</p>
+              <p className="text-[13px] text-ink">{sortedProviders?.length ?? 0} API · {cliEnabledCount} CLI on</p>
+            </div>
+            <div className="rounded-lg border border-line bg-canvas px-3 py-2">
+              <p className="text-[11px] text-ink-3">2 · Model list</p>
+              <p className="text-[13px] text-ink">{activeModelCount} active of {orderedModels.length}</p>
+            </div>
+            <div className="rounded-lg border border-line bg-canvas px-3 py-2">
+              <p className="text-[11px] text-ink-3">3 · CLI driver</p>
+              <p className="text-[13px] text-ink">{runtimeLabel}</p>
+            </div>
+          </div>
           <p className={HINT}>
             {selectionMode === "fallback"
-              ? "Every call starts at the top of the list and moves down only when a model fails or answers empty."
-              : "Calls take turns starting at each model in the list. A failing model still hands over to the next one."}
+              ? "Fallback: calls start at the first active model and move down only when it fails or answers empty."
+              : "Round robin: enabled models take turns; a failing model hands over to the next one."}
           </p>
         </section>
 
-        {/* 2. Providers */}
-        <section className="grid gap-2" aria-labelledby="llm-providers">
-          <div className="flex items-center justify-between gap-3">
-            <h3 id="llm-providers" className="text-[13px] font-medium text-ink-2">Providers</h3>
-            {!providerFormOpen && (
+        <SectionCard
+          title="Connections"
+          description="API endpoints and CLI agents in one list. Add a connection, then add its models below."
+          action={
+            !providerFormOpen ? (
               <button type="button" onClick={openAddProvider} className={GHOST}>
-                <Plus size={13} /> Add
+                <Plus size={13} /> Add connection
               </button>
-            )}
-          </div>
-
+            ) : undefined
+          }
+        >
           {providerFormOpen && (
-            <form onSubmit={saveProvider} className="grid gap-3 border-y border-line py-4">
+            <form onSubmit={saveProvider} className="grid gap-3 rounded-lg border border-line bg-canvas p-3">
               <p className="text-[13px] font-medium text-ink">{editingId ? "Edit provider" : "Add provider"}</p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className={LABEL}>
@@ -632,13 +797,7 @@ export default function LlmSettingsSection({
                     autoComplete="off"
                     value={form.apiKey}
                     onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
-                    placeholder={
-                      editingId
-                        ? "Leave empty to keep the stored key"
-                        : preset?.needsKey
-                          ? "Paste your key"
-                          : "Optional for a local server"
-                    }
+                    placeholder={editingId ? "Leave empty to keep the stored key" : preset?.needsKey ? "Paste your key" : "Optional for a local server"}
                     className={FIELD}
                   />
                   {preset?.apiKeyUrl && (
@@ -662,10 +821,6 @@ export default function LlmSettingsSection({
                       <option value="openai">OpenAI</option>
                       <option value="openai-compatible">OpenAI-compatible</option>
                     </select>
-                  </label>
-                  <label className={LABEL}>
-                    Key env var (when no key is stored)
-                    <input value={form.apiKeyEnv} onChange={(e) => setForm({ ...form, apiKeyEnv: e.target.value })} className={FIELD} />
                   </label>
                   {showWeightPatterns ? (
                     <>
@@ -699,139 +854,23 @@ export default function LlmSettingsSection({
             </form>
           )}
 
-          {/* Plan 038: OpenCode, a special row (the CLI on the worker, no URL, no key). */}
-          <div className="grid gap-1" aria-label="OpenCode provider">
-            <div className="flex items-center gap-3 border-y border-line py-2">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[13.5px] text-ink">
-                  OpenCode
-                  {opencode && !opencode.enabled && (
-                    <span className="ml-2 text-[12px] text-ink-3">{opencode.configured ? "disabled" : "not added"}</span>
-                  )}
-                </p>
-                <p className={`truncate text-[12px] ${opencodeLine.kind === "missing" ? "text-warn" : "text-ink-3"}`} title={opencodeLine.text}>
-                  {opencodeLine.text}
-                  {opencode && opencode.checkedAt > 0 && ` · checked ${relativeTime(opencode.checkedAt)}`}
-                  {opencode?.pendingCheck && " · checking…"}
-                </p>
-              </div>
-              <label className="flex items-center gap-1.5 text-[12px] text-ink-2">
-                <input
-                  type="checkbox"
-                  checked={opencode?.enabled ?? false}
-                  disabled={!opencode || opencodeBusy}
-                  onChange={(e) => void setOpencodeEnabled(e.target.checked)}
-                  aria-label="Enable OpenCode"
-                />
-                Enabled
-              </label>
-              <RowMenu
-                label="OpenCode actions"
-                items={[
-                  {
-                    label: opencode?.pendingTest && opencodeTestKey === "p:opencode" ? "Testing…" : "Test",
-                    onClick: () => void testOpencode("p:opencode"),
-                  },
-                  { label: "Check again", onClick: () => void checkOpencodeAgain() },
-                ]}
-              />
-            </div>
-            {opencodeLine.kind === "missing" && (
-              <p className={HINT}>
-                Install it on the worker machine with <code>{OPENCODE_INSTALL_COMMAND}</code>, then press Check again.
-              </p>
-            )}
-            {opencode && !opencode.configured && opencode.legacy?.runtime === "opencode" && (
-              <p className={HINT}>
-                Enabling it replaces the old OpenCode runtime setting
-                {opencode.legacy.model ? `; ${opencode.legacy.model} becomes the first model in the list` : ""}.
-              </p>
-            )}
-            {opencodeTestKey === "p:opencode" && !opencode?.pendingTest && opencodeTest && (
-              <p className={opencodeTest.ok ? HINT : ERROR_TEXT}>
-                {opencodeTest.ok
-                  ? `OK A- ${opencodeTest.model ?? "OpenCode default model"} A- ${opencodeTest.latencyMs} ms`
-                  : `Failed A- ${opencodeTest.model ?? "OpenCode"} A- ${opencodeTest.error ?? "error"}`}
-              </p>
-            )}
-          </div>
-
-          {/* Plan 066: sibling CLI rows (registry only — per-model routing lands later). */}
-          {(["codex", "claude-code"] as const).map((cli) => {
-            const row = cli === "codex" ? codexRow : claudeRow;
-            const label = TASK_CLI_LABEL[cli];
-            return (
-              <div key={cli} className="grid gap-1" aria-label={`${label} provider`}>
-                <div className="flex items-center gap-3 border-b border-line py-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13.5px] text-ink">
-                      {label}
-                      {row && !row.enabled && (
-                        <span className="ml-2 text-[12px] text-ink-3">{row.configured ? "disabled" : "not added"}</span>
-                      )}
-                    </p>
-                    <p className="truncate text-[12px] text-ink-3">
-                      Tasks only · add models with the Add button; routing to this CLI comes with the per-model runtime plan.
-                    </p>
-                  </div>
-                  <label className="flex items-center gap-1.5 text-[12px] text-ink-2">
-                    <input
-                      type="checkbox"
-                      checked={row?.enabled ?? false}
-                      disabled={!row || opencodeBusy}
-                      onChange={(e) => void setOpencodeEnabled(e.target.checked, cli)}
-                      aria-label={`Enable ${label}`}
-                    />
-                    Enabled
-                  </label>
-                </div>
-              </div>
-            );
-          })}
-
-          {/* Plan 057: the CLI behind the native runtime (app-wide). */}
-          <div className="grid gap-1.5 border-b border-line py-2" aria-label="Native runtime driver">
-            <label className={LABEL}>
-              Native runtime driver
-              <select
-                value={nativeSettings?.driver ?? "opencode"}
-                disabled={!nativeSettings || driverBusy}
-                onChange={(e) => void changeNativeDriver(e.target.value === "codex" ? "codex" : "opencode")}
-                className={FIELD}
-              >
-                <option value="opencode">OpenCode CLI</option>
-                <option value="codex">Codex CLI</option>
-              </select>
-            </label>
-            <p className={HINT}>
-              {nativeSettings?.driver === "codex"
-                ? "Tasks run on the worker's own codex login; the OpenCode model list does not apply."
-                : "Tasks run on the OpenCode CLI. The Codex binary path stays worker-local (ORCHESTRATOR_CODEX_COMMAND)."}
-            </p>
-          </div>
-
           {sortedProviders === undefined && <p className={HINT}>Loading…</p>}
           {sortedProviders && sortedProviders.length === 0 && !providerFormOpen && (
             <p className={HINT}>
-              No providers yet. Add one with its API key. Until then, Fhara uses the LLM_* variables from the server
-              environment, if they are set.
+              No connections yet. Add one below to give Fhara a model; no environment fallback is used.
             </p>
           )}
           {sortedProviders && sortedProviders.length > 0 && (
-            <ul className="divide-y divide-line border-y border-line">
+            <ul className="grid gap-1">
               {sortedProviders.map((p) => {
                 const known = findPreset(p.presetId) ?? guessPreset(p);
                 const count = (models ?? []).filter((m) => m.providerId === p._id).length;
                 const health = healthStats?.snapshots?.[p.name];
                 const circuitOpen = health?.circuitOpenUntil != null && health.circuitOpenUntil > Date.now();
                 const test = tests[`p:${p._id}`];
-                const keyStatus = p.apiKeyConfigured
-                  ? "key stored"
-                  : known.needsKey
-                    ? `key from env ${p.apiKeyEnv}, if set`
-                    : "no key";
+                const keyStatus = p.apiKeyConfigured ? "key stored" : known.needsKey ? "no key stored" : "no key";
                 return (
-                  <li key={p._id} className="grid gap-1 py-2">
+                  <li key={p._id} className="grid gap-1 rounded-lg border border-line px-3 py-2">
                     <div className="flex items-center gap-3">
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[13.5px] text-ink">
@@ -846,44 +885,34 @@ export default function LlmSettingsSection({
                       <RowMenu
                         label={`${p.name} actions`}
                         items={[
-                          {
-                            label: test === "running" ? "Testing…" : "Test",
-                            onClick: () => void runTest(`p:${p._id}`, p._id),
-                          },
+                          { label: test === "running" ? "Testing…" : "Test", onClick: () => void runTest(`p:${p._id}`, p._id) },
                           { label: "Edit", onClick: () => openEditProvider(p) },
                           { label: "Remove", onClick: () => askRemoveProvider(p), danger: true },
                         ]}
                       />
                     </div>
-                    {test && test !== "running" && (
-                      <p className={test.ok ? HINT : ERROR_TEXT}>{testLine(test)}</p>
-                    )}
+                    {test && test !== "running" && <p className={test.ok ? HINT : ERROR_TEXT}>{testLine(test)}</p>}
                   </li>
                 );
               })}
             </ul>
           )}
-        </section>
+        </SectionCard>
 
-        {/* 3. Models (the order) */}
-        <section className="grid gap-2" aria-labelledby="llm-models">
-          <div className="flex items-center justify-between gap-3">
-            <h3 id="llm-models" className="text-[13px] font-medium text-ink-2">Models</h3>
-            {!modelFormOpen && canAddModel && (
+        <SectionCard
+          title="Model order"
+          description="Top to bottom is the fallback order. Move a model up to try it first."
+          action={
+            !modelFormOpen && canAddModel ? (
               <button type="button" onClick={openAddModel} className={GHOST}>
-                <Plus size={13} /> Add
+                <Plus size={13} /> Add model
               </button>
-            )}
-          </div>
-          <p className={HINT}>
-            {selectionMode === "fallback"
-              ? "Top to bottom is the fallback order: the first model answers, the next one takes over when it fails."
-              : "Every enabled model takes turns. The order sets which one starts first and who takes over on a failure."}
-          </p>
-          {hasOpencodeEntries && <p className={HINT}>Chat uses the API models; OpenCode entries run tasks only.</p>}
-
+            ) : undefined
+          }
+        >
+          
           {modelFormOpen && (
-            <form onSubmit={saveModel} className="grid gap-3 border-y border-line py-4">
+            <form onSubmit={saveModel} className="grid gap-3 rounded-lg border border-line bg-canvas p-3">
               <p className="text-[13px] font-medium text-ink">Add model</p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className={LABEL}>
@@ -896,12 +925,10 @@ export default function LlmSettingsSection({
                     }}
                     className={FIELD}
                   >
-                    {(sortedProviders ?? []).map((p) => (
-                      <option key={p._id} value={p._id}>{p.name}</option>
-                    ))}
-                    {opencodeRowId && <option value={opencodeRowId}>OpenCode (tasks only)</option>}
-                    {codexRowId && <option value={codexRowId}>Codex (tasks only)</option>}
-                    {claudeRowId && <option value={claudeRowId}>Claude Code (tasks only)</option>}
+                    {(sortedProviders ?? []).map((p) => <option key={p._id} value={p._id}>{p.name}</option>)}
+                    {opencodeRowId && <option value={opencodeRowId}>OpenCode</option>}
+                    {codexRowId && <option value={codexRowId}>Codex</option>}
+                    {claudeRowId && <option value={claudeRowId}>Claude Code</option>}
                   </select>
                 </label>
                 <label className={LABEL}>
@@ -911,39 +938,19 @@ export default function LlmSettingsSection({
                       value={modelForm.modelId}
                       onChange={(e) => setModelForm({ ...modelForm, modelId: e.target.value })}
                       onFocus={() => setModelMenuOpen(true)}
-                      placeholder={
-                        addingCli === "opencode"
-                          ? "provider/model"
-                          : addingCli
-                            ? "Model id (type one, or pick a preset)"
-                            : modelOptionsLoading
-                              ? "Loading models…"
-                              : options.length > 0
-                              ? "Pick or type a model id"
-                              : modelPreset?.modelHint ?? "Model id"
-                      }
+                      placeholder={addingCli === "opencode" ? "provider/model" : addingCli ? "Model id (type one, or pick a preset)" : modelOptionsLoading ? "Loading models…" : options.length > 0 ? "Pick or type a model id" : modelPreset?.modelHint ?? "Model id"}
                       className={FIELD}
                     />
                     {modelMenuOpen && options.length > 0 && (
                       <div className={popoverClass}>
                         <ul className="max-h-52 overflow-y-auto">
-                          {options
-                            .filter((id) => id.toLowerCase().includes(modelForm.modelId.toLowerCase()))
-                            .slice(0, 20)
-                            .map((id) => (
-                              <li key={id}>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setModelForm({ ...modelForm, modelId: id });
-                                    setModelMenuOpen(false);
-                                  }}
-                                  className="w-full rounded-md px-2 py-1 text-left text-[13px] hover:bg-hover"
-                                >
-                                  {id}
-                                </button>
-                              </li>
-                            ))}
+                          {options.filter((id) => id.toLowerCase().includes(modelForm.modelId.toLowerCase())).slice(0, 20).map((id) => (
+                            <li key={id}>
+                              <button type="button" onClick={() => { setModelForm({ ...modelForm, modelId: id }); setModelMenuOpen(false); }} className="w-full rounded-md px-2 py-1 text-left text-[13px] hover:bg-hover">
+                                {id}
+                              </button>
+                            </li>
+                          ))}
                         </ul>
                       </div>
                     )}
@@ -951,45 +958,29 @@ export default function LlmSettingsSection({
                 </label>
               </div>
               {addingCli === "opencode" ? (
-                <p className={HINT}>
-                  {options.length > 0
-                    ? `${options.length} models the worker's OpenCode CLI can run, or type a provider/model id.`
-                    : "The worker has not listed OpenCode models yet. Type a provider/model id, or press Check again."}
-                </p>
+                <p className={HINT}>{options.length > 0 ? `${options.length} models the worker's OpenCode CLI can run, or type a provider/model id.` : "The worker has not listed OpenCode models yet. Type a provider/model id, or press Check again."}</p>
+              ) : addingCli === "codex" ? (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <p className={HINT}>{(codexCatalog?.models.length ?? 0) > 0 ? `${codexCatalog!.models.length} models available to the worker's signed-in Codex account, or type any model id.` : "Showing suggestions until the worker reports models available to its signed-in Codex account."}</p>
+                  <button type="button" onClick={() => void refreshCodexCatalog()} disabled={codexRefreshBusy} className={GHOST}>
+                    {codexRefreshBusy ? "Refreshing…" : "Refresh list"}
+                  </button>
+                  {codexCatalog?.pendingRefresh && <span className={HINT}>Waiting for worker…</span>}
+                </div>
               ) : addingCli ? (
-                <p className={HINT}>
-                  Suggested {TASK_CLI_LABEL[addingCli]} model ids, or type any id this CLI accepts (a custom proxy may serve arbitrary ids).
-                </p>
+                <p className={HINT}>Suggested {TASK_CLI_LABEL[addingCli]} model ids, or type any id this CLI accepts.</p>
               ) : (
                 options.length > 0 && <p className={HINT}>{options.length} models available from this provider.</p>
               )}
               <details>
                 <summary className="cursor-pointer text-[12.5px] text-ink-3 hover:text-ink">Advanced</summary>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <label className={LABEL}>
-                    Display name
-                    <input value={modelForm.displayName} onChange={(e) => setModelForm({ ...modelForm, displayName: e.target.value })} className={FIELD} />
-                  </label>
-                  <label className={LABEL}>
-                    Context window (tokens)
-                    <input type="number" min="0" value={modelForm.contextWindow} onChange={(e) => setModelForm({ ...modelForm, contextWindow: e.target.value })} className={FIELD} />
-                  </label>
-                  <label className={LABEL}>
-                    Input price / 1k tokens
-                    <input type="number" min="0" step="any" value={modelForm.inputPricePer1k} onChange={(e) => setModelForm({ ...modelForm, inputPricePer1k: e.target.value })} className={FIELD} />
-                  </label>
-                  <label className={LABEL}>
-                    Output price / 1k tokens
-                    <input type="number" min="0" step="any" value={modelForm.outputPricePer1k} onChange={(e) => setModelForm({ ...modelForm, outputPricePer1k: e.target.value })} className={FIELD} />
-                  </label>
-                  <label className="flex items-center gap-2 text-[13px] text-ink-2">
-                    <input type="checkbox" checked={modelForm.supportsTools} onChange={(e) => setModelForm({ ...modelForm, supportsTools: e.target.checked })} />
-                    Supports tools
-                  </label>
-                  <label className="flex items-center gap-2 text-[13px] text-ink-2">
-                    <input type="checkbox" checked={modelForm.supportsReasoning} onChange={(e) => setModelForm({ ...modelForm, supportsReasoning: e.target.checked })} />
-                    Supports reasoning
-                  </label>
+                  <label className={LABEL}>Display name<input value={modelForm.displayName} onChange={(e) => setModelForm({ ...modelForm, displayName: e.target.value })} className={FIELD} /></label>
+                  <label className={LABEL}>Context window (tokens)<input type="number" min="0" value={modelForm.contextWindow} onChange={(e) => setModelForm({ ...modelForm, contextWindow: e.target.value })} className={FIELD} /></label>
+                  <label className={LABEL}>Input price / 1k tokens<input type="number" min="0" step="any" value={modelForm.inputPricePer1k} onChange={(e) => setModelForm({ ...modelForm, inputPricePer1k: e.target.value })} className={FIELD} /></label>
+                  <label className={LABEL}>Output price / 1k tokens<input type="number" min="0" step="any" value={modelForm.outputPricePer1k} onChange={(e) => setModelForm({ ...modelForm, outputPricePer1k: e.target.value })} className={FIELD} /></label>
+                  <label className="flex items-center gap-2 text-[13px] text-ink-2"><input type="checkbox" checked={modelForm.supportsTools} onChange={(e) => setModelForm({ ...modelForm, supportsTools: e.target.checked })} />Supports tools</label>
+                  <label className="flex items-center gap-2 text-[13px] text-ink-2"><input type="checkbox" checked={modelForm.supportsReasoning} onChange={(e) => setModelForm({ ...modelForm, supportsReasoning: e.target.checked })} />Supports reasoning</label>
                 </div>
               </details>
               {modelOptionsError && <p role="alert" className={ERROR_TEXT}>{modelOptionsError}</p>}
@@ -1001,82 +992,58 @@ export default function LlmSettingsSection({
           )}
 
           {models !== undefined && orderedModels.length === 0 && !modelFormOpen && (
-            <p className={HINT}>
-              {(sortedProviders?.length ?? 0) > 0 ? "No models in the list yet. Add one." : "Add a provider first."}
-            </p>
+            <p className={HINT}>{(sortedProviders?.length ?? 0) > 0 ? "No models in the list yet. Add one." : "Add a connection first."}</p>
           )}
           {orderedModels.length > 0 && (
-            <ol className="divide-y divide-line border-y border-line">
+            <ol className="grid gap-1">
               {orderedModels.map((m, index) => {
                 const owner = providerById.get(m.providerId);
                 const isOpencode = isOpencodeConnection(owner);
                 const ownerCli = nativeCliOf(owner);
-                // Plan 038: an OpenCode entry the worker would skip right now.
                 const unavailable = isOpencode && m.isAvailable ? opencodeOff : null;
                 const off = !m.isAvailable || owner?.isEnabled === false || unavailable !== null;
                 const test = isOpencode
                   ? opencodeTestKey === `m:${m._id}`
-                    ? opencode?.pendingTest
-                      ? "running"
-                      : opencodeTest
-                        ? {
-                            ok: opencodeTest.ok,
-                            connection: "OpenCode",
-                            model: opencodeTest.model ?? m.modelId,
-                            latencyMs: opencodeTest.latencyMs,
-                            detail: opencodeTest.error ?? "OK",
-                          }
-                        : undefined
+                    ? opencode?.pendingTest ? "running" : opencodeTest ? { ok: opencodeTest.ok, connection: "OpenCode", model: opencodeTest.model ?? m.modelId, latencyMs: opencodeTest.latencyMs, detail: opencodeTest.error ?? "OK" } : undefined
                     : undefined
                   : tests[`m:${m._id}`];
                 return (
-                  <li key={m._id} className="grid gap-1 py-1.5">
-                    <div className="flex items-center gap-2">
+                  <li key={m._id} className="grid gap-1 rounded-lg border border-line px-3 py-2">
+                    <div className="flex min-w-0 items-center gap-2">
                       <span className="w-4 shrink-0 text-right text-[12px] tabular-nums text-ink-3">{index + 1}</span>
                       <div className="min-w-0 flex-1">
-                        <p className={`truncate text-[13.5px] ${off ? "text-ink-3" : "text-ink"}`}>
-                          {m.displayName || m.modelId}
-                        </p>
+                        <p className={`truncate text-[13.5px] ${off ? "text-ink-3" : "text-ink"}`}>{m.displayName || m.modelId}</p>
                         <p className="truncate text-[12px] text-ink-3">
-                          {ownerCli ? `${TASK_CLI_LABEL[ownerCli]} · tasks only` : owner?.name ?? "Unknown provider"}
+                          {ownerCli ? `${TASK_CLI_LABEL[ownerCli]}` : owner?.name ?? "Unknown provider"}
                           {m.displayName ? ` · ${m.modelId}` : ""}
-                          {!m.isAvailable
-                            ? " · disabled"
-                            : unavailable
-                              ? ` · unavailable (${unavailable})`
-                              : owner?.isEnabled === false
-                                ? " · provider disabled"
-                                : ""}
+                          {!m.isAvailable ? " · disabled" : unavailable ? ` · unavailable (${unavailable})` : owner?.isEnabled === false ? " · provider off" : ""}
                         </p>
                       </div>
-                      <button type="button" onClick={() => void move(index, -1)} disabled={index === 0} className={ICON} aria-label={`Move ${m.modelId} up`}>
-                        <ArrowUp size={14} />
-                      </button>
-                      <button type="button" onClick={() => void move(index, 1)} disabled={index === orderedModels.length - 1} className={ICON} aria-label={`Move ${m.modelId} down`}>
-                        <ArrowDown size={14} />
-                      </button>
-                      <RowMenu
-                        label={`${m.modelId} actions`}
-                        items={[
-                          {
-                            label: test === "running" ? "Testing…" : "Test",
-                            onClick: () => void runTest(`m:${m._id}`, m.providerId, m._id),
-                          },
-                          { label: m.isAvailable ? "Disable" : "Enable", onClick: () => void toggleModel(m) },
-                          { label: "Remove", onClick: () => askRemoveModel(m), danger: true },
-                        ]}
-                      />
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        <button type="button" onClick={() => void move(index, -1)} disabled={index === 0} className={ICON} aria-label={`Move ${m.modelId} up`}><ArrowUp size={14} /></button>
+                        <button type="button" onClick={() => void move(index, 1)} disabled={index === orderedModels.length - 1} className={ICON} aria-label={`Move ${m.modelId} down`}><ArrowDown size={14} /></button>
+                        <RowMenu
+                          label={`${m.modelId} actions`}
+                          items={[
+                            { label: test === "running" ? "Testing…" : "Test", onClick: () => void runTest(`m:${m._id}`, m.providerId, m._id) },
+                            { label: m.isAvailable ? "Disable" : "Enable", onClick: () => void toggleModel(m) },
+                            { label: "Remove", onClick: () => askRemoveModel(m), danger: true },
+                          ]}
+                        />
+                      </div>
                     </div>
-                    {test && test !== "running" && (
-                      <p className={`pl-6 ${test.ok ? HINT : ERROR_TEXT}`}>{testLine(test)}</p>
-                    )}
+                    {test && test !== "running" && <p className={`pl-6 ${test.ok ? HINT : ERROR_TEXT}`}>{testLine(test)}</p>}
                   </li>
                 );
               })}
             </ol>
           )}
-        </section>
-        <RoleOverrideKnob />
+        </SectionCard>
+
+        <details className="rounded-xl border border-line bg-panel px-4 py-3">
+          <summary className="cursor-pointer text-[13px] font-medium text-ink-2">Advanced · model per role</summary>
+          <div className="pt-3"><RoleOverrideKnob /></div>
+        </details>
       </div>
     </>
   );

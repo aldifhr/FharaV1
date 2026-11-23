@@ -31,7 +31,7 @@ export const GENERIC_AGENT_PROMPT =
  *
  * Keyed by any role key, including retired ones: old stored agents still
  * carry these prompts and must be recognized by prompt migration helpers.
- * Entries for retired roles (support, devops, reviewer, researcher) are
+ * Entries for retired roles (support, reviewer, researcher) are
  * kept here so `isUneditedSeed` can still recognize old stored prompts —
  * the role is gone but the migration text must stay.
  */

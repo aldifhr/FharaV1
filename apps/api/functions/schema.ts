@@ -324,6 +324,13 @@ export default defineSchema({
     roleMemoryDisabled: v.optional(v.boolean()),
     // GOAT G9 / T6: setup + host check scripts, exact argv (lib/projectScriptsSchema.ts).
     scripts: v.optional(projectScriptsValidator),
+    worktreeQueueHold: v.optional(
+      v.object({
+        reason: v.string(),
+        heldAt: v.number(),
+        taskId: v.optional(v.id("tasks")),
+      })
+    ),
     // O4 issue intake (additive): the connected user's issues with this label become DRAFT tasks.
     issueIntake: v.optional(v.object({ enabled: v.boolean(), label: v.optional(v.string()) })),
     // Plan 061 (additive): a work-shaped chat message creates its task in the
@@ -433,6 +440,7 @@ export default defineSchema({
     replanCount: v.optional(v.number()),
     startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
+    queueHeld: v.optional(v.boolean()),
     errorMessage: v.optional(v.string()),
     updatedAt: v.optional(v.number()),
     branchName: v.optional(v.string()),
@@ -703,6 +711,9 @@ export default defineSchema({
     agentId: v.optional(v.id("agents")),
     authorType: v.union(v.literal("user"), v.literal("agent")),
     content: v.string(),
+    /** Model that actually served this reply (rotation may pick a different one each turn). */
+    model: v.optional(v.string()),
+    modelProvider: v.optional(v.string()),
     subtaskKey: v.optional(v.string()),
     executionId: v.optional(v.id("executions")),
     replyToMessageId: v.optional(v.id("messages")),
@@ -1198,14 +1209,16 @@ export default defineSchema({
   // validate; new writes store the key ONLY as `apiKeyCiphertext`
   // (AES-256-GCM, see lib/llmCrypto.ts) and the migration moves `model` into
   // llmModels. Dropping both legacy columns is a separate deploy step that
-  // happens after the migration is verified.
+  // happens after the migration is verified. `apiKeyEnv` is likewise legacy:
+  // new writes never set it and no code reads it (plan 072); it stays optional
+  // so existing rows keep validating until that separate deploy step.
   llmProviders: defineTable({
     projectId: v.optional(v.string()),
     name: v.string(),
     provider: v.string(),
     model: v.string(),
     baseUrl: v.string(),
-    apiKeyEnv: v.string(),
+    apiKeyEnv: v.optional(v.string()),
     apiKey: v.optional(v.string()),
     apiKeyCiphertext: v.optional(v.string()),
     priority: v.number(),
@@ -2183,6 +2196,20 @@ export default defineSchema({
         at: v.number(),
       })
     ),
+  })
+    .index("by_worker_id", ["workerId"])
+    .index("by_updated_at", ["updatedAt"]),
+
+  // Plan 075: model ids available to the worker's authenticated Codex CLI.
+  // Credentials remain local; only ids and refresh state cross this boundary.
+  codexModelCatalog: defineTable({
+    workerId: v.string(),
+    hostname: v.optional(v.string()),
+    models: v.array(v.string()),
+    available: v.boolean(),
+    error: v.optional(v.string()),
+    updatedAt: v.number(),
+    refreshRequestedAt: v.optional(v.number()),
   })
     .index("by_worker_id", ["workerId"])
     .index("by_updated_at", ["updatedAt"]),

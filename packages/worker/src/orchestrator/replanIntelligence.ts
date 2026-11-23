@@ -138,7 +138,7 @@ export function strategyFingerprint(subtask: Partial<PlanSubtask>): string {
  * Preservation Guard: every frozen node that the new plan still names is
  * restored to its old definition verbatim (title, description, contract,
  * dependencies), so it carries forward and is never re-run. Returns the
- * keys whose definition the planner had changed (restored).
+ * keys whose definitions were changed or omitted by the planner (restored).
  */
 export function preserveFrozen(
   previous: ExecutionPlan,
@@ -156,7 +156,22 @@ export function preserveFrozen(
     // Keep the new plan's order slot; everything else is the original.
     return { ...original, order: subtask.order };
   });
-  return { plan: { ...next, subtasks }, restored };
+
+  const nextKeys = new Set(subtasks.map((subtask) => subtask.key));
+  for (const original of previous.subtasks) {
+    if (!frozen.has(original.key) || nextKeys.has(original.key)) continue;
+
+    // Reinsert completed work at its old order position. The quality check
+    // should validate the repaired plan, not reject it and spend a planner retry.
+    const index = subtasks.findIndex((subtask) => subtask.order >= original.order);
+    if (index < 0) subtasks.push(original);
+    else subtasks.splice(index, 0, original);
+    nextKeys.add(original.key);
+    restored.push(original.key);
+  }
+
+  const orderedSubtasks = subtasks.map((subtask, order) => ({ ...subtask, order }));
+  return { plan: { ...next, subtasks: orderedSubtasks }, restored };
 }
 
 export type ReplanViolationCode =

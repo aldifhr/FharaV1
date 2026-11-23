@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useFharaRuntime, useMutation, useQuery } from "@fhara/runtime/react";
-import { ReviewerSection, SecondOpinionButton } from "@/components/review/Reviewer";
 import { motion } from "framer-motion";
 import { api } from "@fhara/runtime/api";
 import MessageText from "./chat/MessageText";
-import { agentName, roleLabel } from "@/lib/agentRoles";
-import { subtaskStatusMeta } from "@/lib/taskStatus";
+import { roleLabel } from "@/lib/agentRoles";
 import { failureKindLabel, latestFailureKind } from "@/lib/failureKind";
 import ApprovalCard from "./ApprovalCard";
 import ChangesPane, { useThreadView } from "./changes/ChangesPane";
@@ -13,8 +11,6 @@ import TaskThreadHeader from "./TaskThreadHeader";
 import { InspectorSurface, InspectorTabs } from "./ui/inspector";
 import { StatusTag } from "./ui/status-tag";
 import InitialAvatar from "./InitialAvatar";
-import SubtaskActivity from "./SubtaskActivity";
-import SubtaskLiveOutput from "./SubtaskLiveOutput";
 import ChatCard from "./chat/cards/ChatCard";
 import ReviewSnippet from "./chat/cards/ReviewSnippet";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
@@ -23,7 +19,6 @@ import TaskQuestionCard from "./TaskQuestionCard";
 import SystemLineRow from "./chat/SystemLineRow";
 import CtoTurnLine from "./chat/CtoTurnLine";
 import { canReplyTo, systemLineText, threadBlockOf } from "@/lib/systemLine";
-import Requirements from "./runs/Requirements";
 import { useToast } from "./Toasts";
 import { useSequencedEvents } from "@/lib/useSequencedEvents";
 import { Skeleton } from "@/app/WorkspaceContext";
@@ -43,6 +38,7 @@ export default function TaskThreadPanel({
   taskId,
   collapsed,
   panelWidth,
+  panelMaxWidth,
   fullScreen = false,
   onPanelWidthChange,
   onToggle,
@@ -51,6 +47,7 @@ export default function TaskThreadPanel({
   taskId: string | null;
   collapsed: boolean;
   panelWidth: number;
+  panelMaxWidth: number;
   /** Phone layout: the thread fills the screen as a sheet. */
   fullScreen?: boolean;
   onPanelWidthChange: (width: number) => void;
@@ -133,6 +130,7 @@ export default function TaskThreadPanel({
   const [sendingReply, setSendingReply] = useState(false);
   const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({});
+  const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [threadView, setThreadView] = useThreadView(taskId);
   const replyRef = useRef<HTMLTextAreaElement>(null);
@@ -179,6 +177,7 @@ export default function TaskThreadPanel({
       projectName={(project as any)?.name}
       fullScreen={fullScreen}
       width={panelWidth}
+      maxWidth={panelMaxWidth}
       onWidthChange={onPanelWidthChange}
       onClose={onClose}
       {...extra}
@@ -188,7 +187,7 @@ export default function TaskThreadPanel({
   // Loading / deleted states (previously both read "Queued" forever).
   if (task === undefined || task === null) {
     return (
-      <InspectorSurface variant={surface} width={panelWidth} onWidthChange={onPanelWidthChange} resizeLabel="Resize task thread">
+      <InspectorSurface variant={surface} width={panelWidth} maxWidth={panelMaxWidth} onWidthChange={onPanelWidthChange} resizeLabel="Resize task thread">
         {header()}
         {task === undefined ? (
           <div className="space-y-3 p-4" role="status" aria-label="Loading task">
@@ -205,7 +204,7 @@ export default function TaskThreadPanel({
 
   if (isLegacyDirect) {
     return (
-      <InspectorSurface variant={surface} width={panelWidth} onWidthChange={onPanelWidthChange} resizeLabel="Resize task thread">
+      <InspectorSurface variant={surface} width={panelWidth} maxWidth={panelMaxWidth} onWidthChange={onPanelWidthChange} resizeLabel="Resize task thread">
         {header()}
         <p className="p-5 text-[14px] text-ink-2">This was a direct thread. Direct threads were removed, so it is read-only.</p>
       </InspectorSurface>
@@ -217,7 +216,6 @@ export default function TaskThreadPanel({
   const checks = (agentEvents ?? []).filter((e: any) => e.type === "tool.completed");
   const taskStatus = (task as any).status as string;
   const busy = sendingReply || steering;
-  const subtasks: any[] = [...((execution as any)?.subtasks ?? [])].sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
 
   // Every reply lands in the thread (so the user sees it went through); a
   // running task is also steered, a waiting one is answered. "Also send to
@@ -343,6 +341,10 @@ export default function TaskThreadPanel({
       (m.authorType === "user" && m._id !== commandMessageId),
   );
   const replyCount = threadReplies.filter((m: any) => systemLineText(m) === null).length;
+  const lastQaReplyIndex = threadReplies.reduce((last: number, message: any, index: number) => {
+    const agent = message.authorType === "agent" ? agentById(message.agentId) : null;
+    return String(agent?.role ?? "").toLowerCase() === "qa" ? index : last;
+  }, -1);
   // Compact activity log: consecutive activity cards from one agent
   // collapse into one summary row (lib/activityGroups).
   const replyGroups = groupByIndex(
@@ -378,12 +380,36 @@ export default function TaskThreadPanel({
       </button>
     ) : null;
   const rowClass = (m: any) =>
-    `group relative flex gap-3 rounded-xl transition-colors duration-700 ${flashId === String(m._id) ? "bg-hover" : ""}`;
+    `group relative flex gap-2 rounded-xl transition-colors duration-700 ${flashId === String(m._id) ? "bg-hover" : ""}`;
   const quoteFor = (m: any) => {
     if (!m.quotedMessageId) return null;
     const quoted = (messages ?? []).find((q: any) => q._id === m.quotedMessageId);
     return <QuotedSnippet quote={quoted ? quoteOf(quoted, agents as any) : null} onJump={jumpTo} />;
   };
+
+  const checksList = checks.length > 0 ? (
+    <ul className="mt-2.5 space-y-2">
+      {Array.from(new Map(checks.map((event: any) => [event.payload?.label, event])).values()).map((event: any) => {
+        const passed = event.payload?.status === "passed" || event.payload?.status === "clean";
+        const failed = event.payload?.status === "failed";
+        return (
+          <li key={event._id} className="flex items-center gap-2.5 text-[14px]">
+            {passed ? (
+              <Check size={15} className="shrink-0 text-ok" aria-hidden="true" />
+            ) : failed ? (
+              <X size={15} className="shrink-0 text-danger" aria-hidden="true" />
+            ) : (
+              <SendLoader size={15} className="shrink-0 animate-spin text-warn" aria-hidden="true" />
+            )}
+            <span className="min-w-0 flex-1 truncate text-ink">{event.payload?.label ?? "QA check"}</span>
+            <span className="shrink-0 text-[13px] text-ink-3">
+              {passed ? "clean" : failed ? "failed" : event.payload?.status === "blocked" ? "blocked" : "running"}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  ) : null;
 
   const nameRow = (role: string | undefined, at: number, tag?: string) => (
     <p className="flex items-center gap-2 text-[15px] font-semibold text-ink">
@@ -394,7 +420,7 @@ export default function TaskThreadPanel({
   );
 
   return (
-    <InspectorSurface variant={surface} width={panelWidth} onWidthChange={onPanelWidthChange} resizeLabel="Resize task thread">
+    <InspectorSurface variant={surface} width={panelWidth} maxWidth={panelMaxWidth} onWidthChange={onPanelWidthChange} resizeLabel="Resize task thread">
       <ConfirmDialog request={confirmReq} onCancel={() => setConfirmReq(null)} onConfirm={() => confirmReq?.onOk()} />
       <motion.div
         initial={{ opacity: 0 }}
@@ -414,7 +440,7 @@ export default function TaskThreadPanel({
           ]}
         />
         {threadView === "changes" && <ChangesPane taskId={(task as any)._id} />}
-        <div className={`${threadView === "changes" ? "hidden" : ""} shell-scroll h-0 min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-5 py-5`}>
+        <div className={`${threadView === "changes" ? "hidden" : ""} shell-scroll h-0 min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-5`}>
           {(taskStatus === "failed" || taskStatus === "rejected" || taskStatus === "cancelled") && (
             <div
               className={
@@ -452,74 +478,40 @@ export default function TaskThreadPanel({
           ))}
           <TaskQuestionCard task={task as any} busy={sendingReply} onAnswer={(answer) => void submitAnswer(answer)} onCancel={askCancel} />
           <CtoTurnLine taskId={(task as any)._id} />
-          {subtasks.length > 0 && (
-            <section aria-label="Subtasks">
-              <div className="flex items-center gap-3 text-[13px] text-ink-3">
-                <span>Subtasks {subtasks.filter((s) => s.status === "completed").length}/{subtasks.length}</span>
-                <span className="h-px flex-1 bg-line" />
-              </div>
-              <ul className="mt-2.5 space-y-2">
-                {subtasks.map((s: any) => {
-                  const meta = subtaskStatusMeta(s.status);
-                  const Icon = meta.icon;
-                  const agent = agentById(s.assignedAgentId);
-                  return (
-                    <li key={s._id} className="text-[14px]">
-                      <div className="flex items-center gap-2.5">
-                        <Icon size={15} className={`shrink-0 ${meta.cls}${s.status === "running" ? " animate-spin" : ""}`} aria-hidden="true" />
-                        <span className="min-w-0 flex-1 truncate text-ink">
-                          {s.title}
-                          {typeof s.reviewRound === "number" && s.reviewRound > 1 ? <span className="ml-1 text-ink-3">(round {s.reviewRound})</span> : null}
-                        </span>
-                        {agent && <span className="shrink-0 text-[13px] text-ink-3">{agentName(agent)}</span>}
-                        <span className={`w-16 shrink-0 text-right text-[13px] ${meta.cls}`}>{meta.label}</span>
-                      </div>
-                      {taskId && (s.status === "completed" || s.status === "failed" || s.status === "blocked") && (
-                        <div className="mt-0.5 pl-[25px]">
-                          <SecondOpinionButton taskId={taskId} subtaskKey={s.key} />
-                        </div>
-                      )}
-                      {s.status === "running" && s.activity && (
-                        <SubtaskActivity activity={s.activity} at={s.activityAt} />
-                      )}
-                      {s.status === "running" && taskId && <SubtaskLiveOutput taskId={taskId} subtaskKey={s.key} />}
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          )}
-          {taskId && subtasks.length > 0 && (
-            <ReviewerSection
-              taskId={taskId}
-              subtaskTitles={Object.fromEntries(subtasks.map((s: any) => [s.key, s.title]))}
-              heading={(aside) => (
-                <div className="flex items-center gap-3 text-[13px] text-ink-3">
-                  <span>Reviewer</span>
-                  <span className="h-px flex-1 bg-line" />
-                  {aside}
-                </div>
-              )}
-            />
-          )}
-          {taskId && subtasks.length > 0 && <Requirements taskId={taskId} variant="thread" />}
-          {ctoMessages.length === 0 && fileChanges && fileChanges.length > 0 && (
-            <button type="button" onClick={() => setThreadView("changes")} className="text-[13px] text-ink-3 underline-offset-2 hover:text-ink hover:underline">
-              {fileChanges.length} file{fileChanges.length > 1 ? "s" : ""} changed · Open changes
-            </button>
-          )}
           {ctoMessages.map((m: any, index: number) => {
             const msgAgent = agentById(m.agentId);
             const isLastCto = index === ctoMessages.length - 1;
             const block = blockOf(m);
             const isReview = block !== "decision" && !m.card;
+            const messageId = String(m._id);
+            const isLongMessage = (m.content?.trim().length ?? 0) > 320;
+            const isExpanded = expandedMessageId === messageId;
             return (
               <div key={m._id} id={`thread-message-${m._id}`} className={rowClass(m)}>
                 {replyButton(m)}
                 <InitialAvatar agent avatarParams={msgAgent?.avatarParams} name={roleLabel(msgAgent?.role)} size={30} />
                 <div className="min-w-0 flex-1">
                   {nameRow(msgAgent?.role ?? (block === "report" ? responseOwner : undefined), m._creationTime, m.card ? undefined : block ?? undefined)}
-                  {m.content?.trim() ? <MessageText content={m.content} size="sm" /> : null}
+                  {m.content?.trim() ? (
+                    <>
+                      <div className={`relative ${isLongMessage && !isExpanded ? "max-h-36 overflow-hidden" : ""}`}>
+                        <MessageText content={m.content} size="sm" />
+                        {isLongMessage && !isExpanded && (
+                          <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-canvas to-transparent" />
+                        )}
+                      </div>
+                      {isLongMessage && (
+                        <button
+                          type="button"
+                          onClick={() => setExpandedMessageId(isExpanded ? null : messageId)}
+                          aria-expanded={isExpanded}
+                          className="mt-1 text-[12px] font-medium text-ink-3 underline-offset-2 hover:text-ink hover:underline"
+                        >
+                          {isExpanded ? "Show less" : "Show more"}
+                        </button>
+                      )}
+                    </>
+                  ) : null}
                   {m.card && (
                     <div className="mt-2.5">
                       <ChatCard card={m.card} />
@@ -583,39 +575,19 @@ export default function TaskThreadPanel({
                       <ChatCard card={m.card} />
                     </div>
                   )}
+                  {index === lastQaReplyIndex && checksList}
                 </div>
               </div>
             );
             return summaryRow ? [summaryRow, row] : row;
           })}
-          {checks.length > 0 && (
+          {checks.length > 0 && lastQaReplyIndex < 0 && (
             <section>
               <div className="flex items-center gap-3 text-[13px] text-ink-3">
                 <span>Checks</span>
                 <span className="h-px flex-1 bg-line" />
               </div>
-              <ul className="mt-2.5 space-y-2">
-                {Array.from(new Map(checks.map((event: any) => [event.payload?.label, event])).values()).map((event: any) => {
-                  const passed = event.payload?.status === "passed" || event.payload?.status === "clean";
-                  const failed = event.payload?.status === "failed";
-                  return (
-                    <li key={event._id} className="flex items-center gap-2.5 text-[14px]">
-                      {passed ? (
-                        <Check size={15} className="shrink-0 text-ok" aria-hidden="true" />
-                      ) : failed ? (
-                        <X size={15} className="shrink-0 text-danger" aria-hidden="true" />
-                      ) : (
-                        <SendLoader size={15} className="shrink-0 animate-spin text-warn" aria-hidden="true" />
-                      )}
-                      <span className="min-w-0 flex-1 truncate text-ink">{event.payload?.label ?? "QA check"}</span>
-                      {/* Plan 067: a readable word, never the raw status token. */}
-                      <span className="shrink-0 text-[13px] text-ink-3">
-                        {passed ? "clean" : failed ? "failed" : event.payload?.status === "blocked" ? "blocked" : "running"}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
+              {checksList}
             </section>
           )}
         </div>

@@ -40,7 +40,8 @@ function encode(value: unknown, kind: StorageKind): SqlValue {
   if (value === undefined || value === null) return null;
   if (kind === "json") return JSON.stringify(value);
   if (kind === "number") return Number(value);
-  if (kind === "integer") return typeof value === "boolean" ? (value ? 1 : 0) : Number(value);
+  if (kind === "boolean") return value ? 1 : 0;
+  if (kind === "integer") return Number(value);
   return String(value);
 }
 
@@ -53,7 +54,8 @@ function decode(raw: unknown, kind: StorageKind): unknown {
       return undefined;
     }
   }
-  if (kind === "integer") return raw === 1 || raw === "true" ? true : Number(raw);
+  if (kind === "boolean") return raw === 1 || raw === true || raw === "true";
+  if (kind === "integer") return Number(raw);
   if (kind === "number") return Number(raw);
   return String(raw);
 }
@@ -116,6 +118,33 @@ export class LocalDatabase {
             this.depth--;
           }
         });
+      } catch (error) {
+        if (isBusy(error) && attempt < 5) {
+          sleep(20 * (attempt + 1));
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error("SQLite transaction could not be started");
+  }
+
+  async transactionAsync<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.depth > 0) return fn();
+    for (let attempt = 0; attempt < 6; attempt++) {
+      try {
+        this.sqlite.exec("BEGIN IMMEDIATE");
+        this.depth++;
+        try {
+          const result = await fn();
+          this.sqlite.exec("COMMIT");
+          return result;
+        } catch (error) {
+          this.sqlite.exec("ROLLBACK");
+          throw error;
+        } finally {
+          this.depth--;
+        }
       } catch (error) {
         if (isBusy(error) && attempt < 5) {
           sleep(20 * (attempt + 1));
@@ -295,11 +324,27 @@ export function openLocalDatabase(filePath = defaultDbPath()): LocalDatabase {
     const meta = tableMeta(table);
     const columns = ['"id" TEXT PRIMARY KEY', '"_creationTime" INTEGER NOT NULL'];
     for (const field of meta.fields) {
-      const type = field.kind === "number" ? "REAL" : field.kind === "integer" ? "INTEGER" : "TEXT";
+      const type = field.kind === "number" ? "REAL" : field.kind === "integer" || field.kind === "boolean" ? "INTEGER" : "TEXT";
       columns.push(`${quoteIdentifier(field.name)} ${type}`);
     }
     columns.push('"extra" TEXT');
     orm.run(sql.raw(`CREATE TABLE IF NOT EXISTS ${quoteIdentifier(table)} (${columns.join(", ")})`));
+
+    // Additive schema changes: an existing table keeps its rows but needs the
+    // new columns. `CREATE TABLE IF NOT EXISTS` is a no-op there, so add any
+    // declared field (and the `extra` JSON column) that is not present yet.
+    const info = sqlite.prepare(`PRAGMA table_info(${quoteIdentifier(table)})`).all() as Array<{ name: string }>;
+    const present = new Set(info.map((column) => column.name));
+    const desired = new Map<string, string>([["extra", "TEXT"]]);
+    for (const field of meta.fields) {
+      const type = field.kind === "number" ? "REAL" : field.kind === "integer" || field.kind === "boolean" ? "INTEGER" : "TEXT";
+      desired.set(field.name, type);
+    }
+    for (const [name, type] of desired) {
+      if (!present.has(name)) {
+        sqlite.exec(`ALTER TABLE ${quoteIdentifier(table)} ADD COLUMN ${quoteIdentifier(name)} ${type}`);
+      }
+    }
 
     for (const index of meta.indexes) {
       const fields = index.fields.map(columnFor).map(quoteIdentifier).join(", ");

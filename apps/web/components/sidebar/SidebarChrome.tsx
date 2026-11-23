@@ -44,7 +44,7 @@ export function Logo({ onNavigate }: { onNavigate?: () => void }) {
       href="/"
       onClick={onNavigate}
       aria-label="Fhara home"
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-field bg-ink text-canvas outline-none focus-visible:ring-2 focus-visible:ring-ink/30 focus-visible:ring-offset-2 focus-visible:ring-offset-panel"
+      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand text-white outline-none focus-visible:ring-2 focus-visible:ring-brand/40 focus-visible:ring-offset-2 focus-visible:ring-offset-panel"
     >
       <Share2 size={15} strokeWidth={2} />
     </Link>
@@ -83,19 +83,37 @@ export function SidebarHeader({
 }
 
 /** The search box: opens the command menu, with its chord as the hint. */
-export function SearchBox({ chord, onOpen, rail = false }: { chord: string; onOpen: () => void; rail?: boolean }) {
-  if (rail) return <RailItem icon={Search} label={`Search (${chord})`} onClick={onOpen} />;
+export function SearchBox({ chord, onOpen, rail = false, collapsed = false, onToggleCollapsed }: { chord: string; onOpen: () => void; rail?: boolean; collapsed?: boolean; onToggleCollapsed?: () => void }) {
+  if (rail) return (
+    <div className="flex flex-col items-center gap-1">
+      <RailItem icon={Search} label={`Search (${chord})`} onClick={onOpen} />
+      {collapsed && onToggleCollapsed && <RailItem icon={PanelLeftOpen} label="Expand sidebar" onClick={onToggleCollapsed} />}
+    </div>
+  );
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      aria-label={`Search projects, tasks and agents (${chord})`}
-      className="flex h-9 w-full items-center gap-2 rounded-field border border-line bg-inset px-2.5 text-left text-[14px] text-ink-3 outline-none transition hover:border-line-strong hover:text-ink-2 focus-visible:ring-2 focus-visible:ring-ink/30"
-    >
-      <Search size={15} strokeWidth={ICON_STROKE} aria-hidden="true" />
-      <span className="min-w-0 flex-1 truncate">Search</span>
-      <kbd className="rounded border border-line bg-panel px-1.5 py-px font-sans text-[10.5px] text-ink-3">{chord}</kbd>
-    </button>
+    <div className="flex h-9 w-full items-center rounded-field border border-line bg-inset text-ink-3 transition hover:border-line-strong hover:text-ink-2">
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`Search projects, tasks and agents (${chord})`}
+        className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-l-field px-2.5 text-left text-[14px] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink/30"
+      >
+        <Search size={15} strokeWidth={ICON_STROKE} aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate">Search</span>
+        <kbd className="rounded border border-line bg-panel px-1.5 py-px font-sans text-[10.5px] text-ink-3">{chord}</kbd>
+      </button>
+      {onToggleCollapsed && (
+        <button
+          type="button"
+          onClick={onToggleCollapsed}
+          aria-label="Collapse sidebar"
+          title="Collapse sidebar"
+          className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-field text-ink-3 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
+        >
+          <PanelLeftClose size={16} strokeWidth={ICON_STROKE} />
+        </button>
+      )}
+    </div>
   );
 }
 

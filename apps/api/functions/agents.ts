@@ -178,8 +178,8 @@ export const getRegistryView = query({
  */
 export function defaultSystemPromptForRole(role: string): string {
   // Resolve through the shared role template (keys, titles and legacy
-  // aliases) so a manual role such as Designer gets its own persona even
-  // though it has no fixed-team row.
+  // aliases) so a non-fixed role gets its own persona even though it has no
+  // fixed-team row.
   const template = roleTemplateFor(role);
   if (template) return template;
   const key = normalizeRoleKey(role);

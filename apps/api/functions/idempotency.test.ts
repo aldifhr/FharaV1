@@ -15,8 +15,7 @@ import { CLIENT_ID_MAX, normalizeClientId } from "./messages";
 const llm = { calls: 0 };
 
 vi.mock("./lib/chat/llm", () => ({
-  getGlobalLLMConfig: () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m" }),
-  resolveConfigFromProviders: async (_p: unknown, global: unknown) => global,
+  resolveConfigFromProviders: async () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m", provider: "openai-compatible" }),
   completeWithAgent: async () => {
     llm.calls += 1;
     return { content: "Oke.", reasoning: "", reasoningDurationMs: 0 };
@@ -121,3 +120,4 @@ describe("task event idempotency keys", () => {
     expect(canon.length).toBeLessThanOrEqual(1);
   });
 });
+

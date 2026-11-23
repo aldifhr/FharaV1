@@ -10,18 +10,38 @@ export const TASK_BRANCH_PREFIX = "fhara/";
 export const LEGACY_TASK_BRANCH_PREFIXES: readonly string[] = ["moagent/"];
 export const TASK_BRANCH_PREFIXES: readonly string[] = [TASK_BRANCH_PREFIX, ...LEGACY_TASK_BRANCH_PREFIXES];
 
+/**
+ * Task ids in the local runtime can contain `:` (`tasks:<table>:<uuid>`),
+ * which git refuses in a ref name. Keep the id recognizable but safe.
+ */
+export function taskIdForBranch(taskId: string): string {
+  const safe = taskId.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "task";
+  // Keep the worktree path segment small on Windows (MAX_PATH), counting bytes
+  // so non-ASCII ids cannot silently exceed the limit.
+  const bytes = Buffer.from(safe, "utf8");
+  return bytes.length <= 80 ? safe : bytes.subarray(0, 80).toString("utf8").replace(/-+$/g, "");
+}
+
+/** Git parses a leading dash as an option in `worktree add`/`checkout`. */
+export function refuseOptionLikeRefName(name: string): void {
+  if (name.startsWith("-") && name !== "-") {
+    throw new Error(`Invalid ref name: ${name}`);
+  }
+}
+
 export function makeTaskBranchName(taskId: string, title: string): string {
   const slug = title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 40);
-  return `${TASK_BRANCH_PREFIX}${taskId}/${slug || "task"}`;
+  return `${TASK_BRANCH_PREFIX}${taskIdForBranch(taskId)}/${slug || "task"}`;
 }
 
 /** Every prefix a branch of this task may carry (`fhara/<id>/`, `moagent/<id>/`). */
 export function taskBranchPrefixes(taskId: string): string[] {
-  return TASK_BRANCH_PREFIXES.map((prefix) => `${prefix}${taskId}/`);
+  const id = taskIdForBranch(taskId);
+  return TASK_BRANCH_PREFIXES.map((prefix) => `${prefix}${id}/`);
 }
 
 /** `{ taskId, slug }` for a task branch (current or legacy prefix), else null. */

@@ -69,7 +69,7 @@ describe("secrets parity (E1)", () => {
     expect(missing).toEqual([]);
   });
 
-  it("the 14 schema secrets are the ones the inventory flags", () => {
+  it("the schema secrets are the ones the inventory flags", () => {
     expect([...SCHEMA_SECRET_NAMES].sort()).toEqual(
       [
         "FHARA_SERVICE_TOKEN",
@@ -80,9 +80,7 @@ describe("secrets parity (E1)", () => {
         "GITHUB_CLIENT_SECRET",
         "GITHUB_TOKEN",
         "GITHUB_WEBHOOK_SECRET",
-        "LLM_API_KEY",
         "OAUTH_STATE_SECRET",
-        "OPENAI_API_KEY",
         "PROVIDER_ENCRYPTION_KEY",
         "PROVIDER_ENCRYPTION_KEY_OLD",
         "STAGEHAND_API_KEY",

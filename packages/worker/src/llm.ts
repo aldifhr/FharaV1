@@ -1,4 +1,4 @@
-import { llmFallbackConfig, schemaDefault } from "@fhara/config";
+import { schemaDefault } from "@fhara/config";
 import { wenv } from "@fhara/config/worker";
 import Anthropic from "@anthropic-ai/sdk";
 import type { LLMMessage, LLMResult } from "@/types/llm";
@@ -33,11 +33,6 @@ export interface GlobalLLMConfig {
   model: string;
   baseUrl: string;
   apiKey: string;
-}
-
-export function getGlobalLLMConfig(env?: Record<string, string | undefined>): GlobalLLMConfig {
-  // B5: one fallback for the worker and FharaRuntime (@fhara/config llmFallbackConfig).
-  return llmFallbackConfig(env);
 }
 
 export const DEFAULT_LLM_MAX_TOKENS = schemaDefault("ORCHESTRATOR_LLM_MAX_TOKENS") as number;
@@ -447,11 +442,22 @@ function parseCompletionBody(responseBody: string, where = "the model"): LLMResu
   }
 }
 
-export function createGlobalLLMProvider(config?: GlobalLLMConfig): LLMProvider {
-  const cfg = config ?? getGlobalLLMConfig();
+/** Factory hook for providers that are not HTTP clients (native CLI, plan 074). */
+export type ProviderFactory = (config: GlobalLLMConfig) => LLMProvider;
+
+function isNativeProvider(provider: string): boolean {
+  const name = provider.toLowerCase();
+  return name === "opencode" || name === "codex" || name === "claude-code" || name === "acp";
+}
+
+export function createGlobalLLMProvider(config: GlobalLLMConfig, factory?: ProviderFactory): LLMProvider {
+  const cfg = config;
   const provider = cfg.provider.toLowerCase();
+  if (factory && isNativeProvider(provider)) return factory(cfg);
   const apiKey = cfg.apiKey;
-  if (!apiKey) throw new Error(`API key missing for global LLM provider (${provider}). Set LLM_API_KEY.`);
+  if (!apiKey.trim()) {
+    throw new Error(`No API key is stored for the selected global model (${provider}/${cfg.model}). Add the key in Settings → LLM & Models; no environment credential is used.`);
+  }
 
   // Only Anthropic speaks the Messages API; every other kind ("openai",
   // "openai-compatible", and free-form ones like "openrouter", "groq",
@@ -471,14 +477,17 @@ export function createGlobalLLMProvider(config?: GlobalLLMConfig): LLMProvider {
  * resolver (llm/resolver.ts): it maps the agent's assignment and the pool
  * to a concrete ResolvedLlm. This factory takes that resolution — either
  * the ResolvedLlm itself or its plain GlobalLLMConfig — and constructs the
- * client for it. Called without a resolution it falls back to the
- * worker-env config (no providers configured in Settings).
+ * client for it. A missing resolution fails explicitly: there is no
+ * env-derived configuration to fall back to (plan 072).
  */
 export function createProviderForAgent(
   _agent?: unknown,
-  resolved?: GlobalLLMConfig | { config: GlobalLLMConfig }
+  resolved?: GlobalLLMConfig | { config: GlobalLLMConfig },
+  factory?: ProviderFactory
 ): LLMProvider {
-  const config =
-    resolved && "config" in resolved ? resolved.config : resolved;
-  return createGlobalLLMProvider(config);
+  const config = resolved && "config" in resolved ? resolved.config : resolved;
+  if (!config) {
+    throw new Error("No global LLM model is configured. Add a connection and a model in Settings → LLM & Models.");
+  }
+  return createGlobalLLMProvider(config, factory);
 }

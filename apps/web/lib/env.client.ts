@@ -5,5 +5,6 @@
  */
 export function publicFharaRuntimeUrl(): string | undefined {
   const globalUrl = (globalThis as any).__FHARA_BACKEND_URL__;
-  return typeof globalUrl === "string" && globalUrl ? globalUrl : undefined;
+  if (typeof globalUrl === "string" && globalUrl) return globalUrl;
+  return "http://127.0.0.1:8787";
 }

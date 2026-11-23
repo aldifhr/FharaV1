@@ -119,6 +119,20 @@ export class WorkerApi {
     return await this.client.action(api.worker.getOpencodeModelState, this.args(input));
   }
 
+  /** Plan 075: report the local authenticated Codex CLI model ids. */
+  async reportCodexModels(
+    input: ActionInput<typeof api.worker.reportCodexModels>
+  ): Promise<FunctionReturnType<typeof api.worker.reportCodexModels>> {
+    return await this.client.action(api.worker.reportCodexModels, this.args(input));
+  }
+
+  /** Plan 075: check whether the Codex model catalog needs refreshing. */
+  async getCodexModelState(
+    input: ActionInput<typeof api.worker.getCodexModelState>
+  ): Promise<FunctionReturnType<typeof api.worker.getCodexModelState>> {
+    return await this.client.action(api.worker.getCodexModelState, this.args(input));
+  }
+
   /** Plan 038: store the result of the Settings "Test" probe for OpenCode. */
   async reportOpencodeTest(
     input: ActionInput<typeof api.worker.reportOpencodeTest>
@@ -533,6 +547,12 @@ export class WorkerApi {
     input: ActionInput<typeof api.worker.createBranch>
   ): Promise<FunctionReturnType<typeof api.worker.createBranch>> {
     return await this.client.action(api.worker.createBranch, this.args(input));
+  }
+
+  async holdWorktreeQueue(
+    input: ActionInput<typeof api.worker.holdWorktreeQueue>
+  ): Promise<FunctionReturnType<typeof api.worker.holdWorktreeQueue>> {
+    return await this.client.action(api.worker.holdWorktreeQueue, this.args(input));
   }
 
   async mergeBranch(

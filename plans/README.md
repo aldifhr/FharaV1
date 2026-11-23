@@ -48,6 +48,16 @@ execution order and a definition of done.
 | 067 | [Match the workspace mockup (accent + rail + sidebar + chat restyle)](067-mockup-parity.md) | P1 | L | — | IN PROGRESS (all 5 stages landed 2026-11-17: accent tokens + guard, rail, NeedsYou cards, chat surface restyle incl. composer @ / buttons and TaskCard ref/due, QA wording; guards + web typecheck + 197/198 web tests green; only the light+dark visual smoke remains) |
 
 | 068 | [Local-first SQLite backend with a Fhara runtime-compatible runtime (desktop-ready)](068-local-sqlite-backend.md) | P1 | L | — | IN PROGRESS (2026-11-22: Fhara runtime removed entirely, 694 functions on Drizzle/SQLite, all 4 typechecks green, e2e mutation/query pass; 193/1539 backend tests + Electron packaging remain) |
+| 069 | [Persistent worktree queue hold and precise dirty check](069-worktree-queue-hold-and-dirty-check.md) | P1 | M | 068 | DONE (focused API/worker/web checks green; broad suites keep pre-existing environment gaps) |
+| 070 | [Restore dropped frozen nodes during replanning](070-restore-dropped-frozen-nodes.md) | P1 | S | 013 | DONE (focused worker tests: 15 passed; worker typecheck passed 2026-11-23) |
+| 071 | [Use the global model for every call type](071-global-model-all-call-types.md) | P1 | M | 032, 035, 038, 060 | IN PROGRESS |
+| 072 | [Remove environment-based LLM credential and model fallbacks](072-remove-env-credential-fallbacks.md) | P1 | L | 068, 071 | DONE (focused checks pass; broad suites keep pre-existing local-runtime gaps) |
+| 073 | [Preserve atomicity for asynchronous mutations](073-atomic-async-mutations.md) | P1 | L | 068 | DONE (async SQLite transaction + executor serialization; rollback, nested mutation, claim race, focused backend tests, and runtime/API typechecks pass) |
+| 074 | [Global model serves every LLM call, including setup and planner](074-global-model-serves-every-call.md) | P1 | L | 038, 060, 071, 072 | DONE (focused tests + 4 typechecks pass; no live CLI smoke) |
+| 075 | [List Codex account models in LLM & Models](075-codex-model-catalog.md) | P2 | M | 057, 066 | DONE |
+| 076 | [Add Designer to the fixed team](076-add-designer-to-fixed-team.md) | P2 | S | 040 | DONE (focused API tests + web/worker typechecks pass; API typecheck has unrelated devFixtures error, 2026-11-23) |
+| 077 | [Add DevOps to the fixed team](077-add-devops-to-fixed-team.md) | P2 | S | 040 | DONE |
+| 078 | [Add Lead role](078-add-lead-role.md) | P2 | M | 040, 076, 077 | DONE |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

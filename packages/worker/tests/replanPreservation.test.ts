@@ -33,8 +33,7 @@ vi.mock("../src/orchestrator/planner", () => {
   const second = {
     ...first,
     subtasks: [
-      // The planner rewrote the frozen node: the Preservation Guard restores it.
-      { key: "analyze", title: "Analyze again", description: "Read the code twice", kind: "analysis", capability: "frontend-development", dependencies: [], order: 0 },
+      // The planner omitted completed work: the Preservation Guard restores it.
       {
         key: "implement_small",
         title: "Implement (narrow)",
@@ -138,7 +137,7 @@ describe("Replan preservation (completed nodes never re-run)", () => {
         diff: { added: Array<{ key: string; reasoning?: string }>; removed: Array<{ key: string; reasoning?: string }>; preserved: Array<{ key: string; frozen?: boolean }> };
       };
     };
-    // Frozen node restored verbatim.
+    // Omitted frozen node is restored verbatim.
     expect(payload.subtasks.find((subtask) => subtask.key === "analyze")?.description).toBe("Read the code");
     expect(payload.replan.failedKeys).toEqual(["implement"]);
     expect(payload.replan.frozenKeys).toEqual(["analyze"]);

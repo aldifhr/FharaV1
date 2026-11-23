@@ -45,12 +45,21 @@ function fieldAccessor(path: string): (doc: any) => unknown {
   return (doc) => path.split(".").reduce<any>((value, key) => value?.[key], doc);
 }
 
+const fieldReference = Symbol("local-query-field-reference");
+type FieldReference = ((doc: any) => unknown) & { [fieldReference]: true };
+
+function makeFieldReference(path: string): FieldReference {
+  return Object.assign(fieldAccessor(path), { [fieldReference]: true as const });
+}
+
 function makeFilterBuilder() {
-  const accessor = (input: unknown): ((doc: any) => unknown) =>
-    typeof input === "string" ? fieldAccessor(input) : (input as (doc: any) => unknown);
+  const resolve = (input: unknown, doc: any): unknown =>
+    typeof input === "function" && fieldReference in input
+      ? (input as FieldReference)(doc)
+      : input;
   const compare = (operator: Operator, left: unknown, right: unknown) => (doc: any) => {
-    const a = accessor(left)(doc);
-    const b = accessor(right)(doc);
+    const a = resolve(left, doc);
+    const b = resolve(right, doc);
     const result = compareValues(a, b);
     switch (operator) {
       case "eq": return sameValue(a, b);
@@ -61,7 +70,7 @@ function makeFilterBuilder() {
     }
   };
   return {
-    field: fieldAccessor,
+    field: makeFieldReference,
     eq: (left: unknown, right: unknown) => compare("eq", left, right),
     lt: (left: unknown, right: unknown) => compare("lt", left, right),
     lte: (left: unknown, right: unknown) => compare("lte", left, right),

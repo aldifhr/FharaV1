@@ -16,8 +16,7 @@ const calls: Call[] = [];
 let script: string[] = [];
 
 vi.mock("./lib/chat/llm", () => ({
-  getGlobalLLMConfig: () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m", provider: "openai-compatible" }),
-  resolveConfigFromProviders: async (_p: unknown, global: unknown) => global,
+  resolveConfigFromProviders: async () => ({ baseUrl: "http://llm.test", apiKey: "k", model: "m", provider: "openai-compatible" }),
   completeWithAgent: async (
     system: string,
     msgs: { role: string; content: string }[],
@@ -230,3 +229,4 @@ describe("attachProject", () => {
     expect(calls[0].system).toContain("No project, repository or workspace is attached");
   });
 });
+

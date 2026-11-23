@@ -37,6 +37,7 @@ export default function TaskThreadHeader({
   needsYou = false,
   fullScreen,
   width,
+  maxWidth,
   onWidthChange,
   onClose,
 }: {
@@ -45,6 +46,7 @@ export default function TaskThreadHeader({
   needsYou?: boolean;
   fullScreen: boolean;
   width: number;
+  maxWidth: number;
   onWidthChange: (width: number) => void;
   onClose: () => void;
 }) {
@@ -53,11 +55,11 @@ export default function TaskThreadHeader({
       <ArrowLeft size={18} />
     </button>
   ) : undefined;
-  const wide = isWidePanel(width);
+  const wide = isWidePanel(width, maxWidth);
   const widen = fullScreen ? null : (
     <button
       type="button"
-      onClick={() => onWidthChange(toggledPanelWidth(width))}
+      onClick={() => onWidthChange(toggledPanelWidth(width, maxWidth))}
       title={wide ? "Narrow the thread" : "Widen the thread"}
       aria-label={wide ? "Narrow the thread" : "Widen the thread"}
       className={HEADER_BUTTON}

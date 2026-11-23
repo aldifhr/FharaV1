@@ -21,7 +21,6 @@ import ChatHeader, { type ChatTab, type HeaderNotification } from "./chat/ChatHe
 import ManageProjectModal from "./chat/ManageProjectModal";
 import MessageList from "./chat/MessageList";
 import { quoteOf, type ChatQuote } from "./chat/QuoteBlock";
-import StatusLine from "./chat/StatusLine";
 import FilesView from "./chat/FilesView";
 import { useChatQueue } from "./chat/useChatQueue";
 import { useDraftMentions } from "./chat/useDraftMentions";
@@ -78,7 +77,7 @@ function LegacyPinsFeed({ projectId, onChange }: { projectId: string; onChange: 
 const TARGET_KEY = (projectId: string) => `fhara-chat-target-${projectId}`;
 
 export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpenAgent, selectedTaskId, conversationId = null, conversationClosed = false }: Props) {
-  const { openSidebar } = useWorkspace();
+  const { openSidebar, openSimulatedThread, updateSimulatedThread, simulatedThread } = useWorkspace();
   const toast = useToast();
   const project = useQuery(api.projects.get, { projectId: projectId as any });
   const { rows: messages, history } = useMessageHistory({ kind: "project", projectId }, useQuery(api.messages.listByProject, { projectId: projectId as any }));
@@ -103,6 +102,21 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const clearChat = useMutation(api.conversations.clearChat);
   const createTask = useMutation(api.tasks.createFromCommand);
   const sendMessage = useProjectSend();
+  const [simulateReplies, setSimulateReplies] = useState(false);
+  const [simulationMessages, setSimulationMessages] = useState<any[]>([]);
+  const [simulationTasks, setSimulationTasks] = useState<Array<{ task: any; subtasks: any[] }>>([]);
+  const simulationSequence = useRef(0);
+  const simulationGeneration = useRef(0);
+  useEffect(() => {
+    simulationGeneration.current += 1;
+    setSimulateReplies(false);
+    setSimulationMessages([]);
+    setSimulationTasks([]);
+    simulationSequence.current = 0;
+    return () => {
+      simulationGeneration.current += 1;
+    };
+  }, [projectId]);
 
   // Plan 020: permission mode for tasks dispatched from this composer.
   // Starts at the project's default; a pick holds until the project changes.
@@ -159,6 +173,112 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         .sort((a: any, b: any) => a._creationTime - b._creationTime),
     [messages, conversationId],
   );
+  const displayTimeline = useMemo(
+    () => [...timeline, ...simulationMessages].sort((a, b) => a._creationTime - b._creationTime),
+    [timeline, simulationMessages],
+  );
+  const displayTasks = useMemo(
+    () => [...((tasks ?? []) as any[]), ...simulationTasks.map((record) => record.task)],
+    [tasks, simulationTasks],
+  );
+  const displaySubtasksOf = useMemo(() => {
+    const map = new Map(subtasksOf);
+    for (const record of simulationTasks) map.set(String(record.task._id), record.subtasks);
+    return map;
+  }, [subtasksOf, simulationTasks]);
+  useEffect(() => {
+    if (!simulatedThread) return;
+    const record = simulationTasks.find((item) => item.task._id === simulatedThread.task._id);
+    if (!record) return;
+    updateSimulatedThread({
+      ...record,
+      messages: simulationMessages.filter((message) => message.taskId === record.task._id),
+    });
+  }, [simulationTasks, simulationMessages, simulatedThread?.task._id, updateSimulatedThread]);
+  const openTaskOrSimulation = (taskId: string) => {
+    const record = simulationTasks.find((item) => String(item.task._id) === taskId);
+    if (!record) {
+      onSelectTask(taskId);
+      return;
+    }
+    openSimulatedThread({
+      ...record,
+      messages: simulationMessages.filter((message) => message.taskId === taskId),
+    });
+  };
+  const addSimulationMessage = (taskId: string, role: string, content: string) => {
+    const now = Date.now();
+    const agent = agents.find((item: any) => String(item.role).toLowerCase() === role.toLowerCase());
+    if (!agent) return;
+    simulationSequence.current += 1;
+    setSimulationMessages((current) => [...current, {
+      _id: `simulation-${projectId}-${simulationSequence.current}`,
+      _creationTime: now,
+      authorType: "agent",
+      agentId: agent._id,
+      role: String(agent.role),
+      content,
+      projectId,
+      taskId,
+      simulated: true,
+    }]);
+  };
+  const addSimulationReply = (content: string) => {
+    const generation = simulationGeneration.current;
+    simulationSequence.current += 1;
+    const sequence = simulationSequence.current;
+    const taskId = `simulation-task-${projectId}-${sequence}`;
+    const now = Date.now();
+    const cto = agents.find((agent: any) => String(agent.role).toLowerCase() === "cto") ?? agents[0];
+    const frontend = agents.find((agent: any) => String(agent.role).toLowerCase() === "frontend");
+    const qa = agents.find((agent: any) => String(agent.role).toLowerCase() === "qa");
+    const title = content.replace(/\s+/g, " ").trim().slice(0, 88) || "Simulated task";
+    const subtasks = [
+      { _id: `${taskId}-frontend`, assignedAgentId: frontend?._id, title: "Implement request", status: "running" },
+      { _id: `${taskId}-qa`, assignedAgentId: qa?._id, title: "Verify result", status: "queued" },
+      { _id: `${taskId}-review`, assignedAgentId: cto?._id, title: "Review and summarize", status: "queued" },
+    ];
+    setSimulationMessages((current) => [...current, {
+      _id: `simulation-${projectId}-${sequence}-user`,
+      _creationTime: now,
+      authorType: "user",
+      content,
+      projectId,
+      taskId,
+      simulated: true,
+    }]);
+    setSimulationTasks((current) => [...current, {
+      task: { _id: taskId, title, status: "running", simulated: true },
+      subtasks,
+    }]);
+    if (cto) addSimulationMessage(taskId, String(cto.role), "Simulation: @Frontend, please implement this request. I created a preview task and routed it to you. This run stays local; it won't call an LLM or change project files.");
+
+    window.setTimeout(() => {
+      if (generation !== simulationGeneration.current) return;
+      setSimulationTasks((current) => current.map((record) => record.task._id !== taskId ? record : {
+        ...record,
+        subtasks: record.subtasks.map((subtask, index) => ({ ...subtask, status: index === 0 ? "completed" : index === 1 ? "running" : "queued" })),
+      }));
+      addSimulationMessage(taskId, "frontend", "Simulation: @QA, please verify the result. The implementation step is complete, but the actual repository was not edited in this preview.");
+    }, 900);
+    window.setTimeout(() => {
+      if (generation !== simulationGeneration.current) return;
+      setSimulationTasks((current) => current.map((record) => record.task._id !== taskId ? record : {
+        ...record,
+        subtasks: record.subtasks.map((subtask, index) => ({ ...subtask, status: index < 2 ? "completed" : "running" })),
+      }));
+      addSimulationMessage(taskId, "qa", "Simulation: @CTO, the preview checks are complete. No browser or build checks were actually run.");
+    }, 1900);
+    window.setTimeout(() => {
+      if (generation !== simulationGeneration.current) return;
+      setSimulationTasks((current) => current.map((record) => record.task._id === taskId ? {
+        ...record,
+        task: { ...record.task, status: "done" },
+        subtasks: record.subtasks.map((subtask) => ({ ...subtask, status: "completed" })),
+      } : record));
+      addSimulationMessage(taskId, "cto", "Simulation complete: @Frontend and @QA have finished their preview steps. The task flow reached review with a preview result ready. This is illustrative only; no real code changes or verification were performed.");
+    }, 3000);
+  };
   const lastMessage = timeline[timeline.length - 1];
 
   // ── "Decision needed" tray above the composer ─────────────────────
@@ -240,7 +360,10 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     return agent && !/^(cto|architect)$/i.test(agent.role ?? "") ? agent : undefined;
   })();
 
-  const taskTitle = (taskId: string) => (tasks ?? []).find((task) => task._id === taskId)?.title ?? "task";
+  const taskTitle = (taskId: string) =>
+    (tasks ?? []).find((task) => task._id === taskId)?.title ??
+    simulationTasks.find((record) => record.task._id === taskId)?.task.title ??
+    "task";
   const taskFromPlan = (content: string) => content.match(/^Plan dibuat\. Task (\S+)/)?.[1];
   const replyToTask = new Map<string, string>();
   for (const m of messages ?? []) {
@@ -292,6 +415,10 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const queue = useChatQueue(
     async (content, queueId) => {
       // The queue row id doubles as the client id: a retried row never sends twice.
+      if (simulateReplies) {
+        addSimulationReply(content);
+        return;
+      }
       await sendMessage({ projectId: projectId as any, content, preferredAgentIds: recipientsFor(content) as any, permissionMode, ...(modelChoice ? { preferredModelRowId: modelChoice as never } : {}), clientId: queueId });
     },
     (message) => setChatError(message),
@@ -308,6 +435,10 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const handleChooseProposal = async (choice: string) => {
     setChatSending(true);
     try {
+      if (simulateReplies) {
+        addSimulationReply(choice);
+        return;
+      }
       await sendMessage({ projectId: projectId as any, content: choice, preferredAgentIds: recipientsFor(choice) as any, permissionMode, ...(modelChoice ? { preferredModelRowId: modelChoice as never } : {}) });
     } catch (err) {
       toast("error", "Failed to select option", err instanceof Error ? err.message : "Error");
@@ -375,6 +506,12 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     setChatError("");
     setChatSending(true);
     try {
+      if (simulateReplies) {
+        addSimulationReply(text);
+        setQuote(null);
+        clearDivider();
+        return clearDraft();
+      }
       if (await sendToTray(text)) return clearDraft();
       if (!(await runSlash(text))) {
         const content = await mentions.attachMentionedFiles(text);
@@ -408,8 +545,15 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     }
   };
 
-  // Who is drafting a chat reply: the target (or mentioned) agent.
-  const draftingIds = conversationTyping ? (targetId ? [targetId] : agents.map((a) => a._id)) : [];
+  // Show a teammate as drafting only when the recipient is identifiable.
+  // An unaddressed team message is routed by the backend, so don't mark every
+  // agent as thinking while that route is still unknown to the client.
+  const mentionedDraftIds = conversationTyping ? mentions.mentionedAgentIds(lastMessage?.content ?? "") : [];
+  const mentionedDraftAgent = mentionedDraftIds.length
+    ? agents.find((agent: any) => agent._id === mentionedDraftIds[0])
+    : undefined;
+  const draftingAgent = quotedResponder ?? mentionedDraftAgent ?? targetAgent;
+  const draftingIds = conversationTyping && draftingAgent ? [draftingAgent._id] : [];
   useEffect(() => {
     dispatchChatTyping({ agentIds: draftingIds as string[], active: draftingIds.length > 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- re-announce only when typing, target or team change
@@ -569,7 +713,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   };
 
   return (
-    <main className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-dots">
+    <main className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-panel">
       <QueryBoundary>
         <TeamStatusFeed projectId={projectId} onChange={setLiveStatus} />
       </QueryBoundary>
@@ -602,14 +746,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         onApprove={(id) => runApproval(id, "approve")}
         onReject={(id) => runApproval(id, "reject")}
         onOpenAgent={onOpenAgent}
-        onCopyLink={async () => {
-          try {
-            await navigator.clipboard.writeText(`${window.location.origin}/project/${projectId}`);
-            return true;
-          } catch {
-            return false;
-          }
-        }}
         onManage={() => project && setManageOpen(true)}
         onClearChat={() =>
           setClearConfirm({
@@ -649,22 +785,23 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
           ))}
         {tab === "chat" ? (
           <MessageList
-            timeline={timeline}
+            timeline={displayTimeline}
             scrollRef={scrollRef}
             firstNewIndex={firstNewIndex}
             agents={agents}
-            tasks={tasks}
-            subtasksOf={subtasksOf}
+            tasks={displayTasks}
+            subtasksOf={displaySubtasksOf}
             pendingItems={pendingItems}
             projectEvents={projectEvents}
             projectApprovalMode={(project as any)?.approvalMode ?? "ask"}
             loading={messages === undefined}
+            showActivityGroups={false}
             history={history}
             scrollToMessageRef={scrollToMessageRef}
             chatSending={chatSending}
             conversationTyping={conversationTyping}
-            typingAgent={quotedResponder ?? targetAgent}
-            onSelectTask={onSelectTask}
+            typingAgent={draftingAgent}
+            onSelectTask={openTaskOrSimulation}
             approve={(approvalId) => approve({ approvalId: approvalId as any, ...boundTo(approvalId) })}
             reject={(approvalId) => reject({ approvalId: approvalId as any, ...boundTo(approvalId) })}
             hold={(approvalId) => hold({ approvalId: approvalId as any })}
@@ -710,15 +847,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       {tab === "chat" && (
         <>
           <AutomationHoldLine />
-          <StatusLine
-            agents={agents}
-            status={status}
-            drafting={conversationTyping ? [(quotedResponder ?? targetAgent) ? roleLabel((quotedResponder ?? targetAgent)!.role) : "Team"] : []}
-            events={projectEvents as any}
-            qaUrl={(project as any)?.qaUrl ?? (project as any)?.devUrl}
-            waiting={docked.map((t: any) => ({ id: String(t._id), ref: taskRef(String(t._id)) }))}
-            onOpenTask={onSelectTask}
-          />
           <DecisionsTray tray={tray} busy={trayBusy} onAction={(item, action) => void runTrayAction(item, action)} />
           {conversationId && (conversationClosed || conversationId !== currentConversationId) ? (
             <p role="status" className="shrink-0 border-t border-line bg-panel px-4 py-3 text-[13px] text-ink-3 sm:px-9 lg:px-11">
@@ -779,6 +907,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             onCancelQuote={() => setQuote(null)}
             slashCommands={slashEntries}
             stop={replyStop}
+            simulateReplies={simulateReplies}
+            onToggleSimulation={() => setSimulateReplies((enabled) => !enabled)}
             dock={<TaskDock tasks={docked} agents={agents} onOpenTask={onSelectTask} projectId={projectId} />}
           />}
           {decisions?.pickup && !decisions.pickup.workerOnline && decisions.pickup.queuedTasks + decisions.pickup.pendingMessages > 0 && (

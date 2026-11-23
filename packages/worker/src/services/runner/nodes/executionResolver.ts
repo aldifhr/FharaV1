@@ -6,7 +6,7 @@ import type { PerformanceScore } from "@/api/functions/lib/agentPerformance";
 import { nativeTimeoutMs, resolveOpencodeSelection } from "@/execution/nativeProvider";
 import { codexCommand, codexGateFor, isCodexAvailable, nativeDriverFromEnv } from "@/execution/codexProvider";
 import { ensureOpencodeDetection, opencodeGateFor } from "@/execution/opencodeDetect";
-import { handlesFromResolution, type AgentResolution, type ExecutionRoute, type ModelRoutingInfo } from "@/llm/resolver";
+import { type AgentResolution, type ExecutionRoute, type ModelRoutingInfo } from "@/llm/resolver";
 import { subtaskTimeoutFor } from "@/orchestrator/policy";
 import { unroutedReason } from "@/orchestrator/capabilities";
 import { decideRetry } from "@/orchestrator/decisionEngine/retry";
@@ -91,8 +91,18 @@ export function createExecutionResolver(ctx: RunContext) {
     async prepare(nodeKey: string, agent: AgentDefinition): Promise<ModelRoutingInfo | undefined> {
       let modelRouting: ModelRoutingInfo | undefined;
       if (!input.llmResolver) return modelRouting;
+      if (input.opencodeRuntime === "opencode") {
+        modelRouting = {
+          model: input.opencodeModel ?? "(OpenCode default)",
+          connection: "global OpenCode setting",
+          callRole: "executor",
+          reason: "app-wide runtime and model selection",
+        };
+        ctx.modelRoutingByKey.set(nodeKey, modelRouting);
+        return modelRouting;
+      }
       try {
-        if (input.llmResolver.hasOpencode()) {
+        if (input.opencodeRuntime === undefined && input.llmResolver.hasOpencode()) {
           // Plan 038: the route (native OpenCode or API) is picked here
           // so subtask.routed names the runtime and model it runs on.
           const route = input.llmResolver.executionRouteFor(agent, await opencodeGate(), { callRole: "executor" });
@@ -120,9 +130,10 @@ export function createExecutionResolver(ctx: RunContext) {
      * its runtime. Throws when no provider can serve the agent.
      */
     async handles(nodeKey: string, agent: AgentDefinition): Promise<{ route?: ExecutionRoute; llmHandles?: FallbackHandle[] }> {
+      if (input.opencodeRuntime === "opencode") return {};
       let route = routeByKey.get(nodeKey);
       routeByKey.delete(nodeKey);
-      if (!route && input.llmResolver?.hasOpencode()) {
+      if (!route && input.opencodeRuntime === undefined && input.llmResolver?.hasOpencode()) {
         route = input.llmResolver.executionRouteFor(agent, await opencodeGate(), { callRole: "executor" });
         await logSkippedRoutes(ctx, nodeKey, route.skipped);
       }
@@ -134,11 +145,11 @@ export function createExecutionResolver(ctx: RunContext) {
           : route.apiResolution
         : undefined;
       const llmHandles = routed
-        ? handlesFromResolution(routed)
+        ? input.llmResolver?.handlesFrom(routed)
         : route
           ? undefined
           : prepared
-            ? handlesFromResolution(prepared)
+            ? input.llmResolver?.handlesFrom(prepared)
             : input.llmResolver?.handlesFor(agent, { callRole: "executor" });
       return { route, llmHandles };
     },
@@ -154,7 +165,7 @@ export function createExecutionResolver(ctx: RunContext) {
           ? { runtime: "native-provider", model: route.model }
           : { runtime: "api" }
         : selectionOf(ctx, agent);
-      if (!route && selection.runtime === "native-provider") {
+      if (!route && input.opencodeRuntime === undefined && selection.runtime === "native-provider") {
         const gate = await legacyNativeGate();
         if (!gate.available) {
           // A `runtime_unavailable` observation: the engine falls back to the API runtime, silently.

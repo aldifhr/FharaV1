@@ -390,6 +390,40 @@ export const claimNextTask = internalMutation({
   },
 });
 
+export const holdWorktreeQueue = internalMutation({
+  args: {
+    taskId: v.id("tasks"),
+    reason: v.string(),
+  },
+  handler: async (ctx, args): Promise<{ held: number }> => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task) return { held: 0 };
+    const now = Date.now();
+    const reason = args.reason.trim().slice(0, 1000) || "Worktree setup failed";
+    await ctx.db.patch(task.projectId, {
+      worktreeQueueHold: { reason, heldAt: now, taskId: task._id },
+    });
+    const rows = await ctx.db
+      .query("tasks")
+      .withIndex("by_project", (q) => q.eq("projectId", task.projectId))
+      .collect();
+    let held = 0;
+    for (const row of rows) {
+      if (row.status !== "queued" || row.queueHeld === true) continue;
+      await patchTask(ctx, row._id, { queueHeld: true, updatedAt: now });
+      await appendTaskEvent(ctx, {
+        taskId: row._id,
+        projectId: row.projectId,
+        type: "task.held",
+        payload: { kind: "queue", reason, heldAt: now },
+        level: "warn",
+      });
+      held += 1;
+    }
+    return { held };
+  },
+});
+
 export const heartbeat = internalMutation({
   args: {
     workerId: v.string(),

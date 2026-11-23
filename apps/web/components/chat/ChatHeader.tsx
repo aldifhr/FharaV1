@@ -1,12 +1,12 @@
 
-import { Bell, Check, Copy, GitBranch, LoaderCircle, Menu, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
+import { Bell, GitBranch, LoaderCircle, Menu, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
 import { useQuery } from "@fhara/runtime/react";
 import { api } from "@fhara/runtime/api";
 import { useState } from "react";
 import InitialAvatar from "../InitialAvatar";
 import OpenInMenu from "./OpenInMenu";
 import ProjectAvatar from "../shell/ProjectAvatar";
-import { PageHeader, type PageHeaderStatus } from "../ui/page-header";
+import { PageHeader } from "../ui/page-header";
 import { iconButtonClass, popoverClass, usePopover } from "../shell/usePopover";
 import { agentName, roleLabel } from "@/lib/agentRoles";
 import { teamStatusLabel, type StatusMap } from "@/lib/teamStatus";
@@ -40,15 +40,6 @@ function appLabel(project: { devUrl?: string; workspacePath?: string } | null | 
   return base || null;
 }
 
-/** The project's run state for the header tag: the user first, then any agent at work. */
-function runStatus(status: StatusMap | undefined, waiting: number): PageHeaderStatus {
-  const words = Object.values(status ?? {}).map((e) => e?.status);
-  if (waiting > 0 || words.some((w) => w === "needs_you" || w === "waiting_on_you")) return { tone: "warn", label: "Needs you" };
-  if (words.some((w) => w === "working" || w === "reviewing" || w === "testing")) return { tone: "active", label: "Running" };
-  if (words.some((w) => w === "queued")) return { tone: "neutral", label: "Queued" };
-  return { tone: "neutral", label: "Idle" };
-}
-
 export default function ChatHeader({
   project,
   conversation,
@@ -66,7 +57,6 @@ export default function ChatHeader({
   onApprove,
   onReject,
   onOpenAgent,
-  onCopyLink,
   onManage,
   onClearChat,
   onOpenDrawer,
@@ -89,7 +79,6 @@ export default function ChatHeader({
   onApprove: (approvalId: string) => Promise<unknown>;
   onReject: (approvalId: string) => Promise<unknown>;
   onOpenAgent?: (agentId: string) => void;
-  onCopyLink: () => Promise<boolean>;
   onManage: () => void;
   onClearChat: () => void;
   onOpenDrawer: () => void;
@@ -99,7 +88,6 @@ export default function ChatHeader({
   const bellPop = usePopover();
   const morePop = usePopover();
   const ctxPop = usePopover();
-  const [copied, setCopied] = useState(false);
   const [acting, setActing] = useState<string | null>(null);
   const [confirmReject, setConfirmReject] = useState<string | null>(null);
   const app = appLabel(project);
@@ -145,7 +133,7 @@ export default function ChatHeader({
 
   return (
     <header className="shrink-0 border-b border-line bg-panel pt-[env(safe-area-inset-top)]">
-      <div className="flex h-[64px] items-center gap-3 px-3 sm:px-5">
+      <div className="flex h-[72px] items-center gap-3 px-4 sm:px-6">
         <button type="button" onClick={onOpenDrawer} aria-label="Open projects and team" className={`${iconButtonClass} -ml-1 min-[980px]:hidden`}>
           <Menu size={18} />
         </button>
@@ -154,9 +142,6 @@ export default function ChatHeader({
           className="min-w-0"
           leading={<ProjectAvatar name={project?.name ?? "•"} size={34} />}
           title={<span className="min-w-0 shrink truncate">{project?.name ?? "Project"}</span>}
-          id={conversation ? String(conversation._id) : null}
-          idLabel="conversation id"
-          status={runStatus(status, notifications.length)}
           meta={
             <>
               {stacked.length > 0 && (
@@ -379,22 +364,6 @@ export default function ChatHeader({
             </button>
             {morePop.open && (
               <div role="menu" className={`${popoverClass} right-0 w-52`}>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={async () => {
-                    const ok = await onCopyLink();
-                    setCopied(ok);
-                    setTimeout(() => {
-                      setCopied(false);
-                      morePop.setOpen(false);
-                    }, 900);
-                  }}
-                  className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[14px] hover:bg-hover"
-                >
-                  {copied ? <Check size={15} className="text-ok" /> : <Copy size={15} className="text-ink-3" />}
-                  {copied ? "Link copied" : "Copy project link"}
-                </button>
                 <button
                   type="button"
                   role="menuitem"

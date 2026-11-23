@@ -6,7 +6,6 @@ import {
   formatResult,
   mergeEnv,
   missingVars,
-  modelsRequest,
   parseDotenv,
   REQUIRED_WORKER_VARS,
   manifestVar,
@@ -33,16 +32,6 @@ test("missingVars lists unset names only", () => {
   assert.deepEqual(missingVars({ A: "x", B: "" }, ["A", "B", "C"]), ["B", "C"]);
 });
 
-test("modelsRequest: bearer for OpenAI-compatible, x-api-key for Anthropic", () => {
-  const openai = modelsRequest({ LLM_PROVIDER: "openai-compatible", LLM_BASE_URL: "https://h/v1/", LLM_API_KEY: "k" });
-  assert.equal(openai.url, "https://h/v1/models");
-  assert.equal(openai.headers.authorization, "Bearer k");
-  const anthropic = modelsRequest({ LLM_API_KEY: "k" });
-  assert.equal(anthropic.url, "https://api.anthropic.com/v1/models");
-  assert.equal(anthropic.headers["x-api-key"], "k");
-  assert.equal(modelsRequest({}).hasKey, false);
-});
-
 test("formatResult and exitCodeFor: only required failures fail", () => {
   assert.equal(formatResult({ name: "X", status: "fail", detail: "d", hint: "h" }), "✗ X — d\n    → h");
   assert.equal(formatResult({ name: "X", status: "ok", hint: "h" }), "✓ X");
@@ -66,9 +55,9 @@ test("supervise: parseArgs splits options from the command", () => {
 test("doctor: required vars and aliases come from the env manifest", () => {
   assert.deepEqual(REQUIRED_WORKER_VARS, ["FHARA_BACKEND_URL", "FHARA_SERVICE_TOKEN"]);
   assert.equal(withAliases({ FHARA_BACKEND_URL: "http://legacy" }, "FHARA_BACKEND_URL"), "http://legacy");
-  assert.equal(withAliases({ FHARA_BACKEND_URL: "a", FHARA_BACKEND_URL: "b" }, "FHARA_BACKEND_URL"), "a");
+  assert.equal(withAliases({ ORCHESTRATOR_EXECUTION_RUNTIME: "a", ORCHESTRATOR_RUNTIME: "b" }, "ORCHESTRATOR_EXECUTION_RUNTIME"), "a");
   assert.equal(withAliases({}, "FHARA_SERVICE_TOKEN"), undefined);
-  for (const name of ["LLM_PROVIDER", "LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY", "PROVIDER_ENCRYPTION_KEY", "WORKSPACE_ROOT", "QA_CHROMIUM_PATH", "ORCHESTRATOR_QA_REQUIRED", "ORCHESTRATOR_EXECUTION_RUNTIME", "ORCHESTRATOR_NATIVE_PROVIDER_COMMAND", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"]) {
+  for (const name of ["PROVIDER_ENCRYPTION_KEY", "WORKSPACE_ROOT", "QA_CHROMIUM_PATH", "ORCHESTRATOR_QA_REQUIRED", "ORCHESTRATOR_EXECUTION_RUNTIME", "ORCHESTRATOR_NATIVE_PROVIDER_COMMAND", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"]) {
     assert.equal(manifestVar(name).name, name);
   }
   assert.throws(() => manifestVar("MODEL_CAPABILITY_ROUTING"));

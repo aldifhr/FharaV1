@@ -1,74 +1,7 @@
-import type { EnvGet, EnvVar } from "./types";
+import type { EnvVar } from "./types";
 
-/** B5: openai and openai-compatible take the OpenAI defaults (worker and FharaRuntime alike). */
-export const isOpenAIFlavour = (provider: unknown) => provider === "openai-compatible" || provider === "openai";
-const openaiFlavour = (get: EnvGet) => isOpenAIFlavour(get("LLM_PROVIDER"));
-
+/** No env-derived LLM credential or model: Settings is the only source (plan 072). */
 export const LLM_VARS = [
-  {
-    name: "LLM_PROVIDER",
-    type: "string",
-    parse: "lower",
-    default: "anthropic",
-    runtimes: ["worker", "runtime", "scripts"],
-    group: "llm",
-    doc: "Global LLM provider fallback: anthropic | openai | openai-compatible.",
-  },
-  {
-    name: "LLM_MODEL",
-    type: "string",
-    parse: "nullish",
-    default: (get: EnvGet) => (openaiFlavour(get) ? "gpt-4o-mini" : "claude-sonnet-4-20250514"),
-    runtimes: ["worker", "runtime", "scripts"],
-    group: "llm",
-    doc: "Global fallback model; the default depends on LLM_PROVIDER.",
-  },
-  {
-    name: "LLM_BASE_URL",
-    type: "url",
-    parse: "nullish",
-    default: (get: EnvGet) => (openaiFlavour(get) ? "https://api.openai.com/v1" : "https://api.anthropic.com/v1"),
-    runtimes: ["worker", "runtime", "scripts"],
-    group: "llm",
-    doc: "Global fallback base URL; the default depends on LLM_PROVIDER.",
-  },
-  {
-    name: "LLM_OPENAI_BASE_URL",
-    type: "url",
-    parse: "nullish",
-    runtimes: ["worker", "runtime"],
-    group: "llm",
-    doc: "OpenAI-flavour base URL; wins over LLM_BASE_URL for that flavour.",
-  },
-  {
-    name: "LLM_ANTHROPIC_BASE_URL",
-    type: "url",
-    parse: "nullish",
-    runtimes: ["worker", "runtime"],
-    group: "llm",
-    doc: "Anthropic-flavour base URL; wins over LLM_BASE_URL for that flavour.",
-  },
-  {
-    name: "LLM_API_KEY",
-    type: "string",
-    parse: "nullish",
-    default: "",
-    runtimes: ["worker", "runtime", "scripts"],
-    group: "llm",
-    doc: "Global fallback API key; also the default apiKeyEnv name.",
-    aliases: ["OPENAI_API_KEY"],
-    secret: true,
-  },
-  {
-    name: "OPENAI_API_KEY",
-    type: "string",
-    parse: "nullish",
-    runtimes: ["worker", "runtime", "scripts"],
-    group: "llm",
-    doc: "Legacy fallback for LLM_API_KEY.",
-    secret: true,
-    deprecated: "use LLM_API_KEY",
-  },
   {
     name: "LLM_ROUND_ROBIN_STICKY_LIMIT",
     type: "int",

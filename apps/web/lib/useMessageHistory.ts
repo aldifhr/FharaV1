@@ -46,6 +46,8 @@ export function useMessageHistory<T extends HistoryRow>(
   const [loading, setLoading] = useState(false);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [pendingJump, setPendingJump] = useState<string | null>(null);
+  const inFlight = useRef(false);
+  const queuedRequest = useRef<{ key: string; floor?: number } | null>(null);
   const held = state.key === key ? state : { key, earlier: [] as T[], hasMore: undefined };
   useEffect(() => {
     setState({ key, earlier: [] });
@@ -56,12 +58,18 @@ export function useMessageHistory<T extends HistoryRow>(
   const rows = useMemo(() => (live ? mergeHistory(held.earlier, live) : undefined), [held.earlier, live]);
   const outline = useQuery(api.messages.turnOutline, scope && outlineOpen ? { scope: scope as never } : "skip");
 
-  const latest = useRef({ scope, key, held, live, loading });
-  latest.current = { scope, key, held, live, loading };
+  const latest = useRef({ scope, key, held, live });
+  latest.current = { scope, key, held, live };
   const fetchMore = useCallback(
     async (floor?: number) => {
-      const { scope: current, key: currentKey, held: h, live: l, loading: busy } = latest.current;
-      if (!current || !l || busy) return;
+      const { scope: current, key: currentKey, held: h, live: l } = latest.current;
+      if (!current || currentKey === null || !l) return;
+      if (inFlight.current) {
+        const queued = queuedRequest.current;
+        if (floor !== undefined || !queued || queued.key !== currentKey) queuedRequest.current = { key: currentKey, floor };
+        return;
+      }
+      inFlight.current = true;
       setLoading(true);
       try {
         const fetchPage = (args: { before: number; floor?: number; limit?: number }) =>
@@ -69,11 +77,20 @@ export function useMessageHistory<T extends HistoryRow>(
         const next = await loadEarlier(fetchPage, { earlier: h.earlier, live: l }, floor === undefined ? {} : { floor });
         if (latest.current.key === currentKey) setState({ key: currentKey, ...next });
       } finally {
+        inFlight.current = false;
         setLoading(false);
       }
     },
     [runtime]
   );
+
+  useEffect(() => {
+    if (loading) return;
+    const queued = queuedRequest.current;
+    if (!queued) return;
+    queuedRequest.current = null;
+    if (queued.key === key) void fetchMore(queued.floor);
+  }, [loading, key, fetchMore]);
 
   const jumpToTurn = useCallback(
     (turn: OutlineTurn) => {

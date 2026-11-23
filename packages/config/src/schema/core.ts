@@ -8,17 +8,7 @@ export const CORE_VARS = [
     runtimes: ["worker", "webServer", "webClient", "scripts"],
     group: "core",
     doc: "FharaRuntime deployment URL (worker, web, scripts).",
-    aliases: ["FHARA_BACKEND_URL"],
     required: ["worker", "webClient"],
-  },
-  {
-    name: "FHARA_BACKEND_URL",
-    type: "url",
-    parse: "nullish",
-    runtimes: ["worker", "scripts"],
-    group: "core",
-    doc: "Legacy alias of FHARA_BACKEND_URL.",
-    deprecated: "use FHARA_BACKEND_URL",
   },
   {
     name: "FHARA_SERVICE_TOKEN",

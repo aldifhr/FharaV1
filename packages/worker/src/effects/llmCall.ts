@@ -233,8 +233,13 @@ export function llmCallEffect(
 
   // The provider gets the same bound so the HTTP request itself is
   // aborted (not just abandoned by Effect.timeout).
-  const callPromise = () =>
-    provider.complete(messages, model, { signal: options.signal, timeoutMs }).then((res) => res as LLMResult);
+  const callPromise = () => {
+    // Effect.retry invokes this closure for each attempt. Refresh the node
+    // watchdog heartbeat per request, not just once for the whole retry
+    // sequence, so a slow transient retry is not mistaken for a hung agent.
+    markProgress();
+    return provider.complete(messages, model, { signal: options.signal, timeoutMs }).then((res) => res as LLMResult);
+  };
 
   return Effect.tryPromise({
     try: callPromise,

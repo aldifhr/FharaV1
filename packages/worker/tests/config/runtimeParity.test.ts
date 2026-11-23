@@ -6,9 +6,8 @@ import { worktreeRetentionMs, DEFAULT_WORKTREE_RETENTION_HOURS } from "@/api/fun
 import { fixMaxAttempts } from "@/api/functions/lib/prFeedback";
 import { contextSnapshotsEnabled } from "@/api/functions/lib/contextSnapshot";
 import { appOrigin, oauthStateSecret } from "@/api/functions/lib/oauthState";
-import { getGlobalLLMConfig } from "@/api/functions/lib/llmConfig";
 import * as path from "node:path";
-import { b2Bool, b5GlobalLLMConfig } from "./legacyEnv";
+import { b2Bool } from "./legacyEnv";
 import { resolveRepoPath } from "@/api/functions/lib/workspacePath";
 
 /**
@@ -66,9 +65,6 @@ function oldAppOrigin(env: Env): string {
   }
   return "http://localhost:3000";
 }
-// B5: FharaRuntime and the worker share one fallback (openai-compatible → OpenAI defaults).
-const oldGlobalLLMConfig = b5GlobalLLMConfig;
-
 const NAMES = [
   "CHAT_REPLY_STALE_MS",
   "TASK_WATCHDOG_STUCK_MS",
@@ -79,13 +75,6 @@ const NAMES = [
   "PROVIDER_ENCRYPTION_KEY",
   "APP_ORIGIN",
   "GITHUB_OAUTH_CALLBACK_URL",
-  "LLM_PROVIDER",
-  "LLM_MODEL",
-  "LLM_BASE_URL",
-  "LLM_OPENAI_BASE_URL",
-  "LLM_ANTHROPIC_BASE_URL",
-  "LLM_API_KEY",
-  "OPENAI_API_KEY",
   "WORKSPACE_ROOT",
 ];
 
@@ -142,16 +131,6 @@ describe("FharaRuntime reader parity (E2)", () => {
       for (const cb of [undefined, "", "http://c.local/cb", "garbage"]) {
         const env = { APP_ORIGIN: app, GITHUB_OAUTH_CALLBACK_URL: cb };
         withProcessEnv(env, () => expect(appOrigin()).toBe(oldAppOrigin(env)));
-      }
-    }
-  });
-
-  it("the FharaRuntime LLM fallback is the shared one (B5)", () => {
-    const providers = [undefined, "", "anthropic", "OpenAI", "openai-compatible", "x"];
-    for (const LLM_PROVIDER of providers) {
-      for (const extra of [{}, { LLM_BASE_URL: "b" }, { LLM_OPENAI_BASE_URL: "o", LLM_ANTHROPIC_BASE_URL: "a" }, { LLM_MODEL: "" }, { OPENAI_API_KEY: "k" }, { LLM_API_KEY: "", OPENAI_API_KEY: "k" }]) {
-        const env = { LLM_PROVIDER, ...extra };
-        withProcessEnv(env, () => expect(getGlobalLLMConfig()).toEqual(oldGlobalLLMConfig(env)));
       }
     }
   });

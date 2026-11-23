@@ -26,7 +26,13 @@ export class StaleFileError extends Error {
   }
 }
 
+/** Hash line-ending-insensitively: git may check out CRLF on Windows. */
 export function hashContent(content: string): string {
+  return hashContentExact(content.replace(/\r\n/g, "\n"));
+}
+
+/** Exact-byte hash, kept so older stored hashes still verify. */
+export function hashContentExact(content: string): string {
   return createHash("sha256").update(content, "utf8").digest("hex");
 }
 

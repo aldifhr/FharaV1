@@ -6,16 +6,17 @@
  * labels, @mention chip colours - via the `@/api/functions/lib/roles` alias)
  * and the worker.
  *
- * The fixed team is the user-approved roster: CTO, Frontend, Backend, QA.
- * Designer is a live role available for manual agent creation but is not
- * seeded into the fixed team.
+ * The fixed team is the user-approved roster: CTO, Lead, Frontend, Designer,
+ * Backend, DevOps, QA.
  */
 
 /** Current roles, in display order. Every role menu reads this list. */
 export const ROLE_KEYS = [
   "cto",
+  "lead",
   "frontend",
   "backend",
+  "devops",
   "qa",
   "designer",
 ] as const;
@@ -64,9 +65,8 @@ export const LEGACY_ROLE_SUCCESSORS: Readonly<Record<string, RoleKey>> = {
   documentation: "backend",
   "technical-writer": "backend",
   writer: "backend",
-  devops: "backend",
-  "dev ops": "backend",
-  "devops engineer": "backend",
+  "dev ops": "devops",
+  "devops engineer": "devops",
   reviewer: "qa",
   "code-review": "qa",
   "code review": "qa",
@@ -76,7 +76,8 @@ export const LEGACY_ROLE_SUCCESSORS: Readonly<Record<string, RoleKey>> = {
   product: "cto",
   analyst: "cto",
   "product analyst": "cto",
-  lead: "cto",
+  "project lead": "lead",
+  "team lead": "lead",
   growth: "cto",
   orchestrator: "cto",
   planner: "cto",
@@ -147,6 +148,26 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     color: "bg-blue-500/10 text-blue-700 ring-blue-500/20 dark:bg-blue-500/20 dark:text-blue-300",
   },
 
+  lead: {
+    key: "lead",
+    label: "Lead",
+    title: "Project Lead",
+    category: "Leadership",
+    description: "Clarifies project outcomes, priorities, acceptance criteria, milestones, and stakeholder context.",
+    registryDescription: "Project outcomes, priorities, acceptance criteria, milestones, and stakeholder context.",
+    workerDescription: "Read-only project context and requirements clarification; never plans or dispatches execution.",
+    capabilities: ["project-context"],
+    registryCapabilities: ["project-context"],
+    defaultTools: ["read_file"],
+    permissions: { read: true, write: false, shell: "none", web: false, push: false, options: false },
+    priority: 8,
+    maxConcurrency: 2,
+    hint: "Clarify business goals, project context, priorities and acceptance criteria. Read-only: do not edit files, run commands, plan DAGs, dispatch agents, schedule work, or make technical architecture decisions.",
+    chatSummary: "Project goals, stakeholder context, priorities, milestones and acceptance criteria.",
+    defaultPromptKey: "lead",
+    color: "bg-violet-500/10 text-violet-700 ring-violet-500/20 dark:bg-violet-500/20 dark:text-violet-300",
+  },
+
   frontend: {
     key: "frontend",
     label: "Frontend",
@@ -184,6 +205,25 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     chatSummary: "Backend development: APIs, business logic, databases, auth, data validation and integrations.",
     defaultPromptKey: "backend",
     color: "bg-amber-500/10 text-amber-800 ring-amber-500/20 dark:bg-amber-500/20 dark:text-amber-300",
+  },
+  devops: {
+    key: "devops",
+    label: "DevOps",
+    title: "DevOps Engineer",
+    category: "Engineering",
+    description: "CI, build tooling, container, and infrastructure changes.",
+    registryDescription: "CI, build tooling, container, and infrastructure changes.",
+    workerDescription: "CI and deployment configuration in the explicitly scoped infrastructure paths.",
+    capabilities: ["devops"],
+    registryCapabilities: ["devops"],
+    defaultTools: ["read_file", "write_file", "run_command"],
+    permissions: { read: true, write: [".github/**", "Dockerfile*", "docker-compose*", "infra/**"], shell: "allowlist", web: false, push: false, options: false },
+    priority: 7,
+    maxConcurrency: 2,
+    hint: "Implement only assigned CI, container, and infrastructure changes within .github/**, Dockerfile*, docker-compose*, and infra/**. Use allowlisted commands; never change application code or push.",
+    chatSummary: "DevOps: CI/CD workflows, build tooling, containers, deployment configuration and infrastructure.",
+    defaultPromptKey: "devops",
+    color: "bg-sky-500/10 text-sky-700 ring-sky-500/20 dark:bg-sky-500/20 dark:text-sky-300",
   },
   qa: {
     key: "qa",
@@ -231,14 +271,12 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
 
 /**
  * Order the fixed-team sync seeds agents in (and appends them to a
- * project's `agentIds`). Kept as it was so existing rosters keep their order.
- * Designer is deliberately NOT seeded: it is a role a user adds manually
- * (fixedTeamSync.test).
+ * project's `agentIds`).
  */
-export const FIXED_TEAM_SEED_ORDER: readonly RoleKey[] = ["cto", "frontend", "backend", "qa"];
+export const FIXED_TEAM_SEED_ORDER: readonly RoleKey[] = ["cto", "lead", "frontend", "designer", "backend", "devops", "qa"];
 
 /** The fixed team as the sidebar and Team list show it, top to bottom. */
-export const FIXED_TEAM_DISPLAY_ORDER: readonly RoleKey[] = ["cto", "frontend", "backend", "qa"];
+export const FIXED_TEAM_DISPLAY_ORDER: readonly RoleKey[] = ["cto", "lead", "frontend", "designer", "backend", "devops", "qa"];
 
 /** "product-analyst" ? "Product Analyst": the label for a key with no role row. */
 function titleCaseRoleKey(key: string): string {

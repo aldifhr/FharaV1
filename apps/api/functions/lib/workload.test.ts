@@ -96,10 +96,10 @@ describe("aggregateWorkload", () => {
         ],
       })
     );
-    expect(r.idleRoles).toEqual(["CTO", "QA", "Designer"]);
-    expect(r.summary).toBe("Frontend did 75% of subtasks; CTO, QA and Designer did none in 30 days.");
-    // Every live role is a row, idle ones with zeros (Designer is manual, not seeded).
-    expect(r.rows.map((x) => x.key)).toEqual(["cto", "frontend", "backend", "qa", "designer"]);
+    expect(r.idleRoles).toEqual(["CTO", "DevOps", "QA", "Designer"]);
+    expect(r.summary).toBe("Frontend did 75% of subtasks; CTO, DevOps, QA and Designer did none in 30 days.");
+    // Every live role is a row, with idle roles reporting zero workload.
+    expect(r.rows.map((x) => x.key)).toEqual(["cto", "frontend", "backend", "devops", "qa", "designer"]);
     expect(r.rows.find((x) => x.key === "cto")).toMatchObject({ subtasks: 0, tokens: 0, subtaskShare: 0 });
   });
 
@@ -108,7 +108,7 @@ describe("aggregateWorkload", () => {
     const tie = aggregateWorkload(input({ subtasks: [sub({ key: "a", role: "frontend" }), sub({ key: "b", role: "backend" })] }));
     expect(tie.summary).toMatch(/^Frontend and Backend each did 50% of subtasks; /);
     const all = aggregateWorkload(input()).rows.map((row) => ({ ...row, subtasks: 1 }));
-    expect(workloadSummary(all, [], 90)).toBe("CTO, Frontend, Backend, QA and Designer each did 20% of subtasks; every role had work in 90 days.");
+    expect(workloadSummary(all, [], 90)).toBe("CTO, Frontend, Backend, DevOps, QA and Designer each did 17% of subtasks; every role had work in 90 days.");
   });
 
   test("window filter drops rows older than sinceDays across every source", () => {

@@ -14,26 +14,10 @@
       "doc": "FharaRuntime deployment URL (worker, web, scripts).",
       "default": null,
       "parse": "nullish",
-      "aliases": [
-        "FHARA_BACKEND_URL"
-      ],
       "required": [
         "worker",
         "webClient"
       ]
-    },
-    {
-      "name": "FHARA_BACKEND_URL",
-      "type": "url",
-      "group": "core",
-      "runtimes": [
-        "worker",
-        "scripts"
-      ],
-      "doc": "Legacy alias of FHARA_BACKEND_URL.",
-      "default": null,
-      "parse": "nullish",
-      "deprecated": "use FHARA_BACKEND_URL"
     },
     {
       "name": "FHARA_SERVICE_TOKEN",
@@ -92,103 +76,6 @@
       "default": null,
       "parse": "nullish",
       "secret": true
-    },
-    {
-      "name": "LLM_PROVIDER",
-      "type": "string",
-      "group": "llm",
-      "runtimes": [
-        "worker",
-        "runtime",
-        "scripts"
-      ],
-      "doc": "Global LLM provider fallback: anthropic | openai | openai-compatible.",
-      "default": "anthropic",
-      "parse": "lower"
-    },
-    {
-      "name": "LLM_MODEL",
-      "type": "string",
-      "group": "llm",
-      "runtimes": [
-        "worker",
-        "runtime",
-        "scripts"
-      ],
-      "doc": "Global fallback model; the default depends on LLM_PROVIDER.",
-      "default": null,
-      "derivedDefault": true,
-      "parse": "nullish"
-    },
-    {
-      "name": "LLM_BASE_URL",
-      "type": "url",
-      "group": "llm",
-      "runtimes": [
-        "worker",
-        "runtime",
-        "scripts"
-      ],
-      "doc": "Global fallback base URL; the default depends on LLM_PROVIDER.",
-      "default": null,
-      "derivedDefault": true,
-      "parse": "nullish"
-    },
-    {
-      "name": "LLM_OPENAI_BASE_URL",
-      "type": "url",
-      "group": "llm",
-      "runtimes": [
-        "worker",
-        "runtime"
-      ],
-      "doc": "OpenAI-flavour base URL; wins over LLM_BASE_URL for that flavour.",
-      "default": null,
-      "parse": "nullish"
-    },
-    {
-      "name": "LLM_ANTHROPIC_BASE_URL",
-      "type": "url",
-      "group": "llm",
-      "runtimes": [
-        "worker",
-        "runtime"
-      ],
-      "doc": "Anthropic-flavour base URL; wins over LLM_BASE_URL for that flavour.",
-      "default": null,
-      "parse": "nullish"
-    },
-    {
-      "name": "LLM_API_KEY",
-      "type": "string",
-      "group": "llm",
-      "runtimes": [
-        "worker",
-        "runtime",
-        "scripts"
-      ],
-      "doc": "Global fallback API key; also the default apiKeyEnv name.",
-      "default": "",
-      "parse": "nullish",
-      "aliases": [
-        "OPENAI_API_KEY"
-      ],
-      "secret": true
-    },
-    {
-      "name": "OPENAI_API_KEY",
-      "type": "string",
-      "group": "llm",
-      "runtimes": [
-        "worker",
-        "runtime",
-        "scripts"
-      ],
-      "doc": "Legacy fallback for LLM_API_KEY.",
-      "default": null,
-      "parse": "nullish",
-      "secret": true,
-      "deprecated": "use LLM_API_KEY"
     },
     {
       "name": "LLM_ROUND_ROBIN_STICKY_LIMIT",
@@ -2165,29 +2052,6 @@
       "parse": "bool"
     },
     {
-      "name": "FHARA_BACKEND_URL",
-      "type": "url",
-      "group": "core",
-      "runtimes": [
-        "runtime"
-      ],
-      "doc": "The deployment's own URL; a FharaRuntime system var. The fixtures guard reads it to tell a local/self-hosted backend from FharaRuntime cloud.",
-      "default": null,
-      "parse": "nullish",
-      "runtimeSystem": true
-    },
-    {
-      "name": "FHARA_BACKEND_URL",
-      "type": "url",
-      "group": "scripts",
-      "runtimes": [
-        "scripts"
-      ],
-      "doc": "Self-hosted FharaRuntime backend URL used by the FharaRuntime CLI (fixtures:seed targets it when set).",
-      "default": null,
-      "parse": "nullish"
-    },
-    {
       "name": "FHARA_DEPLOYMENT",
       "type": "string",
       "group": "scripts",
@@ -2252,13 +2116,6 @@
     "FHARA_SERVICE_TOKEN",
     "PROVIDER_ENCRYPTION_KEY",
     "PROVIDER_ENCRYPTION_KEY_OLD",
-    "LLM_PROVIDER",
-    "LLM_MODEL",
-    "LLM_BASE_URL",
-    "LLM_OPENAI_BASE_URL",
-    "LLM_ANTHROPIC_BASE_URL",
-    "LLM_API_KEY",
-    "OPENAI_API_KEY",
     "GITHUB_CLIENT_ID",
     "GITHUB_CLIENT_SECRET",
     "GITHUB_OAUTH_CALLBACK_URL",
@@ -2283,8 +2140,6 @@
       "FHARA_SERVICE_TOKEN",
       "PROVIDER_ENCRYPTION_KEY",
       "PROVIDER_ENCRYPTION_KEY_OLD",
-      "LLM_API_KEY",
-      "OPENAI_API_KEY",
       "STAGEHAND_API_KEY",
       "GITHUB_CLIENT_SECRET",
       "GITHUB_WEBHOOK_SECRET",

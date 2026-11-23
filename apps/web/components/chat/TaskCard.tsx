@@ -4,15 +4,12 @@ import { api } from "@fhara/runtime/api";
 import { roleLabel } from "@/lib/agentRoles";
 import { ArrowUpRight, Bell, Check, CheckCircle2, Loader2, RotateCcw, XCircle } from "lucide-react";
 import OptionCards from "./OptionCards";
-import { BTN_OUTLINE, BTN_PRIMARY, MUTED, RoleAvatar } from "./cards/primitives";
-import { PanelCard, PanelCardBody, PanelCardFooter, PanelCardHeader } from "../ui/panel-card";
+import { BTN_OUTLINE, BTN_PRIMARY, RoleAvatar } from "./cards/primitives";
+import { PanelCard, PanelCardBody, PanelCardHeader } from "../ui/panel-card";
 import { StatusTag, type StatusTone } from "../ui/status-tag";
 import { useToast } from "../Toasts";
-import { isClosedStatus } from "@/lib/taskStatus";
-import { normalizePermissionMode } from "@/api/functions/lib/permissionModes";
 import { refusalCopy } from "@/lib/taskInput";
 import { dueDateLabel, isOverdue } from "@/lib/runFormat";
-import { taskRef } from "@/lib/taskDock";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : "Please try again.");
 
@@ -22,7 +19,6 @@ export default function TaskCard({
   pending,
   onOpen,
   agents,
-  approvalMode,
   assignees,
 }: {
   task: any;
@@ -97,8 +93,7 @@ export default function TaskCard({
               ? "Queued"
               : "In progress";
   const progress = subtasks.length ? Math.round((doneSubs / subtasks.length) * 100) : task.status === "done" ? 100 : 0;
-  // Compact card: like the reference, the meta line names the agent
-  // currently working the task (first running subtask, else first).
+  // Keep the assignment card focused on the active owner, like the chat reference.
   const primarySubtask = subtasks.find((s) => s.status === "running") ?? subtasks[0];
   const primaryAgent = agents.find((a) => a._id === (primarySubtask as any)?.assignedAgentId);
   const owners =
@@ -129,16 +124,14 @@ export default function TaskCard({
           }
         }}
         aria-label={`Open task ${task.title}`}
-        className="max-w-xl"
+        className="max-w-3xl"
       >
         <PanelCardHeader
-          kind="Task"
+          kind={task.simulated ? "Simulation · no LLM calls" : undefined}
           icon={statusIcon}
           title={task.title}
           meta={
-            <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-              {/* Plan 067: the meta row carries the task ref and its deadline. */}
-              <span className="font-mono text-[12px] font-medium text-ink-3">{taskRef(task._id)}</span>
+            <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
               {owners.length > 0 &&
                 owners.slice(0, 3).map((owner) => (
                   <span key={owner.agentId} className="inline-flex items-center gap-1.5">
@@ -146,13 +139,24 @@ export default function TaskCard({
                     <span className="text-ink-2">{roleLabel(owner.role)}</span>
                   </span>
                 ))}
+              {task.branchName && (
+                <>
+                  {owners.length > 0 && <span aria-hidden="true">·</span>}
+                  <code className="max-w-36 truncate rounded-field bg-inset px-1.5 py-0.5 font-mono text-[11.5px] text-ink-3" title={task.branchName}>
+                    {String(task.branchName).split("/").at(-1)}
+                  </code>
+                </>
+              )}
               {task.dueAt && (
-                <span
-                  className={`text-[12px] ${isOverdue(task.dueAt, task.status === "done") ? "text-danger" : "text-ink-3"}`}
-                  title="Due date"
-                >
-                  due {dueDateLabel(task.dueAt)}
-                </span>
+                <>
+                  {(owners.length > 0 || task.branchName) && <span aria-hidden="true">·</span>}
+                  <span
+                    className={`text-[12px] ${isOverdue(task.dueAt, task.status === "done") ? "text-danger" : "text-ink-3"}`}
+                    title="Due date"
+                  >
+                    due {dueDateLabel(task.dueAt)}
+                  </span>
+                </>
               )}
             </span>
           }
@@ -164,15 +168,8 @@ export default function TaskCard({
           }
         />
         <div className="mx-3.5 mb-3 h-1 overflow-hidden rounded-full bg-inset" role="progressbar" aria-label="Task progress" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
-          <div className={`h-full rounded-full transition-all ${task.status === "done" ? "bg-ok" : "bg-ink"}`} style={{ width: `${progress}%` }} />
+          <div className={`h-full rounded-full transition-all ${task.status === "done" ? "bg-ok" : "bg-brand"}`} style={{ width: `${progress}%` }} />
         </div>
-        <PanelCardFooter
-          metrics={[
-            { label: "Steps", value: subtasks.length ? `${doneSubs}/${subtasks.length}` : null },
-            { label: "Progress", value: `${progress}%` },
-            { label: "Branch", value: task.branchName || null, title: task.branchName || undefined },
-          ]}
-        />
       </PanelCard>
       {waitingForInput && (
         <PanelCard className="max-w-xl">
@@ -253,9 +250,6 @@ export default function TaskCard({
       )}
       {/* Approve lives on the ApprovalCard(s) rendered below this card —
           one control per approval, not a second button for pending[0]. */}
-      {!isClosedStatus(task.status) && pending.length === 0 && task.status !== "done" && approvalMode === "ask" && normalizePermissionMode(task.permissionMode) === "supervised" && (
-        <p className={`pl-1 text-[11px] ${MUTED}`}>Team is working. You will get an Approve card here before any change is applied.</p>
-      )}
     </div>
   );
 }

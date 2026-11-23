@@ -66,6 +66,11 @@ export function validateArgs(args: unknown, argsValidator: any): string[] {
   if (!isRecord(args)) return ["arguments must be an object"];
   const errors: string[] = [];
   const fields: Record<string, any> = argsValidator?.fields ?? argsValidator ?? {};
+  for (const [key, validator] of Object.entries<any>(fields)) {
+    if (!(key in args) && validator?.isOptional !== "optional") {
+      errors.push(`${key} is required`);
+    }
+  }
   for (const [key, fieldValue] of Object.entries(args)) {
     if (!(key in fields)) {
       errors.push(`${key} is not an allowed argument`);

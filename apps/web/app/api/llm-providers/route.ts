@@ -19,15 +19,13 @@ import { serverEnv } from "@/lib/env.server";
  * Release audit P0-3/P0-4: the route only answers same-origin requests on
  * an allowed Host (lib/requestGuard.ts), and each op forwards a fixed set
  * of fields; nothing else in the body travels next to the token. The
- * backend additionally refuses platform-secret `apiKeyEnv` names and sends
- * a stored key only to the connection's stored baseUrl.
+ * backend sends a stored key only to the connection's stored baseUrl.
  */
 const PROVIDER_FIELDS = [
   "name",
   "provider",
   "model",
   "baseUrl",
-  "apiKeyEnv",
   "apiKey",
   "priority",
   "weight",

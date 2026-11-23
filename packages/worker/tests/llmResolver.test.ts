@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  handlesFromResolution,
   materializePool,
   resolveForAgent,
   TaskLlmResolver,
@@ -218,6 +219,63 @@ describe("resolveForAgent — health filter", () => {
   });
 });
 
+describe("resolveForAgent — the global setting is authoritative", () => {
+  it("an empty pool yields only an unusable placeholder, never an env or Anthropic default", () => {
+    const res = resolveForAgent(undefined, { callRole: "executor" }, [], freshHealth());
+    expect(res.primary.config.apiKey).toBe("");
+    expect(res.primary.config.model).toBe("(not configured)");
+    expect(res.routing.connection).toBe("(none)");
+    expect(res.routing.reason).toContain("No global LLM model is configured");
+    expect(res.routing.reason).not.toContain("claude-sonnet");
+  });
+});
+
+describe("resolveForAgent — plan 074: the global list may select a native CLI model", () => {
+  const native = conn({
+    _id: "opencode",
+    name: "OpenCode",
+    provider: "opencode",
+    models: [model("opencode/hy4-flash-free")],
+  });
+
+  it("native entries stay out of the plain API path", () => {
+    const res = resolveForAgent(undefined, {}, [native], freshHealth());
+    expect(res.primary.connectionName).toBe("(no global model configured)");
+  });
+
+  it("defaultConfig works with an OpenCode-only pool when native entries are enabled", () => {
+    const factory = vi.fn(() => ({ complete: async () => ({ content: "x" }) }));
+    const resolver = new TaskLlmResolver([native], freshHealth(), { includeNativeCli: true, providerFactory: factory });
+    const config = resolver.defaultConfig();
+    expect(config.provider).toBe("opencode");
+    expect(config.model).toBe("opencode/hy4-flash-free");
+    expect(resolver.handlesFor()[0].provider.complete).toBeDefined();
+  });
+
+  it("a native global selection is served by the injected provider factory", () => {
+    const factory = vi.fn(() => ({ complete: async () => ({ content: "x" }) }));
+    const res = resolveForAgent(undefined, {}, [native], freshHealth(), {
+      includeNativeCli: true,
+      providerFactory: factory,
+    });
+    expect(res.primary.connectionId).toBe("opencode");
+    expect(res.primary.model).toBe("opencode/hy4-flash-free");
+    const handles = handlesFromResolution(res, factory);
+    expect(handles).toHaveLength(1);
+    expect(handles[0].provider.complete).toBeDefined();
+  });
+
+  it("handlesFrom applies the resolver's factory to an already-resolved native chain", async () => {
+    const factory = vi.fn(() => ({ complete: async () => ({ content: "x" }) }));
+    const resolver = new TaskLlmResolver([native], freshHealth(), { includeNativeCli: true, providerFactory: factory });
+    const resolution = resolver.resolutionFor();
+    const handles = resolver.handlesFrom(resolution);
+    expect(handles).toHaveLength(1);
+    await expect(handles[0].provider.complete([])).resolves.toEqual({ content: "x" });
+    expect(factory).toHaveBeenCalledWith(resolution.primary.config);
+  });
+});
+
 describe("materializePool", () => {
   it("excludes disabled connections and synthesizes the legacy model", async () => {
     const rows: PoolConnectionRow[] = [
@@ -227,7 +285,6 @@ describe("materializePool", () => {
         provider: "openai-compatible",
         model: "m-off",
         baseUrl: "https://off.example",
-        apiKeyEnv: "KEY_OFF",
         priority: 1,
         weight: 100,
         isEnabled: false,
@@ -238,54 +295,45 @@ describe("materializePool", () => {
         provider: "openai-compatible",
         model: "legacy-model",
         baseUrl: "https://on.example",
-        apiKeyEnv: "KEY_ON",
+        apiKey: "stored-key",
         priority: 2,
         weight: 100,
         isEnabled: true,
       } as PoolConnectionRow,
     ];
-    const pool = await materializePool(rows, { KEY_ON: "env-key", KEY_OFF: "off-key" });
+    const pool = await materializePool(rows);
     expect(pool.map((c) => c._id)).toEqual(["conn-on"]);
-    expect(pool[0].apiKey).toBe("env-key");
+    expect(pool[0].apiKey).toBe("stored-key");
     expect(pool[0].models).toEqual([
       expect.objectContaining({ modelId: "legacy-model", isAvailable: true, legacy: true }),
     ]);
   });
 
-  it("an empty/undefined pool stays empty (env fallback happens at resolve time)", async () => {
+  it("an empty/undefined pool stays empty (resolution fails explicitly)", async () => {
     expect(await materializePool(undefined)).toEqual([]);
     expect(await materializePool([])).toEqual([]);
   });
 
-  it("refuses platform secrets named as apiKeyEnv", async () => {
+  it("a connection with no stored key resolves to an empty key, never an env value", async () => {
     const rows = [
       {
-        _id: "conn-secret",
-        name: "Bad",
+        _id: "conn-keyless",
+        name: "Keyless",
         provider: "openai-compatible",
         model: "m",
-        baseUrl: "https://bad.example",
-        apiKeyEnv: "FHARA_SERVICE_TOKEN",
+        baseUrl: "https://keyless.example",
         priority: 1,
         weight: 100,
         isEnabled: true,
       } as PoolConnectionRow,
-      {
-        _id: "conn-key",
-        name: "Good",
-        provider: "openai-compatible",
-        model: "m",
-        baseUrl: "https://good.example",
-        apiKeyEnv: "OPENAI_API_KEY",
-        priority: 2,
-        weight: 100,
-        isEnabled: true,
-      } as PoolConnectionRow,
     ];
-    const env = { FHARA_SERVICE_TOKEN: "platform-secret", OPENAI_API_KEY: "provider-key" };
-    const pool = await materializePool(rows, env);
-    expect(pool.find((c) => c._id === "conn-secret")?.apiKey).toBe("");
-    expect(pool.find((c) => c._id === "conn-key")?.apiKey).toBe("provider-key");
+    process.env.OPENAI_API_KEY = "must-not-be-used";
+    try {
+      const pool = await materializePool(rows);
+      expect(pool[0].apiKey).toBe("");
+    } finally {
+      delete process.env.OPENAI_API_KEY;
+    }
   });
 });
 

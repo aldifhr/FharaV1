@@ -94,6 +94,29 @@ export const resume = mutation({
   args: { taskId: v.id("tasks") },
   handler: async (ctx, args) => {
     const task = await assertTaskAccess(ctx, args.taskId);
+    const project = await ctx.db.get(task.projectId);
+    if (task.queueHeld === true || project?.worktreeQueueHold) {
+      const now = Date.now();
+      if (project?.worktreeQueueHold) {
+        await ctx.db.patch(task.projectId, { worktreeQueueHold: undefined });
+      }
+      const rows = await ctx.db
+        .query("tasks")
+        .withIndex("by_project", (q) => q.eq("projectId", task.projectId))
+        .collect();
+      for (const row of rows) {
+        if (row.queueHeld !== true) continue;
+        await patchTask(ctx, row._id, { queueHeld: undefined, updatedAt: now });
+      }
+      await appendTaskEvent(ctx, {
+        taskId: task._id,
+        projectId: task.projectId,
+        type: "task.resumed",
+        payload: { resumedBy: "user", queue: true },
+        level: "info",
+      });
+      return { resumed: true, status: task.status };
+    }
     if (task.status !== "paused" && task.pausedBy) {
       // A record-only pause (parked on an approval): clear it; a pending
       // approval signal makes the task resumable again by itself.

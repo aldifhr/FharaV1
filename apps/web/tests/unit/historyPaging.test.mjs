@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { loadEarlier, mergeHistory, oldestCursor, turnPreview, MESSAGE_WINDOW } from "../../../api/runtime/lib/historyPaging.ts";
+import { loadEarlier, mergeHistory, oldestCursor, turnPreview, MESSAGE_WINDOW } from "../../../../apps/api/functions/lib/historyPaging.ts";
 
 const thread = Array.from({ length: 3000 }, (_, i) => ({ _id: `m${i + 1}`, _creationTime: 1000 + i, content: `message ${i + 1}` }));
 const live = thread.slice(-MESSAGE_WINDOW);

@@ -44,6 +44,7 @@ import {
   useAppSettings,
 } from "./controls";
 import { IsolationKnob } from "./IsolationKnob";
+import { CliDriversCard } from "@/components/LlmSettings";
 
 /** Shared confirm state for destructive actions in a tab. */
 function useConfirm() {
@@ -349,18 +350,9 @@ export function SnapshotsTab() {
 // ── Providers ───────────────────────────────────────────────────────────
 
 export function ProvidersTab({ onOpenModels }: { onOpenModels: () => void }) {
-  const opencode = useQuery(api.opencodeModels.list, {});
-  const refresh = useMutation(api.opencodeModels.requestRefresh);
-  const toast = useToast();
-  let status: string;
-  if (opencode === undefined) status = "Checking…";
-  else if (opencode.updatedAt === 0) status = "Not checked yet. A worker reports on start.";
-  else if (opencode.installed === false) status = "Not installed on the worker machine.";
-  else if (!opencode.available) status = opencode.error ? `Installed, but listing models failed: ${opencode.error}` : "Installed, no models listed.";
-  else status = `Installed${opencode.version ? ` (${opencode.version})` : ""}, ${opencode.models.length} model${opencode.models.length === 1 ? "" : "s"}.`;
   return (
     <>
-      <Section title="LLM providers" description="Connections, models and their order live in LLM & Models.">
+      <Section title="LLM providers" description="API connections, models and their order live in LLM & Models.">
         <button type="button" onClick={onOpenModels} className="flex w-full items-center justify-between gap-6 px-4 py-3.5 text-left transition-colors hover:bg-hover">
           <span className="min-w-0">
             <span className="block text-[13px] font-medium text-ink">Open LLM & Models</span>
@@ -369,33 +361,7 @@ export function ProvidersTab({ onOpenModels }: { onOpenModels: () => void }) {
           <ChevronRight size={14} className="shrink-0 text-ink-3" />
         </button>
       </Section>
-      <Section title="OpenCode" description="The OpenCode CLI as reported by the worker.">
-        <Row label="Status" description={status}>
-          <button
-            type="button"
-            className={BUTTON}
-            disabled={opencode === undefined || opencode.pendingRefresh}
-            onClick={async () => {
-              try {
-                const { requested } = await refresh({});
-                toast(requested ? "success" : "info", requested ? "Detection requested" : "No worker has reported yet", requested ? "The worker re-checks on its next poll." : "Start the worker first.");
-              } catch (err) {
-                toast("error", "Couldn't request detection", errorText(err));
-              }
-            }}
-          >
-            {opencode?.pendingRefresh ? "Checking…" : "Check again"}
-          </button>
-        </Row>
-        {opencode && opencode.updatedAt > 0 && (
-          <Row
-            label="Last report"
-            description={`${opencode.hostname ?? opencode.workerId ?? "worker"}${opencode.path ? ` · ${opencode.path}` : ""}`}
-          >
-            <Muted>{relativeTime(opencode.updatedAt)}</Muted>
-          </Row>
-        )}
-      </Section>
+      <CliDriversCard />
     </>
   );
 }

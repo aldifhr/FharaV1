@@ -24,8 +24,7 @@ import {
   Wrench,
   FlaskConical,
   Info,
-  Archive,
-  LogIn,
+  UserRound,
   Search,
   RotateCcw,
   X,
@@ -40,7 +39,6 @@ import LlmSettingsSection from "./LlmSettings";
 import { IntegrationsPanel } from "./integrations/IntegrationsPanel";
 import {
   AboutTab,
-  ArchiveTab,
   BrowserTab,
   DevicesTab,
   DiffsTab,
@@ -184,8 +182,7 @@ export const NAV_ITEMS: { id: string; label: string; icon: typeof SlidersHorizon
   { id: "maintenance", label: "Maintenance", icon: Wrench },
   { id: "labs", label: "Labs", icon: FlaskConical },
   { id: "about", label: "About", icon: Info },
-  { id: "archive", label: "Archive", icon: Archive },
-  { id: "signin", label: "Account", icon: LogIn },
+  { id: "signin", label: "Account", icon: UserRound },
 ];
 
 /** The tabs that live in settings/tabs.tsx. */
@@ -231,8 +228,6 @@ function ActiveTab({ id, projectId }: { id: string; projectId?: string }) {
       return <LabsTab />;
     case "about":
       return <AboutTab />;
-    case "archive":
-      return <ArchiveTab />;
     case "signin":
       return <SignInTab />;
     default:

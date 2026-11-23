@@ -92,6 +92,26 @@ describe("Preservation Guard", () => {
     expect(a.description).toBe("Do a");
     expect(guarded.plan.subtasks.find((subtask) => subtask.key === "b2")?.description).toBe("New approach for b");
   });
+
+  it("reinserts an omitted frozen node so the repaired plan passes quality", () => {
+    const next = plan([
+      node("a"),
+      node("b2", ["a"], { description: "New approach for b", replanReasoning: "b failed; narrow scope" }),
+      node("e"),
+    ]);
+
+    const guarded = preserveFrozen(base, next, ["a", "c", "e"]);
+    const restored = guarded.plan.subtasks.find((subtask) => subtask.key === "c");
+
+    expect(restored).toEqual(base.subtasks.find((subtask) => subtask.key === "c"));
+    expect(guarded.restored).toEqual(["c"]);
+    expect(checkReplanQuality({
+      previous: base,
+      next: guarded.plan,
+      failedKeys: ["b"],
+      frozenKeys: ["a", "c", "e"],
+    }).hard).toEqual([]);
+  });
 });
 
 describe("Replan Quality Check", () => {

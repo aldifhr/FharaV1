@@ -37,7 +37,7 @@ describe("failure injection", () => {
   it("provider rate limit treated as transient (health circuit) — resolver falls to next", async () => {
     const { providerHealth } = await import("@/llm/health");
     const { materializePool, TaskLlmResolver } = await import("@/llm/resolver");
-    const pool = await materializePool([{ _id: "p1" as any, name: "C1", provider: "openai-compatible", model: "m1", baseUrl: "http://x", apiKeyEnv: "K", priority: 1, weight: 1 }]);
+    const pool = await materializePool([{ _id: "p1" as any, name: "C1", provider: "openai-compatible", model: "m1", baseUrl: "http://x", priority: 1, weight: 1 }]);
     const resolver = new TaskLlmResolver(pool, providerHealth);
     // Empty handles when no API key → explicit error, not silent
     const handles = resolver.handlesFor("a-fe" as any);

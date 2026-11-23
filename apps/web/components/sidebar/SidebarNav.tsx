@@ -97,8 +97,8 @@ export function RailItem({
     onMouseLeave: () => setTip(null),
     onFocus: (e: React.FocusEvent<HTMLElement>) => show(e.currentTarget),
     onBlur: () => setTip(null),
-    className: `relative flex h-9 w-9 shrink-0 items-center justify-center rounded-field outline-none transition focus-visible:ring-2 focus-visible:ring-ink/30 ${
-      active ? "bg-hover text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
+      className: `relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl outline-none transition focus-visible:ring-2 focus-visible:ring-brand/40 ${
+      active ? "bg-brand-soft text-brand" : "text-ink-2 hover:bg-hover hover:text-ink"
     }`,
   };
   const inner = (

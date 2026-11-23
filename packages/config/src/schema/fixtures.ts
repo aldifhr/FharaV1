@@ -16,23 +16,6 @@ export const FIXTURE_VARS = [
     doc: "1 allows fixtures:seed / fixtures:wipe on a non-local FharaRuntime deployment (dev only; local and self-hosted need no flag).",
   },
   {
-    name: "FHARA_BACKEND_URL",
-    type: "url",
-    parse: "nullish",
-    runtimes: ["runtime"],
-    group: "core",
-    doc: "The deployment's own URL; a FharaRuntime system var. The fixtures guard reads it to tell a local/self-hosted backend from FharaRuntime cloud.",
-    runtimeSystem: true,
-  },
-  {
-    name: "FHARA_BACKEND_URL",
-    type: "url",
-    parse: "nullish",
-    runtimes: ["scripts"],
-    group: "scripts",
-    doc: "Self-hosted FharaRuntime backend URL used by the FharaRuntime CLI (fixtures:seed targets it when set).",
-  },
-  {
     name: "FHARA_DEPLOYMENT",
     type: "string",
     parse: "nullish",

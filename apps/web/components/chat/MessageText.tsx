@@ -7,7 +7,7 @@ import { cjk } from "@streamdown/cjk";
 import "katex/dist/katex.min.css";
 import "streamdown/styles.css";
 import { useToast } from "../Toasts";
-import { roleKeyForMention } from "@/lib/agentRoles";
+import { NEUTRAL_MENTION_COLOR, ROLE_COLORS, roleKeyForMention } from "@/lib/agentRoles";
 import { maskSecrets as maskSecretsIn, unmaskText } from "@/lib/secretMask";
 
 /**
@@ -39,11 +39,11 @@ function Strong({ children, className }: { children?: ReactNode; className?: str
   const text = textOf(children).trim();
   if (/^@[A-Za-z][\w-]*$/.test(text)) {
     const roleKey = roleKeyForMention(text);
-    // Plain indigo text (design reference), not a filled chip.
+    const color = roleKey ? ROLE_COLORS[roleKey] : NEUTRAL_MENTION_COLOR;
     return (
       <span
         data-mention={roleKey ?? text.slice(1).toLowerCase()}
-        className="font-medium text-ink"
+        className={`rounded px-1 font-medium ${color}`}
       >
         {text}
       </span>

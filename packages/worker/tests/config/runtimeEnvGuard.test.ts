@@ -84,6 +84,6 @@ describe("B4: env:sync covers every var FharaRuntime reads", () => {
       "FHARA_GIT_AUTHOR_NAME",
       "FHARA_GIT_AUTHOR_EMAIL",
     ]) expect(FHARA_SYNC_KEYS).toContain(key);
-    expect(FHARA_SYNC_KEYS).toHaveLength(28);
+    expect(FHARA_SYNC_KEYS).toHaveLength(21);
   });
 });

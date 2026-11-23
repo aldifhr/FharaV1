@@ -87,16 +87,6 @@ export function parseFharaRuntimeEnvList(text) {
   return parseDotenv(text);
 }
 
-/** GET /models request for an OpenAI-compatible or Anthropic endpoint. */
-export function modelsRequest(env) {
-  const provider = (env.LLM_PROVIDER ?? "anthropic").toLowerCase();
-  const anthropic = provider === "anthropic";
-  const base = (env.LLM_BASE_URL ?? (anthropic ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1")).replace(/\/+$/, "");
-  const key = env.LLM_API_KEY ?? env.OPENAI_API_KEY ?? "";
-  const headers = anthropic ? { "x-api-key": key, "anthropic-version": "2023-06-01" } : { authorization: `Bearer ${key}` };
-  return { url: `${base}/models`, headers, hasKey: key.length > 0 };
-}
-
 const ICON = { ok: "✓", warn: "!", fail: "✗", skip: "-" };
 
 export function formatResult(result) {
@@ -207,31 +197,17 @@ async function run() {
       ? { name: "Required env", status: "ok", detail: `${REQUIRED_WORKER_VARS.join(", ")} set` }
       : { name: "Required env", status: "fail", detail: `missing: ${missingRequired.join(", ")}`, hint: "set them in .env (see .env.example)" },
   );
-  const optionalSet = ["LLM_PROVIDER", "LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY", "PROVIDER_ENCRYPTION_KEY", "WORKSPACE_ROOT"].filter((n) => env[n]);
-  add({ name: "Optional env", status: "ok", detail: optionalSet.length ? `set: ${optionalSet.join(", ")}` : "none of LLM_*, PROVIDER_ENCRYPTION_KEY, WORKSPACE_ROOT set" });
+  const optionalSet = ["PROVIDER_ENCRYPTION_KEY", "WORKSPACE_ROOT"].filter((n) => env[n]);
+  add({ name: "Optional env", status: "ok", detail: optionalSet.length ? `set: ${optionalSet.join(", ")}` : "none of PROVIDER_ENCRYPTION_KEY, WORKSPACE_ROOT set" });
 
-  // LLM endpoint
-  const llm = modelsRequest(env);
-  if (!llm.hasKey) {
-    add({
-      name: "LLM endpoint",
-      status: "warn",
-      required: false,
-      detail: "LLM_API_KEY not set in the worker env — skipped",
-      hint: "add a provider in Settings → LLM, or set LLM_PROVIDER/LLM_BASE_URL/LLM_MODEL/LLM_API_KEY in .env",
-    });
-  } else {
-    try {
-      const res = await fetchWithTimeout(llm.url, { headers: llm.headers });
-      add(
-        res.ok
-          ? { name: "LLM endpoint", status: "ok", detail: `GET /models → ${res.status}` }
-          : { name: "LLM endpoint", status: "fail", detail: `GET /models → ${res.status}`, hint: res.status === 401 || res.status === 403 ? "check LLM_API_KEY" : "check LLM_BASE_URL / LLM_PROVIDER" },
-      );
-    } catch (err) {
-      add({ name: "LLM endpoint", status: "fail", detail: `unreachable (${err.name === "AbortError" ? "timeout" : err.cause?.code ?? err.message})`, hint: "check LLM_BASE_URL and network/proxy" });
-    }
-  }
+  // LLM endpoint: Settings is the only source (plan 072). Test a connection there.
+  add({
+    name: "LLM endpoint",
+    status: "warn",
+    required: false,
+    detail: "not checked from the environment — use Test in Settings → LLM & Models",
+    hint: "add a connection with a stored key, then press Test",
+  });
 
   // FharaRuntime
   let runtimeReachable = false;

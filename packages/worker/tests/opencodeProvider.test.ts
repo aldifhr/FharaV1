@@ -259,12 +259,12 @@ describe("executionRouteFor (the subtask route)", () => {
     expect(chain(route.resolution)).toEqual(["http/x"]);
   });
 
-  it("only OpenCode entries, all unavailable: falls back to the worker env model", () => {
+  it("only OpenCode entries, all unavailable: no env fallback, explicit unconfigured resolution", () => {
     const pool = [conn({ _id: "oc", name: "OpenCode", provider: "opencode", baseUrl: "", apiKey: "", models: [model("opencode/a", 0)] })];
     const route = resolver(pool).executionRouteFor(undefined, { available: false, reason: "isolation" });
     expect(route.runtime).toBe("api");
     if (route.runtime !== "api") return;
-    expect(route.resolution.primary.connectionName).toBe("(worker env)");
+    expect(route.resolution.primary.connectionName).toBe("(no global model configured)");
     expect(route.skipped).toHaveLength(1);
   });
 

@@ -63,6 +63,15 @@ describe("classifier", () => {
     expect(ui.suggestedCapabilities[0]).toBe("ui-ux-design");
   });
 
+  it("routes CI and container changes to the scoped DevOps capability", () => {
+    const ci = classifyCommand("Update the GitHub Actions workflow to cache dependencies");
+    expect(ci.kind).toBe("code_change");
+    expect(ci.suggestedCapabilities[0]).toBe("devops");
+
+    const docker = classifyCommand("Fix the Dockerfile build stage");
+    expect(docker.suggestedCapabilities[0]).toBe("devops");
+  });
+
   it("does not let a data filename override explicit domain keywords", () => {
     const result = classifyCommand(
       "Create api/notes.md documenting the new endpoint"

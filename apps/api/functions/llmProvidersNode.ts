@@ -16,24 +16,23 @@ import { action } from "@fhara/runtime/functions";
 import { internal } from "@fhara/runtime/api";
 import { v } from "@fhara/runtime/values";
 import { assertServiceToken } from "./lib/authz";
-import { completeWithAgent, getGlobalLLMConfig, resolveConfigFromProviders } from "./lib/chat/llm";
+import { completeWithAgent, resolveConfigFromProviders } from "./lib/chat/llm";
 import { ENHANCEMENT_SYSTEM_PROMPT, enhancementUserMessage } from "./lib/prompts/enhance";
 import { resolveConnectionKey, type PoolConnectionPayload } from "./lib/llmResolver";
 import { listProviderModels } from "./lib/llmModelList";
 
 /**
  * Enhance a short/vague prompt with the primary connection of the provider
- * pool, else the global LLM config. Returns the draft unchanged when the
- * model answers with nothing.
+ * pool. Returns the draft unchanged when the model answers with nothing.
  */
 export const enhancePrompt = action({
   args: { token: v.string(), prompt: v.string() },
   handler: async (ctx, args): Promise<string> => {
     assertServiceToken(args.token);
     const pool: PoolConnectionPayload[] = await ctx.runQuery(internal.llmProviders.getForProject, {});
-    const config = await resolveConfigFromProviders(pool, getGlobalLLMConfig());
+    const config = await resolveConfigFromProviders(pool);
     if (!config.apiKey) {
-      throw new Error("No LLM API key configured. Add a provider in Settings or set LLM_API_KEY.");
+      throw new Error("No LLM API key configured. Add a key to the selected connection in Settings → LLM & Models.");
     }
     const result = await completeWithAgent(ENHANCEMENT_SYSTEM_PROMPT, [
       { role: "user", content: enhancementUserMessage(args.prompt) },

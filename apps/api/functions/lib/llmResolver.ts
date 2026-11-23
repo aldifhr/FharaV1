@@ -1,4 +1,3 @@
-import { isSafeApiKeyEnv } from "./apiKeyEnv";
 import type { QueryCtx } from "@fhara/runtime/functions";
 import type { Id } from "@fhara/runtime/data";
 import { decryptApiKey } from "./llmCrypto";
@@ -51,7 +50,6 @@ export interface PoolConnectionPayload {
    */
   model: string;
   baseUrl: string;
-  apiKeyEnv: string;
   /** @deprecated Legacy plaintext key. Read only as fallback until migration. */
   apiKey?: string;
   apiKeyCiphertext?: string;
@@ -142,7 +140,6 @@ export async function loadProviderPool(
       provider: p.provider,
       model: models.find((m) => m.isAvailable)?.modelId ?? p.model ?? "",
       baseUrl: p.baseUrl,
-      apiKeyEnv: p.apiKeyEnv,
       apiKeyCiphertext: p.apiKeyCiphertext,
       priority: p.priority,
       weight: p.weight,
@@ -161,12 +158,13 @@ export async function loadProviderPool(
  * Resolve the usable plaintext key for a connection, for TRUSTED
  * backend-side use only (chat completions, model discovery). Decrypts the
  * stored ciphertext — a decryption failure is a hard error naming the
- * provider — then falls back to the legacy plaintext `apiKey` column, then
- * to the env var named by `apiKeyEnv`. The result must never leave the
- * backend.
+ * provider — then falls back to the legacy plaintext `apiKey` column. No
+ * environment variable is consulted (plan 072). The result must never leave
+ * the backend. A connection with no stored key resolves to "" and the
+ * caller must fail explicitly rather than pick another credential.
  */
 export async function resolveConnectionKey(
-  connection: Pick<PoolConnectionPayload, "name" | "apiKey" | "apiKeyEnv" | "apiKeyCiphertext">
+  connection: Pick<PoolConnectionPayload, "name" | "apiKey" | "apiKeyCiphertext">
 ): Promise<string> {
   if (connection.apiKeyCiphertext) {
     return await decryptApiKey(connection.apiKeyCiphertext, connection.name);
@@ -174,10 +172,5 @@ export async function resolveConnectionKey(
   if (connection.apiKey) {
     return connection.apiKey.trim();
   }
-  // Never read a platform secret by name (release audit P0-3), even from
-  // a row written before apiKeyEnv was validated.
-  if (!isSafeApiKeyEnv(connection.apiKeyEnv)) return "";
-  const env: Record<string, string | undefined> =
-    (globalThis as any).process?.env ?? {};
-  return env[connection.apiKeyEnv]?.trim() ?? "";
+  return "";
 }

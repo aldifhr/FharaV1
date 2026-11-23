@@ -39,6 +39,26 @@ describe("evaluator", () => {
     expect(result.verdict).toBe("passed");
   });
 
+  it("accepts CRLF checkout of an LF-approved file (Windows git)", async () => {
+    const approved = "export const ok = true;\n";
+    await fs.writeFile(path.join(root, "app.ts"), approved.replace(/\n/g, "\r\n"), "utf-8");
+    const result = await evaluateTask({
+      workspacePath: root,
+      subtasks: [{ key: "implement", kind: "code_change", status: "completed" }],
+      fileChanges: [
+        {
+          filePath: "app.ts",
+          changeType: "new",
+          newContentHash: hashContent(approved),
+          appliedAt: Date.now(),
+        },
+      ],
+      hasApprovalPlan: true,
+      qaVerdicts: {},
+    });
+    expect(result.verdict).toBe("passed");
+  });
+
   it("fails when an applied file no longer matches the approved content", async () => {
     await fs.writeFile(path.join(root, "app.ts"), "tampered", "utf-8");
     const result = await evaluateTask({

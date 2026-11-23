@@ -55,7 +55,7 @@ describe("roles: normalization + lookup", () => {
     expect(normalizeRole("product analyst")).toBe("cto");
     expect(normalizeRole("Security Engineer")).toBe("backend");
     expect(normalizeRole("technical-writer")).toBe("backend");
-    expect(normalizeRole("DevOps Engineer")).toBe("backend");
+    expect(normalizeRole("DevOps Engineer")).toBe("devops");
     expect(normalizeRole("Reviewer")).toBe("qa");
     expect(normalizeRole("")).toBeNull();
   });

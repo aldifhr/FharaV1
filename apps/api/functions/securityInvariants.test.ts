@@ -2,9 +2,9 @@
 import { runtimeTest } from "@fhara/runtime/test";
 import { describe, expect, test } from "vitest";
 import { api, internal } from "@fhara/runtime/api";
-import * as integrationsModule from "./integrations";
 import schema from "./schema";
 import { decryptApiKey } from "./lib/llmCrypto";
+import { getFunction } from "../../../packages/runtime/src/runtime/registry";
 
 /**
  * Phase 6 backend harness (local-test) — minimal, invariant-focused.
@@ -97,7 +97,6 @@ describe("provider mutation token gate (Phase 1)", () => {
       provider: "openai-compatible",
       model: "model-1",
       baseUrl: "http://127.0.0.1:9",
-      apiKeyEnv: "SOME_PROVIDER_KEY",
       priority: 1,
     };
 
@@ -137,15 +136,9 @@ describe("integrations token store is internal-only (Phase 6 fix)", () => {
     // was declared a PUBLIC mutation while its only call site used the
     // internal reference — an unauthenticated credential-write hole, and
     // the reason `runtime dev`'s deploy typecheck failed (TS2551).
-    // Function references are untyped path proxies at runtime (the
-    // generated api.js exports anyApi for both `api` and `internal`), so
-    // visibility is asserted where it actually lives: the registration
-    // marker the FharaRuntime builder stamps on internal functions, plus the
-    // generated public types omitting it (covered by the api typecheck).
-    const registration = integrationsModule.upsertGithubIntegration as {
-      isInternal?: boolean;
-    };
-    expect(registration.isInternal).toBe(true);
+    // Local function references are path proxies, so assert the registered
+    // function kind that the HTTP server uses to enforce public visibility.
+    expect(getFunction("integrations:upsertGithubIntegration").kind).toBe("internalMutation");
 
     const previousKey = process.env.PROVIDER_ENCRYPTION_KEY;
     process.env.PROVIDER_ENCRYPTION_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
@@ -194,7 +187,6 @@ describe("getRunContext credential hygiene (Phase 1 + 2)", () => {
         provider: "openai-compatible",
         model: "model-1",
         baseUrl: "http://127.0.0.1:9",
-        apiKeyEnv: "SOME_PROVIDER_KEY",
         apiKey: "sk-provider-plaintext",
         apiKeyCiphertext: "v1:aaaa:bbbb:cccc",
         priority: 1,

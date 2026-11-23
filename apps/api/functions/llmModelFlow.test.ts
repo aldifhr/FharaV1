@@ -11,8 +11,8 @@ import { api, internal } from "@fhara/runtime/api";
 import schema from "./schema";
 import { listProviderModels } from "./lib/llmModelList";
 import { findPreset, guessPreset, LLM_PROVIDER_PRESETS, modelListHeaders, parseModelList } from "./lib/llmPresets";
-import { isSafeApiKeyEnv } from "./lib/apiKeyEnv";
-import { completeWithAgent, resetChatRouting } from "./lib/chat/llm";
+import { encryptApiKey } from "./lib/llmCrypto";
+import { completeWithAgent, orderedChatPairs, resetChatRouting } from "./lib/chat/llm";
 
 const modules = import.meta.glob("./**/*.ts");
 const TOKEN = "svc-token-llm-flow";
@@ -33,13 +33,37 @@ afterEach(() => {
   delete process.env.FLOW_KEY;
 });
 
+describe("chat rotation with native CLI models", () => {
+  const opencode = {
+    _id: "p1", name: "OpenCode", provider: "opencode", isEnabled: true,
+    selectionMode: "round_robin",
+    models: [{ _id: "m1", modelId: "opencode/hy4-flash-free", isAvailable: true }],
+  };
+  const api = {
+    _id: "p2", name: "9Router", provider: "openai-compatible", isEnabled: true,
+    selectionMode: "round_robin",
+    models: [{ _id: "m2", modelId: "nous/qwen/qwen4-max:free", isAvailable: true }],
+  };
+  const cursor = { next: () => 0 };
+
+  test("includes OpenCode models when a project scope can run them", () => {
+    const pairs = orderedChatPairs([opencode, api] as never, undefined, cursor, true);
+    expect(pairs.map((pair) => pair.connection.name)).toContain("OpenCode");
+    expect(pairs).toHaveLength(2);
+  });
+
+  test("keeps the API-only pool for callers without a project scope", () => {
+    const pairs = orderedChatPairs([opencode, api] as never, undefined, cursor);
+    expect(pairs.map((pair) => pair.connection.name)).toEqual(["9Router"]);
+  });
+});
+
 describe("presets", () => {
-  test("every preset has a safe env name and a valid wire format", () => {
+  test("every preset has a valid wire format", () => {
     expect(LLM_PROVIDER_PRESETS.map((p) => p.id)).toEqual([
       "anthropic", "openai", "openrouter", "gemini", "deepseek", "groq", "mistral", "together", "ollama", "lmstudio", "custom",
     ]);
     for (const preset of LLM_PROVIDER_PRESETS) {
-      expect(isSafeApiKeyEnv(preset.apiKeyEnv), preset.id).toBe(true);
       expect(["anthropic", "openai", "openai-compatible"]).toContain(preset.provider);
       if (preset.needsKey) expect(preset.apiKeyUrl, preset.id).toMatch(/^https:\/\//);
     }
@@ -91,17 +115,18 @@ describe("model discovery auth", () => {
   });
 
   test("fetchModels for a saved Anthropic connection sends x-api-key to the stored URL", async () => {
-    process.env.FLOW_KEY = "sk-ant-stored";
+    process.env.PROVIDER_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
     const seen: Array<{ url: string; headers: Record<string, string> }> = [];
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
       seen.push({ url: String(url), headers: init?.headers as Record<string, string> });
       return json({ data: [{ id: "claude-haiku-4-5" }] });
     });
     const t = runtimeTest(schema, modules);
+    const cipher = await encryptApiKey("sk-ant-stored");
     const providerId = await t.run((ctx) =>
       ctx.db.insert("llmProviders", {
         name: "Anthropic", provider: "anthropic", model: "", baseUrl: "https://api.anthropic.com/v1",
-        apiKeyEnv: "FLOW_KEY", priority: 0, weight: 100, isEnabled: true, createdAt: 1,
+        apiKeyCiphertext: cipher, priority: 0, weight: 100, isEnabled: true, createdAt: 1,
       })
     );
     const ids = await t.action(api.llmProviders.fetchModels, { token: TOKEN, baseUrl: "https://ignored.example", providerId });
@@ -123,17 +148,19 @@ describe("model discovery auth", () => {
   });
 });
 
-async function twoProviders() {
+async function twoProviders(secret = "k") {
   const t = runtimeTest(schema, modules);
+  process.env.PROVIDER_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
+  const cipher = await encryptApiKey(secret);
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
     const a = await ctx.db.insert("llmProviders", {
       name: "A", provider: "openai-compatible", model: "", baseUrl: "http://a.example/v1",
-      apiKeyEnv: "FLOW_KEY", priority: 0, weight: 100, isEnabled: true, createdAt: now,
+      apiKeyCiphertext: cipher, priority: 0, weight: 100, isEnabled: true, createdAt: now,
     });
     const b = await ctx.db.insert("llmProviders", {
       name: "B", provider: "openai-compatible", model: "", baseUrl: "http://b.example/v1",
-      apiKeyEnv: "FLOW_KEY", priority: 1, weight: 100, isEnabled: true, createdAt: now,
+      apiKeyCiphertext: cipher, priority: 1, weight: 100, isEnabled: true, createdAt: now,
     });
     // Legacy rows: no position yet.
     const a1 = await ctx.db.insert("llmModels", { providerId: a, modelId: "a1", isAvailable: true, createdAt: now, updatedAt: now });
@@ -178,7 +205,7 @@ describe("the ordered model list", () => {
     const { t } = await twoProviders();
     const id = await t.mutation(api.llmProviders.create, {
       token: TOKEN, name: "C", provider: "anthropic", model: "", baseUrl: "https://api.anthropic.com/v1",
-      apiKeyEnv: "ANTHROPIC_API_KEY", presetId: "anthropic",
+      presetId: "anthropic",
     });
     const row = await t.run((ctx) => ctx.db.get(id));
     expect(row?.priority).toBe(2);
@@ -197,7 +224,6 @@ describe("the ordered model list", () => {
 
 describe("Test action", () => {
   test("tests one model with a tiny completion and reports model + latency", async () => {
-    process.env.FLOW_KEY = "k";
     const { t, b, b1 } = await twoProviders();
     const bodies: any[] = [];
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
@@ -211,8 +237,7 @@ describe("Test action", () => {
   });
 
   test("a failing model reports the error, not the key", async () => {
-    process.env.FLOW_KEY = "sk-secret-value-123456";
-    const { t, a } = await twoProviders();
+    const { t, a } = await twoProviders("sk-secret-value-123456");
     vi.stubGlobal("fetch", vi.fn(async () => new Response('{"error":"bad key sk-secret-value-123456"}', { status: 401 })));
     const result = await t.action(api.llmProvidersNode.testModel, { token: TOKEN, providerId: a });
     expect(result.ok).toBe(false);

@@ -9,7 +9,5 @@ export * from "./runtimeSync";
 export { buildManifest, renderManifest } from "./manifest";
 export type { EnvManifest, ManifestVar } from "./manifest";
 export { FHARA_CLI_TARGET_VARS, ENV_SECTIONS, exampleValue, renderApiEnvExample, renderEnvExample } from "./envExample";
-export { llmFallbackConfig } from "./llmFallback";
-export type { LlmFallbackConfig } from "./llmFallback";
 export { resolveProjectPath, workspaceRootDir } from "./workspacePath";
 export type { PathApi } from "./workspacePath";

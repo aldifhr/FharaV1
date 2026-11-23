@@ -258,6 +258,8 @@ export const updateStreamingAgentMessage = internalMutation({
     content: v.optional(v.string()),
     reasoning: v.optional(v.string()),
     reasoningDurationMs: v.optional(v.number()),
+    model: v.optional(v.string()),
+    modelProvider: v.optional(v.string()),
     streaming: v.optional(v.boolean()),
     checkedFiles: v.optional(v.array(v.string())),
     unverifiedRefs: v.optional(v.array(v.string())),

@@ -1,5 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { spawn } from "node:child_process";
+import { buildChildEnv } from "@/api/functions/lib/childEnv";
 
 /**
  * Environment vs code classification for a failed verification step
@@ -132,13 +134,36 @@ async function exists(target: string): Promise<boolean> {
   }
 }
 
+/** Install a package directory's dependencies with the worker's scrubbed env. */
+async function installDependencies(dir: string): Promise<boolean> {
+  return await new Promise<boolean>((resolve) => {
+    const child = spawn("npm", ["install", "--no-package-lock", "--no-audit", "--no-fund"], {
+      cwd: dir,
+      env: buildChildEnv(),
+      windowsHide: true,
+      shell: false,
+      stdio: "ignore",
+    });
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve(false);
+    }, 180_000);
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+    child.on("exit", (code) => {
+      clearTimeout(timer);
+      resolve(code === 0);
+    });
+  });
+}
+
 /**
- * Give a task worktree the main checkout's dependencies before verification
- * runs: for the worktree root and each package directory given, when the
- * worktree has a package.json but no node_modules and the main checkout has
- * one at the same relative path, symlink it. Returns the linked directories
- * (workspace-relative, "." for the root). Never throws: a failed link just
- * leaves verification to report the environment failure.
+ * Give a task worktree dependencies before verification runs: reuse the main
+ * checkout's node_modules when it has one, otherwise install from package.json
+ * into the worktree. Returns only the directories that were symlinked (those
+ * are the ones the caller must restore after verification). Never throws.
  */
 export async function ensureWorktreeDependencies(workspacePath: string, packageDirs: string[] = []): Promise<string[]> {
   const root = path.resolve(workspacePath);
@@ -155,7 +180,13 @@ export async function ensureWorktreeDependencies(workspacePath: string, packageD
       if (!(await exists(path.join(dir, "package.json")))) continue;
       // lstat: a dangling symlink still counts as "present", leave it alone.
       const present = await fs.lstat(target).then(() => true, () => false);
-      if (present || !(await exists(source))) continue;
+      if (present) continue;
+      if (!(await exists(source))) {
+        // Neither this worktree nor the main checkout has dependencies:
+        // install them here so typecheck/build use the project's own tools.
+        await installDependencies(dir);
+        continue;
+      }
       await fs.symlink(source, target, process.platform === "win32" ? "junction" : "dir");
       linked.push(rel === "" ? "." : rel.replace(/\\/g, "/"));
     } catch {

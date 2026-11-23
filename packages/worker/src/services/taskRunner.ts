@@ -190,13 +190,17 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
         created: (created as { created?: boolean }).created === true,
       }).catch((error) => deps.log("[setup-script] failed", error instanceof Error ? error.message : String(error)));
     } catch (error) {
+      const reason = plainServerError(error instanceof Error ? error.message : String(error));
+      try {
+        await deps.api.holdWorktreeQueue({ taskId: task._id, reason });
+      } catch (holdError) {
+        deps.log("[worktree-queue] could not hold the queue", holdError instanceof Error ? holdError.message : String(holdError));
+      }
       await deps.api.completeTask({
         taskId: task._id,
         status: "failed",
         // No Request ID or stack on the task card (lane git-init).
-        errorMessage: `Worktree isolation requested but unavailable: ${plainServerError(
-          error instanceof Error ? error.message : String(error)
-        )}`,
+        errorMessage: `Worktree isolation requested but unavailable: ${reason}. The project queue is held; resume it from the task card.`,
       });
       return;
     }
@@ -584,7 +588,15 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
           const result = await replanOnce(pctx, loop, state, replanInput);
           if (result === "ended") return;
           if (result === "rejected") {
-            await fail(loop.rejection ?? "Replan rejected by the quality check");
+            // Keep the plan-quality explanation, but never hide the failure
+            // that triggered the replan behind it (plan 068 run reports).
+            const cause = state.terminalFailure ?? state.feedback.find((entry) => entry.trim().length > 0);
+            const message = loop.rejection ?? "Replan rejected by the quality check";
+            await fail(
+              cause && !message.includes(cause)
+                ? `${message} — Root cause: ${cause}`.slice(0, 2000)
+                : message
+            );
             return;
           }
           continue;

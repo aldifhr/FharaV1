@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { FHARA_KEYS, keysToSync } from "./env.mjs";
 
 test("only changed FharaRuntime keys are synced", () => {
-  const wanted = { LLM_MODEL: "nous", LLM_API_KEY: "k", WORKSPACE_ROOT: "./w", GITHUB_CLIENT_ID: "" };
-  const current = { LLM_MODEL: "nous", LLM_API_KEY: "old" };
-  assert.deepEqual(keysToSync(wanted, current), ["LLM_API_KEY"]);
+  const wanted = { GITHUB_CLIENT_ID: "new", GITHUB_CLIENT_SECRET: "s", WORKSPACE_ROOT: "./w", APP_ORIGIN: "" };
+  const current = { GITHUB_CLIENT_ID: "old", GITHUB_CLIENT_SECRET: "s" };
+  assert.deepEqual(keysToSync(wanted, current), ["GITHUB_CLIENT_ID"]);
 });
 
 test("worker-only keys never go to FharaRuntime", () => {

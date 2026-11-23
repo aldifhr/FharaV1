@@ -212,6 +212,29 @@ export const getOpencodeModelState = action({
   },
 });
 
+/** Plan 075: publish ids from the worker's authenticated Codex app-server. */
+export const reportCodexModels = action({
+  args: {
+    ...tokenArg,
+    workerId: v.string(),
+    hostname: v.optional(v.string()),
+    models: v.array(v.string()),
+    available: v.boolean(),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<{ models: number }> =>
+    await ctx.runMutation(internal.codexModels.report, withoutToken(args)),
+});
+
+/** Plan 075: worker polling state for the Codex model catalog. */
+export const getCodexModelState = action({
+  args: { ...tokenArg, workerId: v.string() },
+  handler: async (ctx, args) => {
+    const { workerId } = withoutToken(args);
+    return await ctx.runQuery(internal.codexModels.state, { workerId });
+  },
+});
+
 export const recover = action({
   args: {
     ...tokenArg,
@@ -915,6 +938,18 @@ export const createBranch = action({
       projectId,
       ...(workspaceRoot ? { workspaceRoot } : {}),
     });
+  },
+});
+
+export const holdWorktreeQueue = action({
+  args: {
+    ...tokenArg,
+    taskId: v.id("tasks"),
+    reason: v.string(),
+  },
+  handler: async (ctx, args): Promise<any> => {
+    const { taskId, reason } = withoutToken(args);
+    return await ctx.runMutation(internal.orchestration.holdWorktreeQueue, { taskId, reason });
   },
 });
 

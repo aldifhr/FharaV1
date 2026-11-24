@@ -34,6 +34,10 @@ const SENSITIVE_ENV_NAME =
   /(?:^|_)(?:API_?KEY|KEY|TOKEN|SECRET|PASSWORD|PASSWD|PWD|CREDENTIALS?|PRIVATE_KEY|COOKIE|AUTH|ACCESS_KEY|CLIENT_SECRET|DEPLOY_KEY|ADMIN_KEY)$/i;
 /** Env names that look sensitive but hold no secret. */
 const NON_SECRET_ENV_NAME = /^(?:PWD|OLDPWD|SSH_AUTH_SOCK|GPG_TTY|.*_(?:URL|HOST|PORT|PATH|DIR|FILE|MODEL|ID))$/i;
+/** Placeholder values in secret-shaped env vars (not credentials). Masking
+ * these as known values would hide the key name itself and defeat the
+ * `key=value` shape rule on the real value that follows it. */
+const PLACEHOLDER_SECRET_VALUE = /^(?:password|passwd|pwd|secret|token|credential|private[-_]?key|access[-_]?key|api[-_]?key|client[-_]?secret|changeme|placeholder|example|sample|dummy|fake)$/i;
 
 const known = new Set<string>();
 let sorted: string[] | null = null;
@@ -64,6 +68,7 @@ export function registerEnvSecrets(env: NodeJS.ProcessEnv = process.env): void {
     if (!value || value.length < MIN_ENV_LENGTH) continue;
     if (!isSensitiveEnvName(name)) continue;
     if (/^(?:true|false|on|off|yes|no|\d+)$/i.test(value)) continue;
+    if (PLACEHOLDER_SECRET_VALUE.test(value)) continue;
     values.push(value);
   }
   registerSecretValues(values);

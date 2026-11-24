@@ -12,6 +12,7 @@ import { loadLibrarySkills, loadPromptSkills } from "./skillLibrary";
 import { loadMemorySection, loadRecalledSection } from "./memories";
 import { extractAgentMentions } from "./lib/chat/team";
 import { stripLeakedToolCallTags } from "./lib/chat/strip";
+import { normalizeRoleMentions } from "./lib/chat/roleMentions";
 import { isContinueRequest } from "./lib/chat/continueReply";
 import { ChatStoppedError } from "./lib/chat/replyStop";
 import { chatScopeOf, type ChatScope } from "./lib/conversationShape";
@@ -124,7 +125,13 @@ export const insertAgentMessage = internalMutation({
     ),
   },
   handler: async (ctx, args) => {
-    const content = stripLeakedToolCallTags(args.content.trim());
+    let content = stripLeakedToolCallTags(args.content.trim());
+    if (args.agentId) {
+      const agent = await ctx.db.get(args.agentId);
+      if (agent && /^(cto|lead)$/i.test(String((agent as any).role ?? ""))) {
+        content = normalizeRoleMentions(content);
+      }
+    }
     if (!content && !args.card) return null;
     if (await replyStopped(ctx, args.replyToMessageId)) return null;
     // A reply that finishes after its conversation was deleted has nowhere to go.
@@ -139,6 +146,29 @@ export const insertAgentMessage = internalMutation({
       conversationId: args.conversationId,
       ...(args.card ? { card: args.card } : {}),
     });
+  },
+});
+
+/** Replies to one user turn, for near-duplicate cleanup after all agents answer. */
+export const repliesForTurn = internalQuery({
+  args: { userMessageId: v.id("messages") },
+  handler: async (ctx, args) =>
+    await ctx.db
+      .query("messages")
+      .withIndex("by_reply_to", (q) => q.eq("replyToMessageId", args.userMessageId))
+      .collect(),
+});
+
+/** Remove a duplicate agent reply only; never touch a card, offer or pinned message. */
+export const deleteAgentReply = internalMutation({
+  args: { messageId: v.id("messages") },
+  handler: async (ctx, args) => {
+    const message = await ctx.db.get(args.messageId);
+    // Echo cleanup only targets duplicates chosen by replyEchoKey. Their
+    // repeated task offer is noise; the first reply keeps its offer/card.
+    if (!message || message.authorType !== "agent" || message.card || message.pinned) return false;
+    await ctx.db.delete(args.messageId);
+    return true;
   },
 });
 

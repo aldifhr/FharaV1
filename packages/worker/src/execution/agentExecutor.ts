@@ -78,7 +78,7 @@ import * as path from "node:path";
 import { execFile } from "node:child_process";
 import { buildChildEnv } from "@/api/functions/lib/childEnv";
 import { promisify } from "node:util";
-import { extractUrls, type WebClient } from "@/tools/webClient";
+import type { WebClient } from "@/tools/webClient";
 import { exploreRepository } from "./repositoryContext";
 import { preloadOnDemandSkills, type LibraryBodyFetcher } from "./skillLoading";
 import { contentReader, detectEscalation, escalatedError, escalationFromAnswer } from "./escalation";
@@ -103,6 +103,8 @@ import {
   type WebReachConfig,
 } from "./webReachTools";
 import { turnMessages } from "./turnContext";
+import { buildWebContext } from "./webContext";
+import { hostGit, readGitHead } from "./nativeGit";
 
 const execFileAsync = promisify(execFile);
 
@@ -2587,65 +2589,7 @@ const FORBIDDEN_PATHS = [
   /(^|\/)\.ssh(\/|$)/i,
 ];
 
-/**
- * Fetch referenced URLs through the shared Stagehand browser and render them
- * as a compact "Web context" block for read-only agents.
- * ponytail: 3 URLs / 8k chars each; raise limits or page-range follow the
- * links if a research task needs deeper crawling.
- */
-async function buildWebContext(
-  browser: WebClient | undefined,
-  text: string
-): Promise<{ block: string; fetched: string[]; failed: string[] }> {
-  const urls = extractUrls(text).slice(0, 3);
-  if (!browser || urls.length === 0) return { block: "", fetched: [], failed: [] };
-
-  const fetched: string[] = [];
-  const failed: string[] = [];
-  const pages = await Promise.allSettled(
-    urls.map(async (url) => {
-      const result = await browser.fetch(url);
-      return {
-        url: result.url,
-        title: result.title,
-        content: result.content.replace(/\s+/g, " ").trim().slice(0, 8000),
-      };
-    })
-  );
-
-  const sections: string[] = [];
-  pages.forEach((page, index) => {
-    const target = urls[index];
-    if (page.status === "fulfilled") {
-      fetched.push(target);
-      sections.push(
-        `### ${page.value.title || page.value.url}\n${page.value.url}\n${page.value.content}`
-      );
-    } else {
-      failed.push(target);
-    }
-  });
-
-  if (sections.length === 0) return { block: "", fetched, failed };
-  return {
-    block: `Web context (live browser fetch):\n${sections.join("\n\n")}`,
-    fetched,
-    failed,
-  };
-}
-
 export function isForbiddenPath(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, "/");
   return FORBIDDEN_PATHS.some((pattern) => pattern.test(normalized));
-}
-
-/** W4: a runner-internal git call, not an agent command, so not via the agent allowlist (as listWorkspaceChanges). */
-const hostGit = (cwd: string, args: string[], signal?: AbortSignal) => execFileAsync("git", args, { cwd, env: buildChildEnv(), shell: false, windowsHide: true, signal });
-/** Current HEAD sha, or null when the workspace is not a git repo. */
-async function readGitHead(workspacePath: string, signal?: AbortSignal): Promise<string | null> {
-  try {
-    return (await hostGit(workspacePath, ["rev-parse", "HEAD"], signal)).stdout.trim() || null;
-  } catch {
-    return null;
-  }
 }

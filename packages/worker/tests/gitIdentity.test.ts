@@ -117,9 +117,9 @@ describe("task branch names", () => {
   it("new branches use the fhara/ prefix", () => {
     expect(makeTaskBranchName("k1", "Add Dark Mode!")).toBe("fhara/k1/add-dark-mode");
     expect(makeTaskBranchName("k1", "???")).toBe("fhara/k1/task");
-    expect(makeTaskBranchName("tasks:mwskvugd:f26abb2f-0706", "Create vite apps")).toBe(
-      "fhara/tasks-mwskvugd-f26abb2f-0706/create-vite-apps"
-    );
+    expect(
+      makeTaskBranchName("tasks:mwskvugd:f26abb2f-0706-4ebb-b5f5-889d0b9726be", "Create vite apps")
+    ).toBe("fhara/f26abb2f0706/create-vite-apps");
   });
 
   it("caps long ids and refuses option-like refs", () => {
@@ -136,6 +136,13 @@ describe("task branch names", () => {
     expect(parseTaskBranch("feature/x")).toBeNull();
     expect(isTaskBranch("moagent/k3/y")).toBe(true);
     expect(taskBranchPrefixes("k1")).toEqual(["fhara/k1/", "moagent/k1/"]);
+    // New short id and the legacy full id are both matched for cleanup.
+    expect(taskBranchPrefixes("tasks:mwskvugd:f26abb2f-0706-4ebb-b5f5-889d0b9726be")).toEqual([
+      "fhara/f26abb2f0706/",
+      "fhara/tasks-mwskvugd-f26abb2f-0706-4ebb-b5f5-889d0b9726be/",
+      "moagent/f26abb2f0706/",
+      "moagent/tasks-mwskvugd-f26abb2f-0706-4ebb-b5f5-889d0b9726be/",
+    ]);
   });
 
   it("finds this task's worktrees (both prefixes) from porcelain output", () => {

@@ -13,6 +13,8 @@ export type CardSurface = {
   pendingApprovals?: any[];
   approvalMode?: "ask" | "auto";
   onOpenTask?: (taskId: string) => void;
+  /** Where cards are shown; verification belongs to task threads only. */
+  surface?: "project-chat" | "task-thread" | "personal-chat";
 };
 
 const CardContext = createContext<CardSurface>({});

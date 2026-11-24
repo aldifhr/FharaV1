@@ -115,8 +115,11 @@ export async function runQaLoop(ctx: RunContext): Promise<boolean> {
     // qaRequired.
     // (Browser-runnability is checked by the QA executor itself, which
     // reports a non-runnable project as a "blocked" verdict.)
+    // A verification-only task IS the work: there is no diff to gate on.
+    const verificationOnly =
+      plan.subtasks.length > 0 && plan.subtasks.every((node) => node.kind === "qa");
     const skipReason =
-      state.fileChanges.size === 0
+      state.fileChanges.size === 0 && !verificationOnly
         ? "no code changes were applied, so there is nothing new to check in the browser"
         : null;
     if (skipReason) {

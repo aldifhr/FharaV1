@@ -84,6 +84,31 @@ describe("resolveTaskAssignees", () => {
   });
 });
 
+describe("verification-only commands", () => {
+  test("a browser/console check routes to QA, ignoring page keywords and 'do not change files'", () => {
+    const hint = hintForCommand(
+      "Create a task: check whether the app at the local preview URL loads without console errors and report the result. Do not change files.",
+      team
+    );
+    expect(hint).toMatchObject({ source: "command", role: "qa", domain: "qa", topic: "verification" });
+  });
+
+  test("a page change still routes to Frontend", () => {
+    const hint = hintForCommand("add a button to the status page and change only that file", team);
+    expect(hint).toMatchObject({ source: "command", role: "frontend" });
+  });
+});
+
+describe("file-change routing", () => {
+  test("a file change mentioning QA routes to the code owner, not QA", () => {
+    const hint = hintForCommand(
+      "Create a task: add a third one-line comment in src/status.tsx saying QA checks are structural only. Change only that file.",
+      team
+    );
+    expect(hint).toMatchObject({ source: "command", role: "frontend", domain: "frontend", files: ["src/status.tsx"] });
+  });
+});
+
 describe("hintForCommand", () => {
   test("a typed command: source command, the routed owner's role, files from the text, not hard", () => {
     const hint = hintForCommand("buatkan halaman login.tsx dengan form", team);

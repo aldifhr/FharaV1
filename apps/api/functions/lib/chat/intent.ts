@@ -303,6 +303,9 @@ export function explicitTaskCommand(text: string): string | null {
   if (slash) return slash[1].trim() || null;
   if (isResearchCommand(t)) return t;
   if (isPastedContent(t) || /\?\s*$/.test(t) || EXPLICIT_NEGATION.test(t)) return null;
+  // "kerjakan itu/that" points at the previous Create task offer, not a new
+  // command whose text is "itu". The go-reply path keeps the offer's hint.
+  if (/^kerjakan\s+(?:itu|that)\b/i.test(t)) return null;
   // A run order ("jalankan tes", "run npm test", "run the tests") keeps its
   // run verb: the worker classifier (detectRunCommands) plans a shell task
   // from "jalankan tes", but would read the bare "tes" as something else.
@@ -315,7 +318,7 @@ export function explicitTaskCommand(text: string): string | null {
 }
 
 const GO_REPLY =
-  /^(?:(?:(?:ok(?:e|ay)?|sip|ya|yes|yup|siap|y)[\s,]+)?(?:gas+(?:kan)?|lanjut(?:kan)?|go|kerjakan|jalankan|eksekusi|do it|run it|run this|let'?s go|ship it)|ok(?:e|ay)?|yes|yep|yup|ya|iya|sure|sip|siap)(?:\s+(?:aja|ya|dong|sekarang|now|please|bro|kak))?[\s!.]*$/i;
+  /^(?:(?:(?:ok(?:e|ay)?|sip|ya|yes|yup|siap|y)[\s,]+)?(?:gas+(?:kan)?|lanjut(?:kan)?|go|kerjakan|jalankan|eksekusi|do it|run it|run this|let'?s go|ship it)|ok(?:e|ay)?|yes|yep|yup|ya|iya|sure|sip|siap)(?:\s+(?:aja|ya|dong|itu|that|sekarang|now|please|bro|kak))?[\s!.]*$/i;
 
 /** A bare short go reply ("gas", "lanjut", "ok kerjakan", "yes do it"). */
 export function isGoReply(text: string): boolean {
@@ -525,10 +528,8 @@ export function findOfferedTask(
     if (isOfferUsed(m.taskOffer)) return null;
     const pick = prevUser?.match(OPTION_PICK)?.[1];
     if (!pick && !m.taskOffer && !(isCto && OFFERS_CREATE_TASK.test(m.content))) {
-      // A CTO handoff teammate answered after the offer: keep looking in the
-      // same turn for the CTO reply that actually carries it (plan 059).
-      if (m.handoffFromAgentId) continue;
-      return null;
+      // Later chatter in the same turn must not hide the real offer.
+      continue;
     }
     const { command, title } = composeOfferedTask(history, i);
     const assigneeAgentId = m.taskOffer?.assigneeAgentId ?? (isCto ? undefined : m.agentId);

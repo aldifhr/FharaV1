@@ -5,7 +5,6 @@ import { taskStuckMs, DEFAULT_TASK_STUCK_MS, MIN_TASK_STUCK_MS } from "@/api/fun
 import { worktreeRetentionMs, DEFAULT_WORKTREE_RETENTION_HOURS } from "@/api/functions/lib/worktreeRetention";
 import { fixMaxAttempts } from "@/api/functions/lib/prFeedback";
 import { contextSnapshotsEnabled } from "@/api/functions/lib/contextSnapshot";
-import { appOrigin, oauthStateSecret } from "@/api/functions/lib/oauthState";
 import * as path from "node:path";
 import { b2Bool } from "./legacyEnv";
 import { resolveRepoPath } from "@/api/functions/lib/workspacePath";
@@ -50,31 +49,12 @@ function oldFixMaxAttempts(raw: string | undefined): number {
 function oldContextSnapshotsEnabled(env: Env): boolean {
   return b2Bool(env.CONTEXT_SNAPSHOTS, true);
 }
-function oldOauthStateSecret(env: Env): string | null {
-  return env.OAUTH_STATE_SECRET?.trim() || env.PROVIDER_ENCRYPTION_KEY?.trim() || null;
-}
-function oldAppOrigin(env: Env): string {
-  for (const raw of [env.APP_ORIGIN, env.GITHUB_OAUTH_CALLBACK_URL]) {
-    if (!raw?.trim()) continue;
-    try {
-      const url = new URL(raw.trim());
-      if (url.protocol === "http:" || url.protocol === "https:") return url.origin;
-    } catch {
-      // next
-    }
-  }
-  return "http://localhost:3000";
-}
 const NAMES = [
   "CHAT_REPLY_STALE_MS",
   "TASK_WATCHDOG_STUCK_MS",
   "FHARA_WORKTREE_RETENTION_HOURS",
   "FHARA_PR_FIX_MAX_ATTEMPTS",
   "CONTEXT_SNAPSHOTS",
-  "OAUTH_STATE_SECRET",
-  "PROVIDER_ENCRYPTION_KEY",
-  "APP_ORIGIN",
-  "GITHUB_OAUTH_CALLBACK_URL",
   "WORKSPACE_ROOT",
 ];
 
@@ -118,20 +98,10 @@ describe("FharaRuntime reader parity (E2)", () => {
     setEnvIssueSink(() => {});
     for (const raw of RAW) {
       expect(contextSnapshotsEnabled({ CONTEXT_SNAPSHOTS: raw })).toBe(oldContextSnapshotsEnabled({ CONTEXT_SNAPSHOTS: raw }));
-      for (const other of [undefined, "", " k ", "key"]) {
-        const env = { OAUTH_STATE_SECRET: raw, PROVIDER_ENCRYPTION_KEY: other };
-        withProcessEnv(env, () => expect(oauthStateSecret()).toBe(oldOauthStateSecret(env)));
-      }
       const ws = { WORKSPACE_ROOT: raw };
       const envRoot = ws.WORKSPACE_ROOT;
       const old = envRoot && envRoot.trim() ? path.resolve("/c", envRoot.trim(), "proj") : path.resolve("/c", "proj");
       expect(resolveRepoPath("proj", { cwd: "/c", env: ws })).toBe(old);
-    }
-    for (const app of [undefined, "", "  ", "nope", "ftp://x", "https://a.example/x", " http://b.local:3000/y "]) {
-      for (const cb of [undefined, "", "http://c.local/cb", "garbage"]) {
-        const env = { APP_ORIGIN: app, GITHUB_OAUTH_CALLBACK_URL: cb };
-        withProcessEnv(env, () => expect(appOrigin()).toBe(oldAppOrigin(env)));
-      }
     }
   });
 

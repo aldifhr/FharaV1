@@ -44,6 +44,7 @@ const common = {
 /** `write: "allow"` still means "inside the subtask's allowedPaths / the role's write globs". */
 export const ROLE_OPERATION_POLICY: Readonly<Record<RoleKey, Readonly<Record<PolicyOperation, PolicyDecision>>>> = Object.freeze({
   cto: Object.freeze({ ...common, write: "deny", shell: "deny", network: "deny" }),
+  lead: Object.freeze({ ...common, read: "deny", write: "deny", shell: "deny", network: "deny" }),
   frontend: Object.freeze({ ...common, write: "allow", shell: "allow", network: "deny" }),
   backend: Object.freeze({ ...common, write: "allow", shell: "allow", network: "deny" }),
   devops: Object.freeze({ ...common, write: "allow", shell: "allow", network: "deny" }),
@@ -53,7 +54,7 @@ export const ROLE_OPERATION_POLICY: Readonly<Record<RoleKey, Readonly<Record<Pol
 
 /**
  * No live role is path-limited by the table itself: Frontend and Backend
- * write code, QA is read-only, and the CTO and Designer are read-only.
+ * write code, QA is read-only, and the CTO, Lead and Designer are read-only.
  * Retired roles have no policy row and are refused by `decideToolAccess`.
  */
 export const ROLE_WRITE_SCOPE: Readonly<Partial<Record<RoleKey, readonly string[]>>> = Object.freeze({

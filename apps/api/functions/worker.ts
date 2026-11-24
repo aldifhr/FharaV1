@@ -7,7 +7,6 @@ import {
   acceptanceStatusValidator,
   escalationValidator,
   gateResultValidator,
-  subtaskContractFields,
 } from "./lib/contractValidators";
 import { assertServiceToken } from "./lib/authz";
 import { snapshotRecordArgs } from "./contextSnapshots";
@@ -19,11 +18,11 @@ import type { TaskBrief } from "./lib/brief";
 import { createArgs as optionReviewCreateArgs } from "./optionReviews";
 import {
   taskStatus,
-  subtaskKind,
   subtaskStatus,
   executionStatus,
   sideEffectKind,
 } from "./schema";
+import { mcpEditableArgs, workerSubtaskValidator } from "./lib/workerArgs";
 
 const tokenArg = { workerToken: v.string() };
 
@@ -283,21 +282,7 @@ export const savePlan = action({
     createdBy: v.union(v.literal("orchestrator"), v.literal("fallback")),
     goal: v.string(),
     payload: v.any(),
-    subtasks: v.array(
-      v.object({
-        key: v.string(),
-        title: v.string(),
-        description: v.string(),
-        kind: subtaskKind,
-        capability: v.string(),
-        dependencies: v.array(v.string()),
-        order: v.number(),
-        allowedPaths: v.optional(v.array(v.string())),
-        origin: v.optional(v.string()),
-        reviewRound: v.optional(v.number()),
-        ...subtaskContractFields,
-      })
-    ),
+    subtasks: v.array(workerSubtaskValidator),
     degradedReason: v.optional(v.string()),
     // Task Estimator result (lib/estimate.ts).
     estimate: v.optional(v.any()),
@@ -321,21 +306,7 @@ export const saveDynamicSubtasks = action({
     projectId: v.id("projects"),
     version: v.number(),
     payload: v.any(),
-    subtasks: v.array(
-      v.object({
-        key: v.string(),
-        title: v.string(),
-        description: v.string(),
-        kind: subtaskKind,
-        capability: v.string(),
-        dependencies: v.array(v.string()),
-        order: v.number(),
-        allowedPaths: v.optional(v.array(v.string())),
-        origin: v.optional(v.string()),
-        reviewRound: v.optional(v.number()),
-        ...subtaskContractFields,
-      })
-    ),
+    subtasks: v.array(workerSubtaskValidator),
     // Lease fencing: pass the worker id so a displaced worker is refused.
     workerId: v.optional(v.string()),
   },
@@ -1224,21 +1195,6 @@ export const addMcpServer = action({
 // Local server route (apps/web/app/api/mcp-servers), which injects the
 // service token; env values arrive in plaintext and are sealed by the
 // mutation before they are stored.
-const mcpEditableArgs = {
-  name: v.optional(v.string()),
-  fields: v.optional(v.record(v.string(), v.string())),
-  env: v.optional(v.record(v.string(), v.string())),
-  agentRoles: v.optional(v.array(v.string())),
-  toolAllowlist: v.optional(v.array(v.string())),
-  enabled: v.optional(v.boolean()),
-  autoConnect: v.optional(v.boolean()),
-  useGithubOAuth: v.optional(v.boolean()),
-  type: v.optional(v.union(v.literal("local"), v.literal("remote"))),
-  command: v.optional(v.string()),
-  commandArgs: v.optional(v.array(v.string())),
-  url: v.optional(v.string()),
-};
-
 export const createMcpServerFromPreset = action({
   args: { ...tokenArg, presetId: v.string(), projectId: v.optional(v.id("projects")), ...mcpEditableArgs },
   handler: async (ctx, args): Promise<any> => {

@@ -100,6 +100,19 @@ export default function TaskCard({
     primaryAgent
       ? [{ agentId: String(primaryAgent._id), role: primaryAgent.role as string }]
       : (assignees ?? []).map((a) => ({ agentId: a.agentId, role: a.role }));
+  const routeRole: string | undefined =
+    task.routingHint?.role ?? task.responseOwner ?? owners[0]?.role;
+  const routeCapability: string | undefined =
+    subtasks.find((s) => {
+      const agent = agents.find((a) => a._id === (s as any).assignedAgentId);
+      return Boolean((s as any).capability) && String(agent?.role ?? "") === routeRole;
+    })?.capability ??
+    (task.routingHint as any)?.domain ??
+    (primarySubtask as any)?.capability ??
+    subtasks.find((s) => Boolean((s as any).capability))?.capability;
+  const routeFiles: string[] = Array.isArray(task.routingHint?.files)
+    ? task.routingHint.files.filter((f: unknown): f is string => typeof f === "string").slice(0, 3)
+    : [];
   const statusIcon = needsYou
     ? <Bell size={16} className="text-warn" />
     : task.status === "done"
@@ -170,6 +183,28 @@ export default function TaskCard({
         <div className="mx-3.5 mb-3 h-1 overflow-hidden rounded-full bg-inset" role="progressbar" aria-label="Task progress" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
           <div className={`h-full rounded-full transition-all ${task.status === "done" ? "bg-ok" : "bg-brand"}`} style={{ width: `${progress}%` }} />
         </div>
+        {(routeRole || routeCapability || routeFiles.length > 0 || task.responseOwner) && (
+          <div className="mx-3.5 mb-3 flex flex-wrap items-center gap-1.5 text-[11.5px] text-ink-3" aria-label="Task routing">
+            {routeRole && (
+              <span className="rounded-field bg-inset px-1.5 py-0.5">
+                Assigned to <span className="text-ink-2">{roleLabel(routeRole)}</span>
+              </span>
+            )}
+            {routeCapability && (
+              <span className="rounded-field bg-inset px-1.5 py-0.5 font-mono">{String(routeCapability)}</span>
+            )}
+            {routeFiles.map((file) => (
+              <code key={file} className="max-w-40 truncate rounded-field bg-inset px-1.5 py-0.5 font-mono" title={file}>
+                {file}
+              </code>
+            ))}
+            {task.responseOwner && (
+              <span className="rounded-field bg-inset px-1.5 py-0.5">
+                Owner: <span className="text-ink-2">{roleLabel(task.responseOwner)}</span>
+              </span>
+            )}
+          </div>
+        )}
       </PanelCard>
       {waitingForInput && (
         <PanelCard className="max-w-xl">

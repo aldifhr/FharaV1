@@ -67,6 +67,58 @@ export async function findPullRequestByHead(input: {
   return pulls[0] ? toResult(pulls[0]) : null;
 }
 
+/**
+ * The repository's real default branch. Used when a project has no pinned
+ * base branch: guessing `main` makes GitHub reject PRs in repos that use
+ * `master` or another trunk name with a 422.
+ */
+export async function getDefaultBranch(input: {
+  owner: string;
+  repo: string;
+  token: string;
+  fetchImpl?: FetchLike;
+  signal?: AbortSignal;
+}): Promise<string> {
+  const fetchImpl = input.fetchImpl ?? (await proxyAwareFetch());
+  const api = `https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}`;
+  const response = await fetchImpl(api, {
+    headers: {
+      Authorization: `Bearer ${input.token}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+    signal: input.signal,
+  });
+  if (!response.ok) throw new Error(redactSecret(`Reading the repository failed (${response.status})`, input.token));
+  const json = (await response.json()) as { default_branch?: string };
+  if (!json.default_branch) throw new Error("GitHub did not report a default branch for this repository.");
+  return json.default_branch;
+}
+
+/** Whether a branch exists on GitHub, used to validate a PR base before push. */
+export async function remoteBranchExists(input: {
+  owner: string;
+  repo: string;
+  branch: string;
+  token: string;
+  fetchImpl?: FetchLike;
+  signal?: AbortSignal;
+}): Promise<boolean> {
+  const fetchImpl = input.fetchImpl ?? (await proxyAwareFetch());
+  const api = `https://api.github.com/repos/${encodeURIComponent(input.owner)}/${encodeURIComponent(input.repo)}/branches/${encodeURIComponent(input.branch)}`;
+  const response = await fetchImpl(api, {
+    headers: {
+      Authorization: `Bearer ${input.token}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+    signal: input.signal,
+  });
+  if (response.status === 404) return false;
+  if (!response.ok) throw new Error(redactSecret(`Checking the base branch failed (${response.status})`, input.token));
+  return true;
+}
+
 export async function openPullRequest(input: {
   owner: string;
   repo: string;
@@ -92,10 +144,25 @@ export async function openPullRequest(input: {
   const fail = async (response: Response, what: string): Promise<never> => {
     let detail = "";
     try {
-      const json = (await response.json()) as { message?: string; errors?: Array<{ message?: string }> };
-      detail = [json.message, ...(json.errors ?? []).map((e) => e.message)].filter(Boolean).join("; ");
+      const json = (await response.json()) as {
+        message?: string;
+        errors?: Array<{ message?: string; field?: string; code?: string; resource?: string }>;
+      };
+      const parts = (json.errors ?? []).map((e) =>
+        [e.field ? `field ${e.field}` : undefined, e.code, e.message, e.resource ? `on ${e.resource}` : undefined]
+          .filter(Boolean)
+          .join(" ")
+      );
+      detail = [json.message === "Validation Failed" ? undefined : json.message, ...parts].filter(Boolean).join("; ");
     } catch {
       // Body was not JSON.
+    }
+    if (!detail) {
+      try {
+        detail = (await response.clone().text()).trim().slice(0, 300);
+      } catch {
+        // No body available.
+      }
     }
     throw new Error(redactSecret(`${what} failed (${response.status})${detail ? `: ${detail}` : ""}`, input.token));
   };

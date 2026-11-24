@@ -1,5 +1,4 @@
-
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useAction, useMutation, useQuery } from "@fhara/runtime/react";
 import { GitBranch } from "lucide-react";
 import { api } from "@fhara/runtime/api";
@@ -14,62 +13,37 @@ const PRIMARY_BTN =
   "rounded-lg bg-ink px-3 py-1.5 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-50";
 
 /**
- * Toasts for the OAuth popup's postMessage. Only messages from this app's
- * own origin count (the callback page posts to the web app origin).
- */
-function useGithubOAuthMessages() {
-  const toast = useToast();
-  useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin) return;
-      const data = event.data as { type?: string; login?: string | null; error?: string } | null;
-      if (data?.type === "github_oauth_success") toast("success", "GitHub connected", data.login ? `@${data.login}` : undefined);
-      if (data?.type === "github_oauth_error") toast("error", "GitHub connection failed", String(data.error ?? ""));
-    };
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [toast]);
-}
-
-/**
- * The account-level GitHub connection: one account for every project.
- * Lives in the top section of /integrations. Connect opens the OAuth popup
- * (the window is opened synchronously so popup blockers allow it, then
- * pointed at the signed URL from `integrations.getOAuthUrl`).
+ * Plan 079: GitHub access comes from the operator's Git credential helper
+ * (https://git-scm.com/). There is no OAuth app, callback popup or client
+ * id/secret. Importing runs `git credential fill` on the machine running
+ * Fhara and seals the token in the backend; disconnect keeps the
+ * per-project repository choices.
  */
 export default function GithubAccountRow({
-  returnTo = "/integrations",
   alwaysShowReconnect = false,
 }: {
-  /** Where the OAuth callback page sends the user back to. */
-  returnTo?: string;
-  /** Settings → Account: offer Reconnect even for a healthy connection. */
+  /** Settings → Account: offer "Refresh" even for a healthy connection. */
   alwaysShowReconnect?: boolean;
 } = {}) {
   const toast = useToast();
   const account = useQuery(api.integrations.githubAccount, {});
-  const getOAuthUrl = useAction(api.integrations.getOAuthUrl);
+  const importLocal = useAction(api.integrations.importLocalGithub);
   const disconnect = useMutation(api.integrations.disconnectGithub);
   const [starting, setStarting] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
   const [removing, setRemoving] = useState(false);
-  useGithubOAuthMessages();
 
   const connect = async () => {
-    const popup = window.open("", "github-oauth", "width=720,height=780");
     setStarting(true);
     try {
-      const url = await getOAuthUrl({ returnTo });
-      if (!url) {
-        popup?.close();
-        toast("error", "GitHub OAuth is not configured", "Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET on the FharaRuntime deployment.");
+      const result = await importLocal({});
+      if (!result.ok) {
+        toast("error", "Couldn't read the Git credential", result.error);
         return;
       }
-      if (popup) popup.location.href = url;
-      else window.location.href = url;
+      toast("success", "GitHub connected from local git", result.login ? `@${result.login}` : undefined);
     } catch (err) {
-      popup?.close();
-      toast("error", "Couldn't start the GitHub connection", errorText(err));
+      toast("error", "Couldn't read the Git credential", errorText(err));
     } finally {
       setStarting(false);
     }
@@ -92,15 +66,15 @@ export default function GithubAccountRow({
   let dot = "bg-ink-3";
   if (account === undefined) detail = "Loading…";
   else if (!account.canManage) detail = "Sign in to manage the GitHub connection.";
-  else if (!account.connected) detail = "Not connected. One account is used by every project for pushes and pull requests.";
+  else if (!account.connected) detail = "Not connected. Configure a Git credential helper for github.com, then import it below.";
   else if (account.status === "error") {
     detail = account.errorMessage ?? "Connection error";
     dot = "bg-red-500";
   } else if (account.source === "legacy") {
-    detail = "Connected through an older per-project token. Reconnect to make it account-wide.";
+    detail = "Connected through an older per-project token. Import the local git login to make it account-wide.";
     dot = "bg-amber-500";
   } else {
-    detail = account.login ? `Connected as @${account.login}` : "Connected";
+    detail = account.login ? `Connected as @${account.login} using local git` : "Connected using local git";
     dot = "bg-emerald-500";
   }
 
@@ -112,38 +86,33 @@ export default function GithubAccountRow({
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-[14px]">GitHub account</p>
-          <p className="truncate text-[12.5px] text-ink-3">{detail}</p>
+          <p className="truncate text-[12.5px] text-ink-3" title={detail}>{detail}</p>
         </div>
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden />
-        {account?.canManage &&
-          (!account.configured && !account.connected ? (
-            <span className="text-[12.5px] text-ink-3" title="Set GITHUB_CLIENT_ID on the FharaRuntime deployment">
-              OAuth app not configured
-            </span>
-          ) : (
-            <>
-              {account.connected && (
-                <button
-                  type="button"
-                  className={`${GHOST_BTN} text-red-600 dark:text-red-400`}
-                  onClick={() =>
-                    setConfirm({
-                      title: "Disconnect GitHub?",
-                      message: "Every project loses push and pull request access. Repository choices are kept, so reconnecting restores them.",
-                      confirmLabel: "Disconnect",
-                    })
-                  }
-                >
-                  Disconnect
-                </button>
-              )}
-              {account.configured && (alwaysShowReconnect || account.source !== "global" || account.status === "error" || !account.connected) && (
-                <button type="button" disabled={starting} onClick={() => void connect()} className={PRIMARY_BTN}>
-                  {account.connected ? "Reconnect" : "Connect"}
-                </button>
-              )}
-            </>
-          ))}
+        {account?.canManage && (
+          <>
+            {account.connected && (
+              <button
+                type="button"
+                className={`${GHOST_BTN} text-red-600 dark:text-red-400`}
+                onClick={() =>
+                  setConfirm({
+                    title: "Disconnect GitHub?",
+                    message: "Every project loses push and pull request access. Repository choices are kept, so reconnecting restores them.",
+                    confirmLabel: "Disconnect",
+                  })
+                }
+              >
+                Disconnect
+              </button>
+            )}
+            {alwaysShowReconnect || account.source !== "global" || account.status === "error" || !account.connected ? (
+              <button type="button" disabled={starting} onClick={() => void connect()} className={PRIMARY_BTN}>
+                {account.connected ? "Refresh" : "Use local git"}
+              </button>
+            ) : null}
+          </>
+        )}
       </li>
       <ConfirmDialog request={confirm} pending={removing} onCancel={() => setConfirm(null)} onConfirm={() => void remove()} />
     </>

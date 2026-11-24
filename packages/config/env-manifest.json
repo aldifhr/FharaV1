@@ -152,42 +152,6 @@
       "parse": "nullish"
     },
     {
-      "name": "GITHUB_CLIENT_ID",
-      "type": "string",
-      "group": "github",
-      "runtimes": [
-        "runtime",
-        "scripts"
-      ],
-      "doc": "GitHub OAuth app client id.",
-      "default": "",
-      "parse": "nullish"
-    },
-    {
-      "name": "GITHUB_CLIENT_SECRET",
-      "type": "string",
-      "group": "github",
-      "runtimes": [
-        "runtime",
-        "scripts"
-      ],
-      "doc": "GitHub OAuth app client secret.",
-      "default": "",
-      "parse": "nullish",
-      "secret": true
-    },
-    {
-      "name": "GITHUB_OAUTH_CALLBACK_URL",
-      "type": "url",
-      "group": "github",
-      "runtimes": [
-        "runtime"
-      ],
-      "doc": "OAuth callback URL (default http://localhost:3000/api/integrations/github/callback).",
-      "default": null,
-      "parse": "nullish"
-    },
-    {
       "name": "GITHUB_WEBHOOK_SECRET",
       "type": "string",
       "group": "github",
@@ -200,25 +164,13 @@
       "secret": true
     },
     {
-      "name": "OAUTH_STATE_SECRET",
-      "type": "string",
-      "group": "github",
-      "runtimes": [
-        "runtime"
-      ],
-      "doc": "HMAC secret for OAuth state; falls back to PROVIDER_ENCRYPTION_KEY.",
-      "default": null,
-      "parse": "trimOr",
-      "secret": true
-    },
-    {
       "name": "APP_ORIGIN",
       "type": "url",
       "group": "github",
       "runtimes": [
         "runtime"
       ],
-      "doc": "Web app origin; defaults to the origin of GITHUB_OAUTH_CALLBACK_URL.",
+      "doc": "Web app origin.",
       "default": null,
       "parse": "nullish"
     },
@@ -2116,11 +2068,7 @@
     "FHARA_SERVICE_TOKEN",
     "PROVIDER_ENCRYPTION_KEY",
     "PROVIDER_ENCRYPTION_KEY_OLD",
-    "GITHUB_CLIENT_ID",
-    "GITHUB_CLIENT_SECRET",
-    "GITHUB_OAUTH_CALLBACK_URL",
     "GITHUB_WEBHOOK_SECRET",
-    "OAUTH_STATE_SECRET",
     "APP_ORIGIN",
     "MOAGENT_WEEKLY_TOKEN_BUDGET",
     "FHARA_PR_FIX_MAX_ATTEMPTS",
@@ -2141,9 +2089,7 @@
       "PROVIDER_ENCRYPTION_KEY",
       "PROVIDER_ENCRYPTION_KEY_OLD",
       "STAGEHAND_API_KEY",
-      "GITHUB_CLIENT_SECRET",
       "GITHUB_WEBHOOK_SECRET",
-      "OAUTH_STATE_SECRET",
       "FHARA_MCP_TOKEN",
       "FHARA_MCP_WEBHOOK_SECRET",
       "FHARA_SMOKE_GITHUB_TOKEN",

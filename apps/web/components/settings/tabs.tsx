@@ -1214,7 +1214,7 @@ export function SignInTab() {
     <>
       <Section title="Account" description="Fhara runs locally for one person, so there is no Fhara login. Accounts it acts with are connected here.">
         <ul>
-          <GithubAccountRow returnTo="/" alwaysShowReconnect />
+          <GithubAccountRow alwaysShowReconnect />
         </ul>
       </Section>
     </>

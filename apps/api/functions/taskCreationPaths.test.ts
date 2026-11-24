@@ -110,6 +110,7 @@ type Setup = Awaited<ReturnType<typeof setup>>;
 async function ask(s: Setup, content: string, preferredAgentIds?: any[]) {
   const { messageId } = await s.t.mutation(api.messages.send, { projectId: s.projectId, content, ...(preferredAgentIds ? { preferredAgentIds } : {}) });
   await s.t.finishAllScheduledFunctions(vi.runAllTimers);
+  vi.advanceTimersByTime(1);
   return await s.t.run(async (ctx) =>
     ctx.db
       .query("messages")

@@ -11,7 +11,10 @@ import type { TokenUsageFn } from "@/types/llm";
 import { providerHealth } from "@/llm/health";
 import type { TaskLlmResolver } from "@/llm/resolver";
 import { CAPABILITY, type AgentDefinition, type Classification, type ExecutionPlan } from "@/types";
-import { capabilitiesOf, describeCapabilities, isAgentEnabled, normalizeCapability } from "./capabilities";
+import { capabilitiesOf, describeCapabilities, isAgentEnabled } from "./capabilities";
+import { qaWarranted } from "./qaWarrant";
+import { verificationPlan } from "./verificationPlan";
+export { BROWSER_QA_REQUESTED, qaWarranted } from "./qaWarrant";
 import { validatePlan } from "./planValidator";
 import { extractJson } from "@/utils/json";
 import { planningPrompt, PLAN_NODE_INSTRUCTIONS } from "@/prompts/planner";
@@ -152,6 +155,18 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
   // O7: an explicit `/research` task gets the fan-out plan (no planner call).
   const fanout = researchFanout(input, notes);
   if (fanout) return fanout;
+  // A chat-level verification hint is deterministic: skip the planner LLM,
+  // which keeps turning it into code work or an empty plan.
+  if (input.routingHint?.kind === "testing" && input.policy.qaMode !== "never") {
+    const forced = verificationPlan(heuristicPlan(input), input.command, "testing", input.policy.qaMode, input.requirements?.map((r) => r.id) ?? []);
+    if (forced) {
+      return {
+        plan: withRequirements(withDefaultContracts(forced), input, null),
+        createdBy: "fallback",
+        notes: [...notes, "QA verification plan from chat routing hint"],
+      };
+    }
+  }
   // O1: the planner has no persona; the CTO/fallback (else any enabled
   // agent) is only the model source of the call.
   const source = pickPlannerModelSource(input.agents, input.plannerAgent);
@@ -223,6 +238,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
           command: input.command,
           classification: input.classification,
           policy: input.policy,
+          routingKind: input.routingHint?.kind,
           hasQaUrl: input.hasQaUrl,
         });
         const routed = ensureRoutable(hinted, input.agents);
@@ -418,10 +434,14 @@ export function applyPlanningHints(
     command: string;
     classification: Classification;
     policy: Pick<ExecutionPolicy, "reviewMode" | "qaMode">;
+    /** Chat's routing hint kind, e.g. "testing" for verification-only tasks. */
+    routingKind?: string;
     /** Project has a QA/dev URL (resolveQaBaseUrl). */
     hasQaUrl?: boolean;
   }
 ): ExecutionPlan {
+  const forced = verificationPlan(plan, ctx.command, ctx.routingKind, ctx.policy.qaMode);
+  if (forced) return applyPlanningHintsInner(forced, agents, ctx);
   if (ctx.policy.qaMode === "never") {
     return applyPlanningHintsInner(stripQaNodes(plan), agents, ctx);
   }
@@ -433,30 +453,6 @@ export function applyPlanningHints(
     return stripQaNodes(hinted);
   }
   return hinted;
-}
-
-const UI_CAPABILITIES = new Set<string>([CAPABILITY.FRONTEND, CAPABILITY.DESIGN]);
-const UI_PATH = /(\.(tsx|jsx|vue|svelte|astro|html|css|scss|sass|less)\b|(^|\/)(app|pages|components|styles|public)(\/|$))/i;
-
-/** Explicit browser-QA request. Plain "unit tests" does NOT count. */
-export const BROWSER_QA_REQUESTED =
-  /(@qa\b|\bqa\b|\be2e\b|end[- ]to[- ]end|playwright|browser[- ]?(test|testing|check|qa)|(test|verify|check)\s+(it\s+)?in\s+(the\s+)?browser|smoke[- ]?test)/i;
-
-/**
- * True when browser QA is warranted under qaMode=auto: a code change that
- * touches UI (frontend/design capability, or UI-ish allowedPaths) or an
- * explicit browser-QA request. Runtime gates (changes applied, project
- * browser-runnable) are enforced by the QA stage itself.
- */
-export function qaWarranted(plan: ExecutionPlan, command: string): boolean {
-  const codeChanges = plan.subtasks.filter((s) => s.kind === "code_change");
-  if (codeChanges.length === 0) return false;
-  if (BROWSER_QA_REQUESTED.test(command)) return true;
-  return codeChanges.some(
-    (s) =>
-      UI_CAPABILITIES.has(normalizeCapability(s.capability)) ||
-      (s.allowedPaths ?? []).some((p) => UI_PATH.test(p))
-  );
 }
 
 function applyPlanningHintsInner(

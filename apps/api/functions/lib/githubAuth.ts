@@ -6,11 +6,12 @@ import { decryptApiKey } from "./llmCrypto";
  * Where a GitHub token comes from.
  *
  * One account-level connection (`githubConnections`, scope "global") serves
- * every project. Until `integrations:migrateGithubToGlobal` has run (or the
- * user connects through the new flow), the legacy per-project
- * `integrations.accessToken` is read as a fallback. Once a global row
- * exists, in any status, it is the only source: a disconnect stays a
- * disconnect and never falls back to an old project token.
+ * every project. Plan 079: that row is populated from the local Git
+ * credential helper through `integrations.importLocalGithub`, never from
+ * an OAuth app. The legacy per-project `integrations.accessToken` stays
+ * readable as a fallback for old deployments. Once a global row exists, in
+ * any status, it is the only source: a disconnect stays a disconnect and
+ * never falls back to an old project token.
  */
 
 type Ctx = QueryCtx | MutationCtx;

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -9,7 +10,6 @@ const webApiDir = path.join(repoRoot, "apps", "web", "app", "api");
 
 const routeFiles = [
   "about",
-  "integrations/github/callback",
   "llm-providers",
   "magic-prompt",
   "mcp-servers",
@@ -25,6 +25,8 @@ export async function loadWebApiRoutes(): Promise<void> {
   for (const name of routeFiles) {
     try {
       const file = path.join(webApiDir, name, "route.ts");
+      // A route can be removed while this list is still being updated.
+      if (!existsSync(file)) continue;
       const module = await import(pathToFileURL(file).href);
       routes.set(`/api/${name}`, {
         GET: typeof module.GET === "function" ? module.GET : undefined,

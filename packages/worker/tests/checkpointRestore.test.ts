@@ -57,10 +57,16 @@ const write = (dir: string, rel: string, text: string) => {
   writeFileSync(join(dir, rel), text);
 };
 
+/** `git worktree list --porcelain` reports paths with forward slashes on Windows. */
+const gitPath = (p: string) => p.replace(/\\/g, "/");
+
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "fhara-restore-"));
   repo = join(root, "repo");
   execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  // Keep the fixture hermetic: a global core.autocrlf=true would make git
+  // write CRLF on checkout/restore while the fixture files here use LF.
+  git(["config", "core.autocrlf", "false"]);
   write(repo, ".gitignore", "build/\n*.log\nnode_modules/\n.env\n");
   write(repo, "a.txt", "one\n");
   write(repo, "gone.txt", "delete me\n");
@@ -197,10 +203,10 @@ describe("snapshot before the worktree sweep", () => {
 
     const snapshots = listWorktreeSnapshots(gitAt(repo), TASK);
     expect(snapshots.map((s) => s.ref)).toEqual(taken);
-    expect(snapshots[0]).toMatchObject({ headSha: head, branch: `fhara/${TASK}/fix`, worktreePath: wt });
+    expect(snapshots[0]).toMatchObject({ headSha: head, branch: `fhara/${TASK}/fix`, worktreePath: gitPath(wt) });
 
     const restored = restoreWorktreeSnapshot(gitAt, repo, snapshots[0]!);
-    expect(restored).toEqual({ status: "ok", worktreePath: wt, branch: `fhara/${TASK}/fix`, createdBranch: false });
+    expect(restored).toEqual({ status: "ok", worktreePath: gitPath(wt), branch: `fhara/${TASK}/fix`, createdBranch: false });
     expect(snapshotFs(wt)).toEqual(expectedFs);
     expect(git(["ls-files", "--stage"], wt)).toBe(expectedIndex);
     expect(git(["rev-parse", "HEAD"], wt).trim()).toBe(head);
@@ -228,7 +234,7 @@ describe("snapshot before the worktree sweep", () => {
     const swept = removeTaskGitState(gitAt(repo), TASK, (p) => resolve(p) === main, () => {
       throw new Error("unmerged entries");
     });
-    expect(swept).toEqual({ removed: [], refsDeleted: [], kept: [wt] });
+    expect(swept).toEqual({ removed: [], refsDeleted: [], kept: [gitPath(wt)] });
     expect(existsSync(wt)).toBe(true);
     expect(listTaskCheckpointRefs(gitAt(repo), TASK)).toHaveLength(1);
   });

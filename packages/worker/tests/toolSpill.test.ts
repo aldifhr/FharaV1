@@ -38,7 +38,9 @@ describe("spillIfLarge", () => {
     expect(isSpillPreview(out.text)).toBe(true);
     const file = path.join(config.root, "task1", "c1.txt");
     expect(readFileSync(file, "utf8")).toBe(text);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    // Windows does not expose POSIX mode bits (Node reports 0666); the 0600
+    // guarantee is meaningful on POSIX hosts only.
+    if (process.platform !== "win32") expect(statSync(file).mode & 0o777).toBe(0o600);
   });
 
   it("does not spill under the threshold, or when off", () => {

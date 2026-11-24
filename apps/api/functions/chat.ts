@@ -39,13 +39,14 @@ import {
 } from "./lib/chat/intent";
 import { classifyIntent } from "./lib/chat/classify";
 import { type EchoContext, streamEchoSafe, stripLeadingEcho } from "./lib/chat/echo";
-import { ROLE_KEYS, ROLES } from "./lib/roles";
+import { ROLE_KEYS, ROLES, roleLabel } from "./lib/roles";
 import { DOMAIN_ROLES, chatPreRouteAllowed, mentionsCode, routedAnswerSubtype, systemRoutingLine } from "./lib/chat/dispatch";
 import { buildTaskStatusLine, resolveChatOwner, type ChatOwner } from "./lib/chat/owner";
 import { detectChatRunCommands } from "./lib/chat/runRequest";
 import {
   MAX_CTO_HANDOFFS,
   ORCHESTRATOR_ROLE,
+  extractAgentMentions,
   handoffRequestFor,
   isVerificationRequest,
   pickConversationalAgent,
@@ -62,6 +63,7 @@ import {
   type CompleteResult,
 } from "./lib/chat/llm";
 import { stripToolCallMarkup } from "./lib/chat/strip";
+import { replyEchoKey } from "./lib/chat/replyEcho";
 import { offerForReply, planWriteOffer } from "./lib/chat/writeOffer";
 import { isPoliteWriteRequest } from "./lib/chat/offerBrief";
 import { firstReasoningSentence, intentLineFor, stripInternalPhrasing, toolStepFor } from "./lib/chat/activity";
@@ -77,8 +79,6 @@ import {
   createRepoToolBudget,
   describeRepoToolCall,
   runRepoToolLoop,
-  type RepoToolCall,
-  type RepoToolResult,
 } from "./lib/chat/repoTools";
 import type { SkillLoader } from "./lib/skillRuntime";
 import { chatLocalTools, chatSkillLoader, pastWorkRunner } from "./lib/chat/localTools";
@@ -92,7 +92,6 @@ import {
   noAnswerFallback,
 } from "./lib/chat/toolCallText";
 import { EMPTY_EVIDENCE, collectRepoEvidence, findUnverifiedRefs, type RepoEvidence } from "./lib/chat/refCheck";
-import type { RepoToolsOffReason } from "./repoTools";
 import {
   OPTIONS_GUIDANCE,
   buildAnswerGuidance,
@@ -110,6 +109,15 @@ import {
   buildSkillToolProtocol,
   buildSelfReviewGuidance,
 } from "./lib/prompts/chat";
+import {
+  callChatLlmViaWorker,
+  callRepoToolViaWorker,
+  repoToolsAvailability,
+  repoToolsOffNote,
+  WORKER_UNRESPONSIVE,
+} from "./lib/chat/workerBridge";
+// Preserve the public surface: repoToolsOffNote used to be exported from here.
+export { repoToolsOffNote };
 
 
 /** The user explicitly asked for alternatives to pick from ("kasih 3 opsi layout"). */
@@ -165,133 +173,11 @@ type ReplyArgs = {
   preferredModelRowId?: Id<"llmModels">; // Plan 055: composer's model pick (absent = Auto)
 };
 
-/** How long one repo tool call may wait for a worker before it counts as not checked. */
-const REPO_TOOL_WAIT_MS = 20_000;
-/** A call no worker has claimed by then fails fast: no live worker serves the queue. */
-const REPO_TOOL_CLAIM_WAIT_MS = 3_000;
-const REPO_TOOL_POLL_MS = 250;
-/** Plan 060: a chat completion on the worker's CLI may be slower than a file read. */
-const CHAT_LLM_WAIT_MS = 180_000;
-const CHAT_LLM_CLAIM_WAIT_MS = 15_000;
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 /** Append one reasoning chunk to the reply's trace. */
 function joinTrace(trace: string, next: string | undefined): string {
   const add = (next ?? "").trim();
   if (!add) return trace;
   return trace ? `${trace}\n\n${add}` : add;
-}
-
-/** Quiet Thinking-trace line for a CTO reply that runs without repo tools. */
-export function repoToolsOffNote(reason: RepoToolsOffReason | "unclaimed" | "budget" | "error" | undefined): string {
-  switch (reason) {
-    case "no_workspace":
-      return "Repo tools off: project folder not set";
-    case "no_worker":
-      return "Repo tools off: no online worker";
-    case "worker_outdated":
-      return "Repo tools off: online worker is outdated (restart it to serve repo tools)";
-    case "unclaimed":
-      return "Repo tools off: worker tidak merespons";
-    case "budget":
-      return "Repo tools off: this turn's shared repo tool budget is used up";
-    default:
-      return "Repo tools off: availability check failed";
-  }
-}
-
-const WORKER_UNRESPONSIVE =
-  "worker tidak merespons: no worker picked up this tool call within 3s, so repo tools are off for the rest of this reply. Treat it as not checked.";
-
-/**
- * Run one read-only repo tool through the worker queue (repoTools.ts):
- * enqueue, poll for the worker's answer, always delete the row. Never
- * throws; a timeout or failure comes back as ok:false. A call that no worker
- * claims within REPO_TOOL_CLAIM_WAIT_MS fails fast with `unclaimed`.
- */
-async function callRepoToolViaWorker(
-  ctx: ActionCtx,
-  projectId: Id<"projects">,
-  call: RepoToolCall
-): Promise<RepoToolResult & { unclaimed?: boolean }> {
-  let callId: Id<"repoToolCalls">;
-  try {
-    callId = await ctx.runMutation(internal.repoTools.enqueue, {
-      projectId,
-      tool: call.tool,
-      args: JSON.stringify(call.args ?? {}),
-    });
-  } catch (error: any) {
-    return { ok: false, text: `Tool unavailable (${error?.message ?? "enqueue failed"}); treat as not checked.` };
-  }
-  try {
-    const startedAt = Date.now();
-    const deadline = startedAt + REPO_TOOL_WAIT_MS;
-    while (Date.now() < deadline) {
-      await sleep(REPO_TOOL_POLL_MS);
-      const row = await ctx.runQuery(internal.repoTools.get, { callId });
-      if (!row) break;
-      if (row.status === "done") return { ok: true, text: row.result ?? "", files: row.files ?? [] };
-      if (row.status === "error") return { ok: false, text: row.error ?? "Tool failed." };
-      if (row.status === "pending" && Date.now() - startedAt >= REPO_TOOL_CLAIM_WAIT_MS) {
-        return { ok: false, text: WORKER_UNRESPONSIVE, unclaimed: true };
-      }
-    }
-    return { ok: false, text: "No worker answered this tool call in time; treat it as not checked." };
-  } finally {
-    await ctx.runMutation(internal.repoTools.remove, { callId }).catch(() => undefined);
-  }
-}
-
-/**
- * Plan 060: one LLM completion on the worker's local OpenCode CLI. Resolves
- * the model from the worker's FharaV2-style settings.json; the worker only
- * needs the project id to route the queue row, never a workspace path.
- */
-async function callChatLlmViaWorker(
-  ctx: ActionCtx,
-  projectId: Id<"projects">,
-  config: ChatLlmConfig,
-  system: string,
-  msgs: Array<{ role: string; content: string }>
-): Promise<Awaited<ReturnType<typeof completeWithAgent>>> {
-  const callId = await ctx.runMutation(internal.repoTools.enqueueChatLlm, {
-    projectId,
-    model: config.model,
-    system,
-    messages: JSON.stringify(msgs.slice(-12).map((m) => ({ role: m.role, content: String(m.content ?? "").slice(0, 20_000) }))),
-  });
-  const startedAt = Date.now();
-  try {
-    while (Date.now() - startedAt < CHAT_LLM_WAIT_MS) {
-      await sleep(REPO_TOOL_POLL_MS);
-      const row = await ctx.runQuery(internal.repoTools.get, { callId });
-      if (!row) break;
-      if (row.status === "done") {
-        return { content: row.result ?? "", reasoning: "", reasoningDurationMs: Date.now() - startedAt };
-      }
-      if (row.status === "error") throw new Error(row.error || "OpenCode chat call failed.");
-      if (row.status === "pending" && Date.now() - startedAt >= CHAT_LLM_CLAIM_WAIT_MS) {
-        throw new Error("No worker claimed the OpenCode chat call. Start the worker and check its heartbeat.");
-      }
-    }
-    throw new Error("The OpenCode chat call timed out.");
-  } finally {
-    await ctx.runMutation(internal.repoTools.remove, { callId }).catch(() => undefined);
-  }
-}
-
-/** Repo tools are usable for this reply (workspace set + a repo-tool worker online). Never throws. */
-async function repoToolsAvailability(
-  ctx: ActionCtx,
-  projectId: Id<"projects">
-): Promise<{ available: boolean; reason?: RepoToolsOffReason | "error" }> {
-  try {
-    return await ctx.runQuery(internal.repoTools.availability, { projectId });
-  } catch {
-    return { available: false, reason: "error" };
-  }
 }
 
 
@@ -1083,7 +969,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         // Repo grounding only with a project attached (snapshot/tools);
         // without one it made every answer open with "belum saya cek repo".
         ...(scopeProjectId ? buildGroundingGuidance(useRepoTools, skillLoader !== undefined) : []),
-        ...(scopeProjectId && personalWrite.offer ? buildPlanningGuidance(agent, { isOrchestrator: false, taskIntent: { ...classifyChatIntent(lastText), kind: "task" }, assigneeName: personalWrite.assignee?.name, codeInChat: personalWrite.codeInChat, plan: personalWrite.plan }) : []),
+        ...(scopeProjectId && personalWrite.offer ? buildPlanningGuidance(agent, { isOrchestrator: false, taskIntent: { ...classifyChatIntent(lastText), kind: "task" }, assigneeName: personalWrite.assignee ? roleLabel(personalWrite.assignee.role) : undefined, codeInChat: personalWrite.codeInChat, plan: personalWrite.plan }) : []),
         wantsOptions(lastText) ? OPTIONS_GUIDANCE : "Answer in prose. Do not output an [options] block.",
         useRepoTools
           ? buildRepoToolProtocol(MAX_REPO_TOOL_CALLS, { loadSkill: skillLoader !== undefined, pastWork: true })
@@ -1151,16 +1037,27 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     const pickedAgents = (args.preferredAgentIds ?? [])
       .map((id) => agents.find((a) => a._id === String(id)))
       .filter((a): a is ChatAgent => Boolean(a));
+    // A typed @Role is binding even when the composer did not attach a chip.
+    // The run context holds the project's execution team. Role mentions like
+    // @Lead may name an enabled agent outside that team, so resolve against
+    // the full enabled roster while keeping responders type-compatible.
+    const enabledAgents = (await ctx.db.query("agents").collect())
+      .filter((a) => a.isEnabled !== false)
+      .map((a) => ({ ...a, _id: String(a._id) })) as unknown as ChatAgent[];
+    const mentionable = [
+      ...new Map([...team, ...agents, ...enabledAgents].map((a) => [String(a._id), a])).values(),
+    ];
+    const addressedAgents = pickedAgents.length ? pickedAgents : extractAgentMentions(lastContent, mentionable);
     const ctoTyped =
       orchestrator !== null &&
       new RegExp(`@(?:cto|${orchestrator.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(?![\\w-])`, "i").test(lastContent);
     // "@CTO" typed always addresses the CTO, picked or not.
     const mentionedAgents =
-      orchestrator !== null && !ctoTyped && !quotedResponder && pickedAgents.length === 1 && String(pickedAgents[0]._id) === String(orchestrator._id)
+      orchestrator !== null && !ctoTyped && !quotedResponder && addressedAgents.length === 1 && String(addressedAgents[0]._id) === String(orchestrator._id)
         ? []
-        : orchestrator !== null && ctoTyped && pickedAgents.length === 0
+        : orchestrator !== null && ctoTyped && addressedAgents.length === 0
           ? [orchestrator]
-          : pickedAgents;
+          : addressedAgents;
     if (GREETING.test(lastContent.trim())) {
       const greetingHistory = [{ role: "user", content: lastContent.trim() }];
       // An @mention wins, else Support (the guidance role), else the
@@ -1216,7 +1113,6 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       }
       // No offer to start: a bare "gas" is just chat.
     }
-
     // The intent below is a suggestion that shapes the reply (answer vs a
     // plan proposal with the Create task button); it never dispatches.
     let intent = await resolveIntent(ctx, projectId, lastUserContent, isOptionPick, globalConfig, {
@@ -1364,8 +1260,9 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       }
     }
 
-    // The routed owner answers; otherwise the @mentioned agents, in the user's order.
-    const responders: ChatAgent[] = routed ? [routed] : mentionedAgents.length > 0 ? mentionedAgents : pickConversationalAgent(team);
+    // An explicit @mention is binding and beats the topic router: "@Lead" is
+    // a request to Lead even when the topic itself would route to CTO.
+    const responders: ChatAgent[] = mentionedAgents.length > 0 ? mentionedAgents : routed ? [routed] : pickConversationalAgent(team);
     // Sequential multi-agent replies: each selected agent answers with its persona.
     // The queue grows when the CTO @mentions teammates in its reply (handoff).
     const queue = [...responders];
@@ -1380,6 +1277,13 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     let handoffs = 0;
     for (let turn = 0; turn < queue.length; turn += 1) {
       const agent = queue[turn];
+      // Design proposals are the one "ask" turn where the Designer should
+      // emit a clickable options block instead of a prose list.
+      const designerChoices =
+        /designer/i.test(agent.role ?? "") &&
+        /(propose|usulkan|layout|design|desain|option|opsi|alternative|alternatif|direction|arah|variant|variasi)/i.test(
+          lastUserContent
+        );
       if (answered.has(String(agent._id))) continue;
       answered.add(String(agent._id));
       const isCto = orchestrator !== null && agent._id === orchestrator._id;
@@ -1410,7 +1314,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         ...buildChatPersonaLines(agent, projectName, queue, repoSnapshot, useRepoTools),
         ...buildGroundingGuidance(useRepoTools, skillLoader !== undefined), // D5: stable lines first, per-turn after
         ...(intent.intent === "ask" ? buildAnswerGuidance(intent.subtype) : []),
-        ...buildPlanningGuidance(agent, { isOrchestrator: isCto, hasRepoTools: useRepoTools, taskIntent, assigneeName: write.assignee?.name, codeInChat: write.codeInChat, plan: write.plan, taskAlreadyCreated: autoCreated }),
+        ...buildPlanningGuidance(agent, { isOrchestrator: isCto, hasRepoTools: useRepoTools, taskIntent, assigneeName: write.assignee ? roleLabel(write.assignee.role) : undefined, codeInChat: write.codeInChat, plan: write.plan, taskAlreadyCreated: autoCreated }),
         ...(isCto && !isOptionPick
           ? buildHandoffGuidance(team, String(agent._id), {
               hasRepoTools: useRepoTools,
@@ -1427,7 +1331,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
           : "",
         // Questions (compare, explain, recommend) get a prose answer; the
         // options picker is for choosing what to build, not for a verdict.
-        intent.intent === "ask" && !wantsOptions(lastUserContent)
+        intent.intent === "ask" && !wantsOptions(lastUserContent) && !designerChoices
           ? "Answer in prose. Do not output an [options] block."
           : OPTIONS_GUIDANCE,
       ]
@@ -1543,4 +1447,20 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       }
     }
 
+    // Several @mentioned teammates can independently report the same
+    // "task already created" fact. The task card is authoritative; keep the
+    // first reply and drop the echoes so the thread stays readable.
+    const turnReplyRows = (await ctx.runQuery(internal.chatContext.repliesForTurn, {
+      userMessageId: args.userMessageId,
+    })) as any[];
+    const firstEcho = new Map<string, string>();
+    for (const reply of turnReplyRows) {
+      const key = replyEchoKey(reply.content);
+      if (key && !firstEcho.has(key)) firstEcho.set(key, String(reply._id));
+    }
+    for (const reply of turnReplyRows) {
+      const key = replyEchoKey(reply.content);
+      if (!key || firstEcho.get(key) === String(reply._id)) continue;
+      await ctx.runMutation(internal.chatContext.deleteAgentReply, { messageId: reply._id }).catch(() => undefined);
+    }
 }

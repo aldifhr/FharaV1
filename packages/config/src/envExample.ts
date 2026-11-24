@@ -97,7 +97,6 @@ const RUNTIME_LABEL: Record<Runtime, string> = {
 
 const GENERATE: Readonly<Record<string, string>> = {
   FHARA_SERVICE_TOKEN: "openssl rand -hex 32",
-  OAUTH_STATE_SECRET: "openssl rand -hex 32",
   GITHUB_WEBHOOK_SECRET: "openssl rand -hex 32",
 };
 

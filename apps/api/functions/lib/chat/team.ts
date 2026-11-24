@@ -73,16 +73,25 @@ export function extractAgentMentions<T extends { _id: string; name: string; role
   speakerId?: string
 ): T[] {
   const hits: Array<{ index: number; agent: T }> = [];
-  for (const agent of team) {
-    if (speakerId && String(agent._id) === String(speakerId)) continue;
-    const labels = Array.from(new Set([agent.name, agent.role].filter(Boolean)));
-    let first = -1;
-    for (const label of labels) {
-      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-      const match = new RegExp(`(^|[^\\w@])@${escaped}(?![\\w-])`, "i").exec(text);
-      if (match && (first === -1 || match.index < first)) first = match.index;
-    }
-    if (first !== -1) hits.push({ index: first, agent });
+  const matches = (label: string) => {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+    const match = new RegExp(`(^|[^\\w@])@${escaped}(?![\\w-])`, "i").exec(text);
+    return match ? match.index : -1;
+  };
+  // An exact agent name wins over a role label: "@Lead" means the agent
+  // named Lead, not every agent whose role happens to be lead.
+  const nameHits = team
+    .filter((a) => !(speakerId && String(a._id) === String(speakerId)) && a.name)
+    .map((agent) => ({ agent, index: matches(agent.name) }))
+    .filter((hit) => hit.index >= 0);
+  if (nameHits.length > 0) {
+    hits.push(...nameHits);
+  } else {
+    const roleHits = team
+      .filter((a) => !(speakerId && String(a._id) === String(speakerId)) && a.role)
+      .map((agent) => ({ agent, index: matches(agent.role) }))
+      .filter((hit) => hit.index >= 0);
+    hits.push(...roleHits);
   }
   return hits.sort((a, b) => a.index - b.index).map((hit) => hit.agent);
 }

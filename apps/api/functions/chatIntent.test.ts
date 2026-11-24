@@ -148,6 +148,11 @@ describe("stripToolCallMarkup", () => {
     expect(stripToolCallMarkup("Cek dulu.<longcat_tool_call>X\n<a>b</a></longcat_tool_call> ok")).toBe("Cek dulu. ok");
     expect(stripToolCallMarkup("Saya lihat file.<longcat_tool_call>DevOps\n<longcat_arg_ke")).toBe("Saya lihat file.");
     expect(stripToolCallMarkup("plain")).toBe("plain");
+    expect(
+      stripToolCallMarkup(
+        '{"tool":"read_file","arguments":{"path":"README.md"}} Indeterminate? Must only JSON.{"tool":"read_file","arguments":{"path":"README.md"}}'
+      )
+    ).toBe("Indeterminate? Must only JSON.");
   });
 });
 

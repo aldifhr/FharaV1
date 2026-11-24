@@ -238,12 +238,34 @@ type AnyHandler = (
   args: Record<string, unknown>
 ) => Promise<unknown>;
 
+const FUNCTION_MARKER = Symbol.for("fharaLocalFunction");
+
 function callHandler(
   fn: unknown,
   ctx: FakeCtx,
   args: Record<string, unknown>
 ): Promise<unknown> {
-  const handler = (fn as { _handler: AnyHandler })._handler;
+  // Runtime function exports are marker objects produced by
+  // `markFunction`: { [FUNCTION_MARKER]: { kind, definition } } where
+  // `definition` is either the handler itself or an object carrying
+  // `.handler` (mirrors the executor's own extraction). Older builds
+  // exposed the handler directly as `_handler`; derive it from the
+  // marker so this harness keeps invoking the REAL mutation handler.
+  type Marked = {
+    [FUNCTION_MARKER]?: {
+      definition: { handler: AnyHandler } | AnyHandler;
+    };
+    _handler?: AnyHandler;
+  };
+  const marked = fn as Marked;
+  const definition = marked?.[FUNCTION_MARKER]?.definition;
+  const handler =
+    typeof definition === "function"
+      ? definition
+      : definition?.handler ?? marked?._handler;
+  if (typeof handler !== "function") {
+    throw new Error("handler is not a function");
+  }
   // Strict lease fencing: worker writes always carry the owner identity.
   // Seeded tasks are owned by TEST_WORKER with a live lease.
   return handler(ctx, "taskId" in args && !("workerId" in args) ? { ...args, workerId: TEST_WORKER } : args);

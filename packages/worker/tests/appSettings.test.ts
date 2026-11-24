@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
+import * as path from "node:path";
+import { WORKER_DIR } from "@/utils/rootEnv";
 import { loadPolicy } from "@/orchestrator/policy";
 import { applyAppSettings, knobEnvSnapshot, resetAppSettingsForTest, syncAppSettings } from "@/services/appSettings";
 import { assertPushAllowed } from "@/tools/gitPush";
@@ -32,7 +34,9 @@ describe("Settings modal → worker", () => {
     expect(policy.toolLoop).toBe(true);
     expect(policy.approvalTimeoutMs).toBe(120_000);
     expect(policy.maxConcurrency).toBe(maxConcurrency);
-    expect(target.workspaceRoot).toBe("/srv/fhara");
+    // The override is absolute; path.resolve keeps it on the host's native
+    // form ("/srv/fhara" on POSIX, "D:\\srv\\fhara" on Windows).
+    expect(target.workspaceRoot).toBe(path.resolve(WORKER_DIR, "/srv/fhara"));
     // Same version: not applied twice.
     expect(applyAppSettings({ values: {}, childEnv: {}, updatedAt: 1 }, target)).toBe(false);
   });

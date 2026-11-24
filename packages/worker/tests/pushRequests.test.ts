@@ -30,10 +30,24 @@ function claim(overrides: Partial<PushClaim> = {}): PushClaim {
   } as PushClaim;
 }
 
-function harness(options: { pushFails?: boolean; prStatus?: number; prBody?: unknown } = {}) {
+function harness(options: {
+  pushFails?: boolean;
+  prStatus?: number;
+  prBody?: unknown;
+  origin?: string;
+  defaultBranch?: string;
+  baseBranches?: string[];
+  remoteBranches?: string[];
+} = {}) {
   const gitCalls: Array<{ args: string[]; env: NodeJS.ProcessEnv }> = [];
   const execGit: ExecGit = vi.fn(async (args, opts) => {
     gitCalls.push({ args, env: opts.env });
+    if (args[0] === "remote") return { stdout: options.origin ?? "", stderr: "" };
+    if (args[0] === "rev-parse" && args[3]?.startsWith("refs/")) {
+      const name = args[3].split("/").pop() ?? "";
+      if (!options.baseBranches?.includes(name)) throw new Error("not found");
+      return { stdout: `${SHA}\n`, stderr: "" };
+    }
     if (args[0] === "push" && options.pushFails) {
       throw new Error(`remote: Permission denied. Authorization: basic ${Buffer.from(`x-access-token:${TOKEN}`).toString("base64")} token ${TOKEN}`);
     }
@@ -42,6 +56,22 @@ function harness(options: { pushFails?: boolean; prStatus?: number; prBody?: unk
   const fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
   const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
     fetchCalls.push({ url, init });
+    if (/^https:\/\/api\.github\.com\/repos\/[^/]+\/[^/]+$/.test(url)) {
+      return new Response(JSON.stringify({ default_branch: options.defaultBranch ?? "main" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    const branchMatch = url.match(/^https:\/\/api\.github\.com\/repos\/[^/]+\/[^/]+\/branches\/([^/]+)$/);
+    if (branchMatch) {
+      const exists = options.remoteBranches
+        ? options.remoteBranches.includes(decodeURIComponent(branchMatch[1]))
+        : options.baseBranches?.includes(decodeURIComponent(branchMatch[1]));
+      return new Response(exists ? "{}" : JSON.stringify({ message: "Branch not found" }), {
+        status: exists ? 200 : 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     return new Response(
       JSON.stringify(
         options.prBody ?? {
@@ -117,6 +147,113 @@ describe("handlePushRequest", () => {
     expect(h.logs.join("\n")).not.toContain(TOKEN);
   });
 
+  it("uses the workspace Git origin when the claim has no pinned repository", async () => {
+    const h = harness({ origin: "git@github.com:acme/app.git\n" });
+    await handlePushRequest(claim({ owner: undefined, repo: undefined, workspacePath: tmpdir() }), {
+      api: h.api as any,
+      workerId: "w1",
+      workspaceRoot: "/ws",
+      log: h.log,
+      execGit: h.execGit,
+      fetchImpl: h.fetchImpl as any,
+    });
+    expect(h.gitCalls.find((call) => call.args[0] === "remote")?.args).toEqual(["remote", "get-url", "origin"]);
+    expect(h.gitCalls.find((call) => call.args[0] === "push")?.args[2]).toBe("https://github.com/acme/app.git");
+    expect(h.completed[0]).toMatchObject({ outcome: "pushed", repoFullName: "acme/app" });
+  });
+
+  it("uses GitHub's default branch when an unpinned claim has no base branch", async () => {
+    const h = harness({ origin: "https://github.com/acme/app.git", defaultBranch: "trunk" });
+    await handlePushRequest(
+      claim({ owner: undefined, repo: undefined, baseBranch: undefined, workspacePath: tmpdir() }),
+      {
+        api: h.api as any,
+        workerId: "w1",
+        workspaceRoot: "/ws",
+        log: h.log,
+        execGit: h.execGit,
+        fetchImpl: h.fetchImpl as any,
+      }
+    );
+    expect(h.fetchCalls[0].url).toBe("https://api.github.com/repos/acme/app");
+    const create = h.fetchCalls.find((call) => call.url.endsWith("/pulls"))!;
+    expect(JSON.parse(String(create.init?.body)).base).toBe("trunk");
+    expect(h.completed[0]).toMatchObject({ outcome: "pushed", baseBranch: "trunk" });
+  });
+
+  it("falls back to a local trunk when GitHub's default branch is the task branch", async () => {
+    const unpinned = claim({ owner: undefined, repo: undefined, baseBranch: undefined, workspacePath: tmpdir() });
+    const h = harness({
+      origin: "https://github.com/acme/app.git",
+      defaultBranch: unpinned.branchName,
+      baseBranches: ["master"],
+    });
+    await handlePushRequest(unpinned, {
+      api: h.api as any,
+      workerId: "w1",
+      workspaceRoot: "/ws",
+      log: h.log,
+      execGit: h.execGit,
+      fetchImpl: h.fetchImpl as any,
+    });
+    const create = h.fetchCalls.find((call) => call.url.endsWith("/pulls"))!;
+    expect(JSON.parse(String(create.init?.body)).base).toBe("master");
+    expect(h.completed[0]).toMatchObject({ outcome: "pushed", baseBranch: "master" });
+  });
+
+  it("refuses a local trunk that does not exist on GitHub", async () => {
+    const unpinned = claim({ owner: undefined, repo: undefined, baseBranch: undefined, workspacePath: tmpdir() });
+    const h = harness({
+      origin: "https://github.com/acme/app.git",
+      defaultBranch: unpinned.branchName,
+      baseBranches: ["master"],
+      remoteBranches: [],
+    });
+    await handlePushRequest(unpinned, {
+      api: h.api as any,
+      workerId: "w1",
+      workspaceRoot: "/ws",
+      log: h.log,
+      execGit: h.execGit,
+      fetchImpl: h.fetchImpl as any,
+    });
+    expect(h.completed[0]).toMatchObject({ outcome: "failed" });
+    expect(h.completed[0].error).toMatch(/no "master" branch on GitHub/);
+    expect(h.gitCalls.some((call) => call.args[0] === "push")).toBe(false);
+  });
+
+  it("surfaces GitHub's field-level 422 detail", async () => {
+    const h = harness({
+      prStatus: 422,
+      prBody: { message: "Validation Failed", errors: [{ field: "base", code: "invalid" }] },
+    });
+    await handlePushRequest(claim({ openPr: true }), {
+      api: h.api as any,
+      workerId: "w1",
+      workspaceRoot: "/ws",
+      log: h.log,
+      execGit: h.execGit,
+      fetchImpl: h.fetchImpl as any,
+    });
+    expect(h.completed[0]).toMatchObject({ outcome: "pushed" });
+    expect(h.completed[0].error).toMatch(/field base invalid/);
+  });
+
+  it("fails clearly when the workspace has no usable GitHub origin", async () => {
+    const h = harness({ origin: "/srv/git/not-github.git\n" });
+    await handlePushRequest(claim({ owner: undefined, repo: undefined, workspacePath: tmpdir() }), {
+      api: h.api as any,
+      workerId: "w1",
+      workspaceRoot: "/ws",
+      log: h.log,
+      execGit: h.execGit,
+      fetchImpl: h.fetchImpl as any,
+    });
+    expect(h.completed[0]).toMatchObject({ outcome: "failed" });
+    expect(h.completed[0].error).toMatch(/no GitHub origin remote/);
+    expect(h.gitCalls.some((call) => call.args[0] === "push")).toBe(false);
+  });
+
   it("O8: sends a failed dependencyCheck when the pushed commit adds a typosquatted dependency", async () => {
     const h = harness();
     const BASE = "b".repeat(40);
@@ -188,9 +325,25 @@ describe("handlePushRequest", () => {
       execGit: h.execGit,
       fetchImpl: h.fetchImpl as any,
     });
-    expect(h.completed[0].outcome).toBe("failed");
+    // The push landed; the PR error is kept on the card for a PR-only retry.
+    expect(h.completed[0].outcome).toBe("pushed");
     expect(h.completed[0].error).toMatch(/403/);
     expect(h.completed[0].error).not.toContain(TOKEN);
+  });
+
+  it("opens only the PR on a retry when the commit is already pushed", async () => {
+    const h = harness();
+    await handlePushRequest(claim({ alreadyPushed: true }), {
+      api: h.api as any,
+      workerId: "w1",
+      workspaceRoot: "/ws",
+      log: h.log,
+      execGit: h.execGit,
+      fetchImpl: h.fetchImpl as any,
+    });
+    expect(h.gitCalls.some((call) => call.args[0] === "push")).toBe(false);
+    expect(h.fetchCalls.some((call) => call.url.endsWith("/pulls"))).toBe(true);
+    expect(h.completed[0]).toMatchObject({ outcome: "pushed", repoFullName: "acme/app" });
   });
 
   it("refuses an unsafe branch name before running git push", async () => {

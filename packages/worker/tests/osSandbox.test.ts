@@ -104,14 +104,14 @@ describe("wrapCommand", () => {
   it("runs as-is when the mode is off, and refuses when bwrap is unusable", () => {
     resetSandboxProbeForTest(() => false);
     expect(wrapCommand("npm", ["test"], root, { env: { SANDBOX_MODE: "off" } })).toMatchObject({ kind: "unconfined", reason: "off", command: "npm" });
-    const refused = wrapCommand("npm", ["test"], root, { env: {} });
+    const refused = wrapCommand("npm", ["test"], root, { env: { SANDBOX_MODE: "workspace-write" } });
     expect(refused.kind).toBe("unavailable");
     expect(refused.kind === "unavailable" && refused.message).toContain(SANDBOX_UNAVAILABLE);
   });
 
   it("wraps the argv in bwrap with the worktree writable", () => {
     resetSandboxProbeForTest(() => true);
-    const wrapped = wrapCommand("npm", ["run", "test"], root, { env: {} });
+    const wrapped = wrapCommand("npm", ["run", "test"], root, { env: { SANDBOX_MODE: "workspace-write" } });
     expect(wrapped.kind).toBe("sandboxed");
     if (wrapped.kind !== "sandboxed") return;
     expect(wrapped.command).toBe("bwrap");

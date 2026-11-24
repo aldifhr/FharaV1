@@ -259,18 +259,12 @@ export function extractToolCalls(text: string): ExtractedToolCalls {
     if (calls) segments.push({ start, end, calls });
   }
 
-  // Bare JSON objects that start a line.
+  // Bare JSON tool calls, including ones a model emit inline with prose.
   for (let i = 0; i < source.length; i += 1) {
     if (source[i] !== "{") continue;
-    const lineStart = source.lastIndexOf("\n", i - 1) + 1;
-    if (source.slice(lineStart, i).trim() !== "") continue;
     if (overlaps(i, i + 1)) continue;
     const end = balancedObjectEnd(source, i);
     if (end < 0) continue;
-    const lineEnd = source.indexOf("\n", end);
-    const restEnd = lineEnd < 0 ? source.length : lineEnd;
-    const rest = source.slice(end, restEnd).replace(STRAY_TAG, "").trim();
-    if (rest !== "" && rest !== ",") continue;
     let call: ToolCallText | null = null;
     try {
       call = toCall(JSON.parse(source.slice(i, end)));
@@ -278,9 +272,9 @@ export function extractToolCalls(text: string): ExtractedToolCalls {
       call = null;
     }
     if (!call) continue;
-    // A stray closing tag on the same line belongs to the call.
-    segments.push({ start: i, end: restEnd, calls: [call] });
-    i = restEnd - 1;
+    // Strip the object only; prose before and after it stays.
+    segments.push({ start: i, end, calls: [call] });
+    i = end - 1;
   }
 
   segments.sort((a, b) => a.start - b.start);

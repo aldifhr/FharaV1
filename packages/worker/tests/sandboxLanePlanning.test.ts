@@ -15,6 +15,19 @@ vi.mock("@/orchestrator/orchestrator", async (importOriginal) => {
   return { ...actual, createAuthoritativePlan: () => plannerCall.impl() };
 });
 
+// The planner's context gathering does real fs/git I/O. Keep it out of this
+// test so fake timers drive only the planner call and its keepalives.
+vi.mock("@/utils/workspaceLayout", () => ({ listWorkspaceLayout: async () => [] }));
+vi.mock("@/execution/repoMap", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  buildRepoMap: async () => null,
+}));
+vi.mock("@/context/projectInstructions", () => ({ projectInstructionsBlock: () => "" }));
+vi.mock("@/context/timeContext", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  timeContextLine: () => "",
+}));
+
 import { requestPlan, PLANNING_KEEPALIVE_MS } from "@/services/runner/planning";
 
 afterEach(() => vi.useRealTimers());

@@ -1,7 +1,14 @@
 import path from "node:path";
 import type { WorkerApi } from "@/workerApi";
-import { defaultExecGit, GIT_TIMEOUT_MS, gitChildEnv, pushCommitToGithub, redactSecret, remoteBranchSha, type ExecGit } from "@/tools/gitPush";
-import { findPullRequestByHead, openPullRequest, type FetchLike, type PullRequestResult } from "@/tools/githubPr";
+import { defaultExecGit, GIT_TIMEOUT_MS, gitChildEnv, pushCommitToGithub, readGitHubRepoFromRemote, redactSecret, remoteBranchSha, type ExecGit } from "@/tools/gitPush";
+import {
+  findPullRequestByHead,
+  getDefaultBranch,
+  openPullRequest,
+  remoteBranchExists,
+  type FetchLike,
+  type PullRequestResult,
+} from "@/tools/githubPr";
 import { guardedEffect, type GuardedResult, type SideEffectApi } from "./sideEffects";
 import { registerSecretValues } from "@/utils/redact";
 import type { AccessLogEntry, CommandRecorder } from "@/utils/accessLog";
@@ -59,28 +66,69 @@ export async function handlePushRequest(claim: PushClaim, deps: PushDeps): Promi
   const repoPath = path.isAbsolute(claim.workspacePath)
     ? path.resolve(claim.workspacePath)
     : path.resolve(path.resolve(deps.workspaceRoot), claim.workspacePath);
-  const repoFullName = `${claim.owner}/${claim.repo}`;
+  const pinned = claim.owner && claim.repo ? { owner: claim.owner as string, repo: claim.repo as string } : undefined;
   const onCommand = pushCommandRecorder(claim, deps);
   // Never log the claim object itself: it carries the token.
-  deps.log(`push ${claim.pushId}: ${claim.branchName}@${claim.commitSha.slice(0, 12)} → ${repoFullName}`);
+  deps.log(`push ${claim.pushId}: ${claim.branchName}@${claim.commitSha.slice(0, 12)} → ${pinned ? `${pinned.owner}/${pinned.repo}` : "workspace origin"}`);
+  // A PR-only retry must not push the same commit again.
+  let landed: { repoFullName: string; baseBranch: string } | undefined;
   try {
+    // Plan 080: a project without a pinned repo pushes to its workspace's
+    // GitHub origin. Resolve it here, before any side effect is armed.
+    const { owner, repo } = pinned ?? (await readGitHubRepoFromRemote({ repoPath, execGit: deps.execGit, signal: deps.signal }));
+    const repoFullName = `${owner}/${repo}`;
+    // An unpinned claim has no base branch: ask GitHub for the repository's
+    // real default instead of assuming `main`.
+    const taskBranch = String(claim.branchName).replace(/^refs\/heads\//, "");
+    let baseBranch =
+      claim.baseBranch ||
+      (await getDefaultBranch({ owner, repo, token, fetchImpl: deps.fetchImpl, signal: deps.signal }));
+    // Some repos have HEAD pointed at a task branch (Fhara's own pushes can
+    // do this on a fresh repo). A PR cannot use its own head as its base, so
+    // fall back to a real local trunk rather than opening base == head.
+    if (baseBranch.replace(/^refs\/heads\//, "") === taskBranch) {
+      const fallback = await findLocalBaseBranch(repoPath, deps, taskBranch);
+      if (!fallback) {
+        throw new Error(
+          `GitHub reports "${taskBranch}" as this repository's default branch, so it cannot be the PR base. Set a base branch in project settings (for example master).`
+        );
+      }
+      baseBranch = fallback;
+      if (
+        !(await remoteBranchExists({
+          owner,
+          repo,
+          branch: baseBranch,
+          token,
+          fetchImpl: deps.fetchImpl,
+          signal: deps.signal,
+        }))
+      ) {
+        throw new Error(
+          `This repository has no "${baseBranch}" branch on GitHub, so a PR cannot use it as the base. Create it first (for example \`git push origin ${baseBranch}\`) or pin a base branch in project settings.`
+        );
+      }
+    }
     const ledger = sideEffectApi(deps.api);
     const shortSha = claim.commitSha.slice(0, 12);
     const doPush = () =>
       pushCommitToGithub({
         repoPath,
-        owner: claim.owner,
-        repo: claim.repo,
+        owner,
+        repo,
         commitSha: claim.commitSha,
         branchName: claim.branchName,
         // Push guard: never the base branch, never forced, unless allowed.
-        baseBranch: claim.baseBranch,
+        baseBranch,
         token,
         signal: deps.signal,
         execGit: deps.execGit,
         onCommand,
       });
-    if (ledger) {
+    if (claim.alreadyPushed === true) {
+      landed = { repoFullName, baseBranch };
+      deps.log(`push ${claim.pushId}: commit already on GitHub; opening the PR only`);
+    } else if (ledger) {
       // L6: armed before `git push`; an earlier attempt that was cut off
       // is settled by the remote branch SHA, never by pushing again.
       const pushed = await guardedEffect({
@@ -95,8 +143,8 @@ export async function handlePushRequest(claim: PushClaim, deps: PushDeps): Promi
         perform: doPush,
         reconcile: async () => {
           const remote = await remoteBranchSha({
-            owner: claim.owner,
-            repo: claim.repo,
+            owner: owner,
+            repo: repo,
             branchName: claim.branchName,
             token,
             repoPath,
@@ -118,19 +166,21 @@ export async function handlePushRequest(claim: PushClaim, deps: PushDeps): Promi
         evidenceOf: () => ({ commitSha: claim.commitSha }),
       });
       unwrap(pushed, "push");
+      landed = { repoFullName, baseBranch };
       deps.log(`push ${claim.pushId}: ${pushed.status === "performed" ? "pushed" : `already on GitHub (${pushed.status})`}`);
     } else {
       await doPush();
+      landed = { repoFullName, baseBranch };
     }
     let pr: PullRequestResult | undefined;
     if (claim.openPr && claim.existingPrNumber === undefined) {
       const doPr = () =>
         openPullRequest({
-          owner: claim.owner,
-          repo: claim.repo,
+          owner: owner,
+          repo: repo,
           token,
           head: claim.branchName,
-          base: claim.baseBranch,
+          base: baseBranch,
           title: claim.prTitle,
           body: claim.prBody,
           fetchImpl: deps.fetchImpl,
@@ -152,8 +202,8 @@ export async function handlePushRequest(claim: PushClaim, deps: PushDeps): Promi
           perform: doPr,
           reconcile: async () => {
             const found = await findPullRequestByHead({
-              owner: claim.owner,
-              repo: claim.repo,
+              owner: owner,
+              repo: repo,
               token,
               head: claim.branchName,
               fetchImpl: deps.fetchImpl,
@@ -177,13 +227,13 @@ export async function handlePushRequest(claim: PushClaim, deps: PushDeps): Promi
       }
     }
     // O8: the dependency check on what this push adds (feeds auto-merge).
-    const depCheck = await pushDependencyCheck(claim, repoPath, deps);
+    const depCheck = await pushDependencyCheck(claim, repoPath, deps, baseBranch);
     await deps.api.completePushRequest({
       pushId: claim.pushId,
       workerId: deps.workerId,
       outcome: "pushed",
       repoFullName,
-      baseBranch: claim.baseBranch,
+      baseBranch,
       ...(pr ? { pr } : {}),
       dependencyCheck: { status: depCheck.status, high: depCheck.high, summary: depCheck.summary.slice(0, 500) },
     });
@@ -191,12 +241,20 @@ export async function handlePushRequest(claim: PushClaim, deps: PushDeps): Promi
   } catch (error) {
     const message = redactSecret(error instanceof Error ? error.message : String(error), token).slice(0, 1000);
     deps.log(`push ${claim.pushId}: failed: ${message}`);
+    // If the commit is already on GitHub, keep the push as landed. The card
+    // can then retry only the PR instead of pushing the same SHA again.
+    const report = landed
+      ? {
+          outcome: "pushed" as const,
+          ...landed,
+          error: message,
+        }
+      : { outcome: "failed" as const, error: message };
     await deps.api
       .completePushRequest({
         pushId: claim.pushId,
         workerId: deps.workerId,
-        outcome: "failed",
-        error: message,
+        ...report,
       })
       .catch((reportError: unknown) =>
         deps.log(
@@ -291,10 +349,41 @@ export function commandAuditRow<T, P>(entry: AccessLogEntry, ctx: { taskId?: T; 
   };
 }
 
+/** A local trunk to use when GitHub's default branch is the task branch itself. */
+async function findLocalBaseBranch(
+  repoPath: string,
+  deps: Pick<PushDeps, "execGit" | "signal">,
+  taskBranch: string
+): Promise<string | undefined> {
+  const execGit = deps.execGit ?? defaultExecGit;
+  for (const candidate of ["master", "main"]) {
+    if (candidate === taskBranch) continue;
+    for (const ref of [`refs/heads/${candidate}`, `refs/remotes/origin/${candidate}`]) {
+      try {
+        const { stdout } = await execGit(["rev-parse", "--verify", "--quiet", ref], {
+          cwd: repoPath,
+          env: gitChildEnv(),
+          signal: deps.signal,
+          timeoutMs: 30_000,
+        });
+        if (stdout.trim()) return candidate;
+      } catch {
+        // Not present locally; try the next ref.
+      }
+    }
+  }
+  return undefined;
+}
+
 /** O8: dependency check of the pushed commit against the base branch (never throws). */
-export async function pushDependencyCheck(claim: PushClaim, repoPath: string, deps: Pick<PushDeps, "execGit" | "signal">): Promise<DepCheckResult> {
+export async function pushDependencyCheck(
+  claim: PushClaim,
+  repoPath: string,
+  deps: Pick<PushDeps, "execGit" | "signal">,
+  baseBranch: string
+): Promise<DepCheckResult> {
   const execGit = deps.execGit ?? defaultExecGit;
   // Read-only local git: not access-logged (only pushes, PRs and merges are).
   const git = (args: string[]) => execGit(args, { cwd: repoPath, env: gitChildEnv(), signal: deps.signal, timeoutMs: 30_000 });
-  return await checkCommitDependencies(git, { commitSha: claim.commitSha, baseBranch: claim.baseBranch });
+  return await checkCommitDependencies(git, { commitSha: claim.commitSha, baseBranch });
 }

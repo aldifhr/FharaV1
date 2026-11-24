@@ -57,7 +57,7 @@ test("doctor: required vars and aliases come from the env manifest", () => {
   assert.equal(withAliases({ FHARA_BACKEND_URL: "http://legacy" }, "FHARA_BACKEND_URL"), "http://legacy");
   assert.equal(withAliases({ ORCHESTRATOR_EXECUTION_RUNTIME: "a", ORCHESTRATOR_RUNTIME: "b" }, "ORCHESTRATOR_EXECUTION_RUNTIME"), "a");
   assert.equal(withAliases({}, "FHARA_SERVICE_TOKEN"), undefined);
-  for (const name of ["PROVIDER_ENCRYPTION_KEY", "WORKSPACE_ROOT", "QA_CHROMIUM_PATH", "ORCHESTRATOR_QA_REQUIRED", "ORCHESTRATOR_EXECUTION_RUNTIME", "ORCHESTRATOR_NATIVE_PROVIDER_COMMAND", "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"]) {
+  for (const name of ["PROVIDER_ENCRYPTION_KEY", "WORKSPACE_ROOT", "QA_CHROMIUM_PATH", "ORCHESTRATOR_QA_REQUIRED", "ORCHESTRATOR_EXECUTION_RUNTIME", "ORCHESTRATOR_NATIVE_PROVIDER_COMMAND", "GITHUB_WEBHOOK_SECRET"]) {
     assert.equal(manifestVar(name).name, name);
   }
   assert.throws(() => manifestVar("MODEL_CAPABILITY_ROUTING"));

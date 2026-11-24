@@ -1,5 +1,5 @@
 /**
- * Task branch names: `fhara/<taskId>/<slug>`. Branches created before the
+ * Task branch names: `fhara/<short-task-id>/<slug>` (plan 081). Branches created before the
  * MOAgent -> Fhara rename use `moagent/<taskId>/<slug>`; they are still
  * recognized wherever a branch name is parsed or matched, so old worktrees
  * keep merging, discarding and getting cleaned up. The worktree directory
@@ -11,8 +11,21 @@ export const LEGACY_TASK_BRANCH_PREFIXES: readonly string[] = ["moagent/"];
 export const TASK_BRANCH_PREFIXES: readonly string[] = [TASK_BRANCH_PREFIX, ...LEGACY_TASK_BRANCH_PREFIXES];
 
 /**
- * Task ids in the local runtime can contain `:` (`tasks:<table>:<uuid>`),
- * which git refuses in a ref name. Keep the id recognizable but safe.
+ * Compact id for new branches: the UUID prefix is enough to identify the
+ * task locally, and the full task id stays on the task row. Git ref names
+ * cannot contain the `:` in `tasks:<table>:<uuid>`, so only safe characters
+ * are kept here.
+ */
+export function shortTaskIdForBranch(taskId: string): string {
+  const uuid = taskId.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)?.[0];
+  if (uuid) return uuid.replace(/-/g, "").slice(0, 12);
+  const safe = taskId.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "task";
+  const bytes = Buffer.from(safe, "utf8");
+  return (bytes.length <= 24 ? safe : bytes.subarray(0, 24).toString("utf8").replace(/-+$/g, "")) || "task";
+}
+
+/**
+ * Legacy full-id form, kept so existing worktrees and branches still match.
  */
 export function taskIdForBranch(taskId: string): string {
   const safe = taskId.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "task";
@@ -35,13 +48,14 @@ export function makeTaskBranchName(taskId: string, title: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 40);
-  return `${TASK_BRANCH_PREFIX}${taskIdForBranch(taskId)}/${slug || "task"}`;
+  return `${TASK_BRANCH_PREFIX}${shortTaskIdForBranch(taskId)}/${slug || "task"}`;
 }
 
 /** Every prefix a branch of this task may carry (`fhara/<id>/`, `moagent/<id>/`). */
 export function taskBranchPrefixes(taskId: string): string[] {
-  const id = taskIdForBranch(taskId);
-  return TASK_BRANCH_PREFIXES.map((prefix) => `${prefix}${id}/`);
+  // New short id plus the legacy full id: old worktrees must stay findable.
+  const ids = [...new Set([shortTaskIdForBranch(taskId), taskIdForBranch(taskId)])];
+  return TASK_BRANCH_PREFIXES.flatMap((prefix) => ids.map((id) => `${prefix}${id}/`));
 }
 
 /** `{ taskId, slug }` for a task branch (current or legacy prefix), else null. */

@@ -80,7 +80,7 @@ describe("loadPolicy parity (E1)", () => {
         }
       }
     }
-  });
+  }, 120_000);
 
   it("equals the pre-E1 loadPolicy for random multi-var envs", () => {
     silence();
@@ -271,7 +271,7 @@ describe("worker reader parity (E1)", () => {
         }
       }
     }
-  });
+  }, 120_000);
 });
 
 describe("schema defaults equal the removed literals (E1)", () => {

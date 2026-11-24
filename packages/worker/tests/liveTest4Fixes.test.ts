@@ -266,10 +266,12 @@ describe("replan missing_reasoning fallback", () => {
 
 describe("workspace path resolution for git (worktreeNode)", () => {
   it("resolves relative project paths before any git call", () => {
-    expect(resolveRepoPath("/abs/repo")).toBe("/abs/repo");
-    expect(resolveRepoPath("live4-demo", { workspaceRoot: "/ws" })).toBe("/ws/live4-demo");
-    expect(resolveRepoPath("live4-demo", { env: { WORKSPACE_ROOT: "./workspaces" }, cwd: "/srv/app" })).toBe("/srv/app/workspaces/live4-demo");
-    expect(resolveRepoPath("live4-demo", { env: {}, cwd: "/srv/app" })).toBe("/srv/app/live4-demo");
+    // The fixtures use POSIX-style paths; on Windows `path.resolve` anchors a
+    // leading "/" to the current drive, so derive expectations the same way.
+    expect(resolveRepoPath("/abs/repo")).toBe(path.resolve("/abs/repo"));
+    expect(resolveRepoPath("live4-demo", { workspaceRoot: "/ws" })).toBe(path.resolve("/ws/live4-demo"));
+    expect(resolveRepoPath("live4-demo", { env: { WORKSPACE_ROOT: "./workspaces" }, cwd: "/srv/app" })).toBe(path.resolve("/srv/app/workspaces/live4-demo"));
+    expect(resolveRepoPath("live4-demo", { env: {}, cwd: "/srv/app" })).toBe(path.resolve("/srv/app/live4-demo"));
     expect(() => resolveRepoPath("  ")).toThrow(/no workspace path/);
   });
 

@@ -69,8 +69,23 @@ interface JsonRpcResponse {
   error?: { code: number; message: string; data?: unknown };
 }
 
+/** Bounded wait so a process that refuses to die cannot hang dispose(). */
+const CHILD_CLOSE_TIMEOUT_MS = 5_000;
+
+function waitForClose(closed: Promise<void>): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, CHILD_CLOSE_TIMEOUT_MS);
+    void closed.then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
 export class McpClient {
   private child: ChildProcessWithoutNullStreams | null = null;
+  /** Resolves when a spawned child's stdio has fully closed. */
+  private readonly childCloseWaits = new Set<Promise<void>>();
   private nextId = 1;
   private readonly pending = new Map<number, PendingRequest>();
   private buffer = "";
@@ -118,6 +133,18 @@ export class McpClient {
       windowsHide: true,
     });
     this.child = child;
+    let markClosed!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      markClosed = resolve;
+    });
+    this.childCloseWaits.add(closed);
+    // The OS releases the child's cwd handle only once it has fully exited.
+    // dispose() awaits these promises so callers can safely delete that cwd
+    // (notably a temp workspace on Windows) right after disposal.
+    child.once("close", () => {
+      markClosed();
+      this.childCloseWaits.delete(closed);
+    });
 
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => this.handleChunk(chunk));
@@ -247,6 +274,10 @@ export class McpClient {
     this.closing = false;
     this.failAll(new Error("MCP client disposed"));
     this.kill();
+    // Killing is asynchronous: wait for the process (and its stdio pipes) to
+    // actually close before returning, otherwise a Windows caller can hit
+    // EBUSY when removing the child's cwd directory.
+    await Promise.all([...this.childCloseWaits].map(waitForClose));
   }
 
   /** True when the process is no longer usable. */

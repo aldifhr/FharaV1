@@ -28,10 +28,8 @@ import { useWorkspace } from "@/app/WorkspaceContext";
 import { clockTime, isSameDay, shortDate } from "@/lib/format";
 import { projectMembers } from "@/lib/projectMembers";
 import { projectDefaultPermissionMode, type PermissionMode } from "@/api/functions/lib/permissionModes";
-import { buildDecisionTray, latestOpenOptionPrompt, type TrayAction, type TrayItem } from "@/api/functions/lib/decisionTray";
 import { composeOfferedTask } from "@/api/functions/lib/chat/intent";
-import { parseOptions } from "@/lib/options";
-import DecisionsTray, { trayPlaceholder, useDecisionTray } from "./chat/DecisionsTray";
+import DecisionsTray, { trayPlaceholder } from "./chat/DecisionsTray";
 import AutomationHoldLine from "./chat/AutomationHoldLine";
 import TaskDock from "./chat/TaskDock";
 import { dockTasks, taskRef } from "@/lib/taskDock";
@@ -41,6 +39,8 @@ import { useProjectSend } from "./chat/useProjectSend";
 import { useModelOptions } from "./chat/useModelOptions";
 import { useUnreadDivider } from "./chat/useUnreadDivider";
 import { failureKindLabel } from "@/lib/failureKind";
+import { useSimulation } from "./chat/useSimulation";
+import { useDecisionTrayActions } from "./chat/useDecisionTrayActions";
 
 type Props = {
   projectId: string;
@@ -102,21 +102,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const clearChat = useMutation(api.conversations.clearChat);
   const createTask = useMutation(api.tasks.createFromCommand);
   const sendMessage = useProjectSend();
-  const [simulateReplies, setSimulateReplies] = useState(false);
-  const [simulationMessages, setSimulationMessages] = useState<any[]>([]);
-  const [simulationTasks, setSimulationTasks] = useState<Array<{ task: any; subtasks: any[] }>>([]);
-  const simulationSequence = useRef(0);
-  const simulationGeneration = useRef(0);
-  useEffect(() => {
-    simulationGeneration.current += 1;
-    setSimulateReplies(false);
-    setSimulationMessages([]);
-    setSimulationTasks([]);
-    simulationSequence.current = 0;
-    return () => {
-      simulationGeneration.current += 1;
-    };
-  }, [projectId]);
 
   // Plan 020: permission mode for tasks dispatched from this composer.
   // Starts at the project's default; a pick holds until the project changes.
@@ -173,133 +158,22 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
         .sort((a: any, b: any) => a._creationTime - b._creationTime),
     [messages, conversationId],
   );
-  const displayTimeline = useMemo(
-    () => [...timeline, ...simulationMessages].sort((a, b) => a._creationTime - b._creationTime),
-    [timeline, simulationMessages],
-  );
-  const displayTasks = useMemo(
-    () => [...((tasks ?? []) as any[]), ...simulationTasks.map((record) => record.task)],
-    [tasks, simulationTasks],
-  );
-  const displaySubtasksOf = useMemo(() => {
-    const map = new Map(subtasksOf);
-    for (const record of simulationTasks) map.set(String(record.task._id), record.subtasks);
-    return map;
-  }, [subtasksOf, simulationTasks]);
-  useEffect(() => {
-    if (!simulatedThread) return;
-    const record = simulationTasks.find((item) => item.task._id === simulatedThread.task._id);
-    if (!record) return;
-    updateSimulatedThread({
-      ...record,
-      messages: simulationMessages.filter((message) => message.taskId === record.task._id),
-    });
-  }, [simulationTasks, simulationMessages, simulatedThread?.task._id, updateSimulatedThread]);
-  const openTaskOrSimulation = (taskId: string) => {
-    const record = simulationTasks.find((item) => String(item.task._id) === taskId);
-    if (!record) {
-      onSelectTask(taskId);
-      return;
-    }
-    openSimulatedThread({
-      ...record,
-      messages: simulationMessages.filter((message) => message.taskId === taskId),
-    });
-  };
-  const addSimulationMessage = (taskId: string, role: string, content: string) => {
-    const now = Date.now();
-    const agent = agents.find((item: any) => String(item.role).toLowerCase() === role.toLowerCase());
-    if (!agent) return;
-    simulationSequence.current += 1;
-    setSimulationMessages((current) => [...current, {
-      _id: `simulation-${projectId}-${simulationSequence.current}`,
-      _creationTime: now,
-      authorType: "agent",
-      agentId: agent._id,
-      role: String(agent.role),
-      content,
-      projectId,
-      taskId,
-      simulated: true,
-    }]);
-  };
-  const addSimulationReply = (content: string) => {
-    const generation = simulationGeneration.current;
-    simulationSequence.current += 1;
-    const sequence = simulationSequence.current;
-    const taskId = `simulation-task-${projectId}-${sequence}`;
-    const now = Date.now();
-    const cto = agents.find((agent: any) => String(agent.role).toLowerCase() === "cto") ?? agents[0];
-    const frontend = agents.find((agent: any) => String(agent.role).toLowerCase() === "frontend");
-    const qa = agents.find((agent: any) => String(agent.role).toLowerCase() === "qa");
-    const title = content.replace(/\s+/g, " ").trim().slice(0, 88) || "Simulated task";
-    const subtasks = [
-      { _id: `${taskId}-frontend`, assignedAgentId: frontend?._id, title: "Implement request", status: "running" },
-      { _id: `${taskId}-qa`, assignedAgentId: qa?._id, title: "Verify result", status: "queued" },
-      { _id: `${taskId}-review`, assignedAgentId: cto?._id, title: "Review and summarize", status: "queued" },
-    ];
-    setSimulationMessages((current) => [...current, {
-      _id: `simulation-${projectId}-${sequence}-user`,
-      _creationTime: now,
-      authorType: "user",
-      content,
-      projectId,
-      taskId,
-      simulated: true,
-    }]);
-    setSimulationTasks((current) => [...current, {
-      task: { _id: taskId, title, status: "running", simulated: true },
-      subtasks,
-    }]);
-    if (cto) addSimulationMessage(taskId, String(cto.role), "Simulation: @Frontend, please implement this request. I created a preview task and routed it to you. This run stays local; it won't call an LLM or change project files.");
-
-    window.setTimeout(() => {
-      if (generation !== simulationGeneration.current) return;
-      setSimulationTasks((current) => current.map((record) => record.task._id !== taskId ? record : {
-        ...record,
-        subtasks: record.subtasks.map((subtask, index) => ({ ...subtask, status: index === 0 ? "completed" : index === 1 ? "running" : "queued" })),
-      }));
-      addSimulationMessage(taskId, "frontend", "Simulation: @QA, please verify the result. The implementation step is complete, but the actual repository was not edited in this preview.");
-    }, 900);
-    window.setTimeout(() => {
-      if (generation !== simulationGeneration.current) return;
-      setSimulationTasks((current) => current.map((record) => record.task._id !== taskId ? record : {
-        ...record,
-        subtasks: record.subtasks.map((subtask, index) => ({ ...subtask, status: index < 2 ? "completed" : "running" })),
-      }));
-      addSimulationMessage(taskId, "qa", "Simulation: @CTO, the preview checks are complete. No browser or build checks were actually run.");
-    }, 1900);
-    window.setTimeout(() => {
-      if (generation !== simulationGeneration.current) return;
-      setSimulationTasks((current) => current.map((record) => record.task._id === taskId ? {
-        ...record,
-        task: { ...record.task, status: "done" },
-        subtasks: record.subtasks.map((subtask) => ({ ...subtask, status: "completed" })),
-      } : record));
-      addSimulationMessage(taskId, "cto", "Simulation complete: @Frontend and @QA have finished their preview steps. The task flow reached review with a preview result ready. This is illustrative only; no real code changes or verification were performed.");
-    }, 3000);
-  };
+  const {
+    simulateReplies,
+    setSimulateReplies,
+    addSimulationReply,
+    openTaskOrSimulation,
+    displayTimeline,
+    displayTasks,
+    displaySubtasksOf,
+  } = useSimulation({
+    projectId, agents, timeline, tasks, subtasksOf,
+    onSelectTask, openSimulatedThread, updateSimulatedThread, simulatedThread,
+  });
   const lastMessage = timeline[timeline.length - 1];
 
   // ── "Decision needed" tray above the composer ─────────────────────
   const currentConversationId = ((activeConversation as any)?.conversation?._id as string | undefined) ?? null;
-  const trayItems = useMemo(
-    () =>
-      buildDecisionTray({
-        approvals: (decisions?.approvals ?? []) as any[],
-        questions: (decisions?.questions ?? []) as any[],
-        optionPrompt: latestOpenOptionPrompt(
-          (timeline as any[]).filter((m) => !m.streaming),
-          parseOptions,
-          (agentId) => agents.find((a: any) => a._id === agentId)?.role,
-        ),
-        conversationId: currentConversationId,
-      }),
-    [decisions, timeline, agents, currentConversationId],
-  );
-  const tray = useDecisionTray(trayItems);
-  const [trayBusy, setTrayBusy] = useState<string | null>(null);
-  const [trayConfirm, setTrayConfirm] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
 
   // ── Unread "• New" divider (see useUnreadDivider). ──────
   const conversationKey = (activeConversation as any)?.conversation?._id ?? projectId;
@@ -361,14 +235,31 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   })();
 
   const taskTitle = (taskId: string) =>
-    (tasks ?? []).find((task) => task._id === taskId)?.title ??
-    simulationTasks.find((record) => record.task._id === taskId)?.task.title ??
-    "task";
+    displayTasks.find((task) => task._id === taskId)?.title ?? "task";
   const taskFromPlan = (content: string) => content.match(/^Plan dibuat\. Task (\S+)/)?.[1];
   const replyToTask = new Map<string, string>();
   for (const m of messages ?? []) {
     const taskId = (m as any).taskId ?? taskFromPlan((m as any).content ?? "");
     if ((m as any).replyToMessageId && taskId) replyToTask.set((m as any).replyToMessageId, taskId);
+  }
+  // A task is created from the preceding user message, but the CTO's reply
+  // often has neither taskId nor an assignment card. Link that whole reply
+  // chain so the live task card renders directly under the CTO message.
+  for (const task of tasks ?? []) {
+    const command = String((task as any).command ?? (task as any).title ?? "").trim();
+    const anchor = (messages ?? []).find(
+      (m: any) =>
+        m.authorType === "user" &&
+        (String(m.content ?? "").trim() === command ||
+          (command.length > 0 && command.startsWith(String(m.content ?? "").trim())))
+    );
+    if (!anchor) continue;
+    replyToTask.set(anchor._id, task._id);
+    // Every reply in that chain belongs to the same task block, including
+    // the CTO message that has neither taskId nor assignment card.
+    for (const m of messages ?? []) {
+      if ((m as any).replyToMessageId === anchor._id) replyToTask.set(m._id, task._id);
+    }
   }
   const blockKey = (m: any) => m.taskId ?? replyToTask.get(m._id) ?? taskFromPlan(m.content ?? "") ?? "conversation";
 
@@ -446,6 +337,16 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       setChatSending(false);
     }
   };
+
+  // The tray's item list and action runner are scoped to this chat; the
+  // composer uses sendToTray to answer/decline the active item with text.
+  const {
+    tray, trayBusy, trayConfirm, setTrayConfirm, runTrayAction, sendToTray,
+  } = useDecisionTrayActions({
+    decisions, agents, timeline, currentConversationId, boundTo, onSelectTask,
+    chooseProposal: handleChooseProposal,
+    approve, reject, respondCommand, answerQuestion,
+  });
 
   /** "Create task" under a reply: the pick (if any) plus the reply become the task;
    *  its @Role mentions and the offer's assignee own it (pool resolved by the server). */
@@ -655,61 +556,6 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     } catch (err) {
       toast("error", action === "approve" ? "Couldn't approve" : "Couldn't reject", err instanceof Error ? err.message : "Please try again.");
     }
-  };
-
-  const questionOf = (taskId?: string) => (decisions?.questions ?? []).find((q: any) => q.taskId === taskId)?.question ?? undefined;
-  const runTrayAction = async (item: TrayItem, action: TrayAction, note?: string) => {
-    if (action.confirm && !note) {
-      setTrayConfirm({
-        title: item.kind === "plan" ? "Reject this plan?" : "Reject these changes?",
-        message: item.kind === "plan" ? "This task will stop as rejected." : "The pending changes will not be applied.",
-        confirmLabel: "Reject",
-        onOk: () => {
-          setTrayConfirm(null);
-          void runTrayAction(item, { ...action, confirm: false });
-        },
-      });
-      return;
-    }
-    const busyKey = `${item.key}:${action.id}`;
-    setTrayBusy(busyKey);
-    try {
-      if (action.id === "allow" || action.id === "always" || action.id === "always_exact" || action.id === "deny") {
-        await respondCommand({ approvalId: item.approvalId as any, decision: action.id, ...(note ? { note } : {}), ...boundTo(item.approvalId) });
-      } else if (action.id === "approve") {
-        await approve({ approvalId: item.approvalId as any, ...boundTo(item.approvalId) });
-      } else if (action.id === "reject") {
-        await reject({ approvalId: item.approvalId as any, ...boundTo(item.approvalId) });
-      } else if (action.id === "open") {
-        if (item.taskId) onSelectTask(item.taskId);
-      } else if (action.id.startsWith("answer:")) {
-        const answer = note ?? item.options?.[Number(action.id.slice("answer:".length))] ?? "";
-        const res: any = await answerQuestion({ taskId: item.taskId as any, answer, question: questionOf(item.taskId) });
-        if (res && res.applied === false) toast("info", "This question has changed", "Open the task to see the latest question.");
-      } else if (action.id.startsWith("pick:")) {
-        const id = action.id.slice("pick:".length);
-        await handleChooseProposal(`I choose ${id}: ${action.label.replace(/^\S+\.\s*/, "")}`);
-      }
-    } catch (err) {
-      toast("error", "Decision not saved", err instanceof Error ? err.message : undefined);
-    } finally {
-      setTrayBusy(null);
-    }
-  };
-
-  /** Text typed while the tray is open answers (questions) or declines with a note (commands). */
-  const sendToTray = async (text: string): Promise<boolean> => {
-    const item = tray.active ? tray.current : null;
-    if (!item || text.startsWith("/")) return false;
-    if (item.composerMode === "deny_with_note") {
-      await runTrayAction(item, { id: "deny", label: "Deny" }, text);
-      return true;
-    }
-    if (item.composerMode === "answer") {
-      await runTrayAction(item, { id: "answer:0", label: text }, text);
-      return true;
-    }
-    return false;
   };
 
   return (

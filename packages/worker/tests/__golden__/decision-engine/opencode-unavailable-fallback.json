@@ -17,20 +17,10 @@
         "role": "frontend",
         "match": "exact",
         "model": {
-          "model": "claude-sonnet-4-20250514",
-          "connection": "(worker env)",
-          "reason": "worker env model (no providers configured)"
+          "model": "(OpenCode default)",
+          "connection": "global OpenCode setting",
+          "reason": "app-wide runtime and model selection"
         }
-      }
-    },
-    {
-      "type": "opencode.skipped",
-      "subtaskKey": "implement",
-      "level": "warn",
-      "payload": {
-        "subtaskKey": "implement",
-        "model": "(OpenCode default)",
-        "reason": "OpenCode CLI not detected on this worker"
       }
     },
     "fileChanges.updated",

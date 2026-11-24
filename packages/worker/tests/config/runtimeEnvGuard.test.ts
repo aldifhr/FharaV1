@@ -17,6 +17,14 @@ const ALLOWED: Record<string, string> = {
     "the knob layer's own env source (settingEnv / settingFrom)",
   "lib/childEnv.ts:return typeof process !== \"undefined\" && process.env ? process.env : {};":
     "the parent env buildChildEnv copies an allowlist from",
+  "devFixtures.ts:process.env.FHARA_BACKEND_URL ??":
+    "the dev-only fixtures guard compares the cloud URL from the deployment env before seeding/wiping",
+  "devFixtures.ts:process.env.LOCAL_BACKEND_URL ??":
+    "LOCAL_BACKEND_URL is a local-dev fallback, not a Fhara config var",
+  "lib/chat/llm.ts:if (process.env.VITEST && globalConfig.baseUrl === \"http://localhost:0\") {":
+    "VITEST is the test runner's own flag; this short-circuits stub LLM configs before any network call",
+  "lib/chat/llm.ts:if (process.env.VITEST) {":
+    "VITEST is the test runner's own flag; an empty provider pool resolves to a stub config in tests",
 };
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -84,6 +92,6 @@ describe("B4: env:sync covers every var FharaRuntime reads", () => {
       "FHARA_GIT_AUTHOR_NAME",
       "FHARA_GIT_AUTHOR_EMAIL",
     ]) expect(FHARA_SYNC_KEYS).toContain(key);
-    expect(FHARA_SYNC_KEYS).toHaveLength(21);
+    expect(FHARA_SYNC_KEYS).toHaveLength(17);
   });
 });

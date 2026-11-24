@@ -171,8 +171,15 @@ export async function startOfferedTask(
 ): Promise<void> {
   const { offer, team, orchestrator } = opts;
   const mentioned = extractAgentMentions(offer.reply, team, String(orchestrator?._id ?? ""));
-  const hint = offer.hint ?? hintForCommand(offer.command, team);
-  const assignees = resolveTaskAssignees({ team, mentionedIds: mentioned.map((a) => a._id), offerAssigneeId: offer.assigneeAgentId, hint });
+  const routed = routedOwners(offer.command, team);
+  const hint = offer.hint ?? hintForCommand(offer.command, team, { routed });
+  const assignees = resolveTaskAssignees({
+    team,
+    mentionedIds: mentioned.map((a) => a._id),
+    offerAssigneeId: offer.assigneeAgentId,
+    hint,
+    routed: routed.owners,
+  });
   await createChatTask(ctx, args, {
     command: offer.command,
     title: offer.title ?? offer.command.split("\n")[0].slice(0, 80),

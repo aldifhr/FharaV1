@@ -12,6 +12,7 @@ import { InspectorSurface, InspectorTabs } from "./ui/inspector";
 import { StatusTag } from "./ui/status-tag";
 import InitialAvatar from "./InitialAvatar";
 import ChatCard from "./chat/cards/ChatCard";
+import { CardSurfaceProvider } from "./chat/cards/CardContext";
 import ReviewSnippet from "./chat/cards/ReviewSnippet";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import TaskHoldNotice from "./TaskHoldNotice";
@@ -514,7 +515,9 @@ export default function TaskThreadPanel({
                   ) : null}
                   {m.card && (
                     <div className="mt-2.5">
-                      <ChatCard card={m.card} />
+                      <CardSurfaceProvider value={{ surface: "task-thread" }}>
+                        <ChatCard card={m.card} />
+                      </CardSurfaceProvider>
                     </div>
                   )}
                   {/* The latest review note carries the run's diff snippet; the full diff is one click away. */}
@@ -572,7 +575,9 @@ export default function TaskThreadPanel({
                   {m.content?.trim() ? <MessageText content={m.content} size="sm" maskSecrets={isUser} /> : null}
                   {m.card && (
                     <div className="mt-2.5">
-                      <ChatCard card={m.card} />
+                      <CardSurfaceProvider value={{ surface: "task-thread" }}>
+                        <ChatCard card={m.card} />
+                      </CardSurfaceProvider>
                     </div>
                   )}
                   {index === lastQaReplyIndex && checksList}

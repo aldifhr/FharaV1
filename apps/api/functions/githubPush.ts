@@ -18,10 +18,11 @@ import { prCheckFact, prState } from "./schema";
 import type { QaCardData, VerificationCardData } from "./cardTypes";
 import { ingestSignal, onPrPushed, syncPrNotifications } from "./prFeedback";
 import { closesIssueFor } from "./issueIntake";
-import { ciRollup, mergeabilityOf, type CheckFact } from "./lib/prFeedback";
-import { fetchCommitChecks, MAX_POLLED_CHECKS, summarizeChecks } from "./lib/prChecks";
+import { ciRollup, type CheckFact } from "./lib/prFeedback";
+import { MAX_POLLED_CHECKS, summarizeChecks } from "./lib/prChecks";
 import { appendTaskEvent } from "./lib/taskEvents";
 import { inheritedFixPush } from "./lib/fixPushPr";
+import { pullFactsWithChecks } from "./lib/githubPrFacts";
 
 /**
  * Plan 019 — stage cards and the GitHub push / pull-request flow.
@@ -60,18 +61,9 @@ type PushRow = Doc<"taskPushes">;
 // Pure helpers (exported for tests)
 // ---------------------------------------------------------------------------
 
-/** GitHub REST pull → our four-state PR status. */
-export function mapPrState(pull: {
-  state?: string;
-  merged?: boolean;
-  merged_at?: string | null;
-  draft?: boolean;
-}): "draft" | "open" | "merged" | "closed" {
-  if (pull.merged || pull.merged_at) return "merged";
-  if (pull.state === "closed") return "closed";
-  if (pull.draft) return "draft";
-  return "open";
-}
+// mapPrState lives with the PR fact helpers in lib/githubPrFacts.ts and is
+// re-exported here to keep the public helper surface unchanged.
+export { mapPrState } from "./lib/githubPrFacts";
 
 const checkMark = (status: string) =>
   status === "passed" ? "✅ passed" : status === "failed" ? "❌ failed" : "⏭️ not run";
@@ -137,15 +129,16 @@ function repoBound(integration: Doc<"integrations"> | null): integration is Repo
 }
 
 /**
- * Push target for a project: its repo binding plus the account-level GitHub
- * token (legacy per-project token until migrated). Null when either is missing.
+ * Push inputs for a project: the imported GitHub token plus an optional repo
+ * binding. Plan 080: an unbound project is not blocked here; the worker reads
+ * the target from the workspace's Git `origin` instead.
  */
 async function pushTarget(
   ctx: QueryCtx | MutationCtx,
   projectId: Id<"projects">
-): Promise<{ integration: RepoBinding; token: string } | null> {
-  const integration = await githubIntegration(ctx, projectId);
-  if (!repoBound(integration)) return null;
+): Promise<{ integration: RepoBinding | null; token: string } | null> {
+  const binding = await githubIntegration(ctx, projectId);
+  const integration = repoBound(binding) ? binding : null;
   const resolved = await resolveGithubToken(ctx, projectId);
   return resolved ? { integration, token: resolved.token } : null;
 }
@@ -375,7 +368,7 @@ export const claimPushRequest = internalMutation({
       }
       const target = await pushTarget(ctx, row.projectId);
       if (!target) {
-        await fail("GitHub is not connected or no repository is selected for this project.");
+        await fail("Import your local Git credential in Settings → Account first.");
         continue;
       }
       const { integration } = target;
@@ -391,7 +384,8 @@ export const claimPushRequest = internalMutation({
       await logPushEvent(ctx, row, "push.started", { workerId: args.workerId, attempt: row.attempts + 1 });
       const verification = (await latestCard(ctx, row.taskId, "verification")) as VerificationCardData | null;
       const qa = (await latestCard(ctx, row.taskId, "qa")) as QaCardData | null;
-      const baseBranch = integration.githubBaseBranch || project.mainBranch || "main";
+      const owner = integration?.githubOwner;
+      const repo = integration?.githubRepo;
       return {
         pushId: row._id,
         taskId: row.taskId,
@@ -399,11 +393,19 @@ export const claimPushRequest = internalMutation({
         workspacePath: project.workspacePath,
         branchName: row.branchName,
         commitSha: row.commitSha,
+        // PR-only retry: the commit is already on GitHub.
+        alreadyPushed: row.pushedAt !== undefined,
         openPr: row.openPr === true,
         existingPrNumber: row.prNumber,
-        owner: integration.githubOwner,
-        repo: integration.githubRepo,
-        baseBranch,
+        // Plan 080: omit an unpinned target; the worker falls back to the
+        // workspace origin and GitHub's actual default branch.
+        ...(owner && repo
+          ? {
+              owner,
+              repo,
+              baseBranch: integration?.githubBaseBranch || project.mainBranch || "main",
+            }
+          : {}),
         token: target.token,
         prTitle: task.title.slice(0, 200),
         prBody: buildPrBody({
@@ -413,7 +415,9 @@ export const claimPushRequest = internalMutation({
           filesChanged: row.filesChanged,
           verification,
           qa,
-          closesIssue: await closesIssueFor(ctx, row.ownerTaskId ?? row.taskId, `${integration.githubOwner}/${integration.githubRepo}`),
+          ...(owner && repo
+            ? { closesIssue: await closesIssueFor(ctx, row.ownerTaskId ?? row.taskId, `${owner}/${repo}`) }
+            : {}),
         }),
       };
     }
@@ -458,7 +462,8 @@ export const completePushRequest = internalMutation({
         pushedAt: now,
         workerId: undefined,
         leaseExpiresAt: undefined,
-        error: undefined,
+        // A landed push can still carry a PR-stage error for the card to show.
+        error: args.error,
         repoFullName: args.repoFullName ?? row.repoFullName,
         baseBranch: args.baseBranch ?? row.baseBranch,
         ...(args.dependencyCheck ? { dependencyCheck: { ...args.dependencyCheck, checkedAt: now } } : {}),
@@ -593,18 +598,26 @@ export const requestPush = mutation({
       return { status: row.status, changed: false };
     }
     const integration = await githubIntegration(ctx, row.projectId);
-    if (!repoBound(integration) || !(await githubConnectionState(ctx, row.projectId)).connected) {
-      throw new Error("Connect GitHub in Integrations and choose a repository in project settings first.");
+    if (!(await githubConnectionState(ctx, row.projectId)).connected) {
+      throw new Error("Import your local Git credential in Settings → Account first.");
     }
     const now = Date.now();
-    const repoFullName = `${integration.githubOwner}/${integration.githubRepo}`;
+    // Plan 080: a binding is an optional pin; without one the worker uses
+    // the workspace's Git origin as the push target.
+    const repoFullName = repoBound(integration)
+      ? `${integration.githubOwner}/${integration.githubRepo}`
+      : undefined;
     const project = await ctx.db.get(row.projectId);
-    const baseBranch = integration.githubBaseBranch || project?.mainBranch || "main";
+    // An unpinned target uses GitHub's real default branch, resolved by the
+    // worker; do not guess `main` here.
+    const baseBranch = repoFullName
+      ? integration?.githubBaseBranch || project?.mainBranch || "main"
+      : undefined;
     const approvalId = await ctx.db.insert("approvals", {
       taskId: row.taskId,
       projectId: row.projectId,
       kind: "git_push",
-      summary: `Push ${row.branchName} to ${repoFullName}${args.openPr ? " and open a draft PR" : ""}`,
+      summary: `Push ${row.branchName} to ${repoFullName ?? "the workspace origin"}${args.openPr ? " and open a draft PR" : ""}`,
       status: "approved",
       resolvedAt: now,
       toolName: "git_push",
@@ -612,7 +625,7 @@ export const requestPush = mutation({
         branchName: row.branchName,
         commitSha: row.commitSha,
         repo: repoFullName,
-        baseBranch,
+        ...(baseBranch ? { baseBranch } : {}),
         openPr: args.openPr,
       },
       history: [{ at: now, status: "approved", by: "user", via: "push_card" }],
@@ -628,7 +641,7 @@ export const requestPush = mutation({
       workerId: undefined,
       leaseExpiresAt: undefined,
       repoFullName,
-      baseBranch,
+      ...(baseBranch ? { baseBranch } : {}),
       updatedAt: now,
     });
     await logPushEvent(ctx, row, "push.requested", { openPr: args.openPr, repo: repoFullName });
@@ -756,55 +769,6 @@ async function storePolledChecks(ctx: MutationCtx, row: PushRow, headSha: string
     changed = true;
   }
   if (changed) await syncPrNotifications(ctx, row.ownerTaskId ?? row.taskId);
-}
-
-async function fetchPull(target: { owner: string; repo: string; prNumber: number; token: string }) {
-  const response = await fetch(
-    `https://api.github.com/repos/${encodeURIComponent(target.owner)}/${encodeURIComponent(target.repo)}/pulls/${target.prNumber}`,
-    {
-      headers: {
-        Authorization: `Bearer ${target.token}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    }
-  );
-  if (!response.ok) throw new Error(`GitHub API error: ${response.status}`);
-  return (await response.json()) as {
-    state?: string;
-    merged?: boolean;
-    merged_at?: string | null;
-    draft?: boolean;
-    title?: string;
-    mergeable?: boolean | null;
-    mergeable_state?: string;
-    head?: { sha?: string };
-  };
-}
-
-/** recordPrState args for a fetched pull. */
-function pullFacts(pull: Awaited<ReturnType<typeof fetchPull>>) {
-  return {
-    state: mapPrState(pull),
-    title: pull.title,
-    ...(typeof pull.head?.sha === "string" ? { headSha: pull.head.sha } : {}),
-    mergeable: mergeabilityOf(pull.mergeable, pull.mergeable_state),
-  };
-}
-
-/**
- * The PR facts plus the head commit's checks. A checks failure never fails
- * the refresh: the PR state is still recorded, the checks are left as is.
- */
-async function pullFactsWithChecks(target: { owner: string; repo: string; prNumber: number; token: string }) {
-  const facts = pullFacts(await fetchPull(target));
-  if (!facts.headSha) return facts;
-  try {
-    const { checks } = await fetchCommitChecks({ ...target, sha: facts.headSha });
-    return { ...facts, checks };
-  } catch {
-    return facts;
-  }
 }
 
 /** "Refresh" on a push card. */

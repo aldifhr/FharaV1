@@ -218,17 +218,18 @@ describe("startup: .env is loaded before any module-load read; the log shows the
     const fs = await import("node:fs");
     const nodePath = await import("node:path");
     const src = nodePath.resolve(import.meta.dirname, "../../src");
+    const loadEnvFile = nodePath.join(src, "utils", "loadEnv.ts");
     const index = fs.readFileSync(nodePath.join(src, "index.ts"), "utf8");
     const firstImport = index.split("\n").find((l) => l.startsWith("import "))?.replace(/\r$/, "");
     expect(firstImport).toBe('import "./utils/loadEnv";');
-    const loadEnv = fs.readFileSync(nodePath.join(src, "utils/loadEnv.ts"), "utf8");
+    const loadEnv = fs.readFileSync(loadEnvFile, "utf8");
     expect(loadEnv).toContain("dotenv.config({ path: ROOT_ENV_FILE })");
     const others: string[] = [];
     const walk = (dir: string) => {
       for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
         const full = nodePath.join(dir, e.name);
         if (e.isDirectory()) walk(full);
-        else if (/\.ts$/.test(e.name) && !full.endsWith("utils/loadEnv.ts") && /dotenv\.config\(/.test(fs.readFileSync(full, "utf8"))) others.push(full);
+        else if (/\.ts$/.test(e.name) && full !== loadEnvFile && /dotenv\.config\(/.test(fs.readFileSync(full, "utf8"))) others.push(full);
       }
     };
     walk(src);

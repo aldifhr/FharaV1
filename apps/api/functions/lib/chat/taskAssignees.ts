@@ -68,17 +68,32 @@ export function teamCto<T extends Member>(team: T[]): T | null {
  * is never an owner here (it plans; it does not implement).
  */
 export function routedOwners<T extends Member>(text: string, team: T[]): { owners: T[]; domain?: string; topic?: string } {
+  // A verification-only request is QA work, even when it mentions a page or
+  // an app. File-change verbs keep it with the implementing role.
+  const withoutNoChange = text
+    .replace(/^\s*(?:create a task|buat task|buatkan task|\/task|kerjakan)\s*[:;]?\s*/i, "")
+    .replace(/\b(?:do not|don't|jangan)\s+(?:change|edit|modify|ubah)\s+(?:any\s+)?files?\b/gi, "");
+  const verificationOnly =
+    /\b(?:check|verify|report|console|reachability|browser errors?|loads?)\b/i.test(withoutNoChange) &&
+    !/\b(?:add|create|write|edit|update|fix|remove|change|tambahkan|buat|ubah|perbaiki|hapus)\b/i.test(withoutNoChange);
+  if (verificationOnly) {
+    const qa = byRole(team, "qa");
+    return { owners: qa ? [qa] : [], domain: "qa", topic: "verification" };
+  }
   const route = routeQuestion({ text, team });
   const owners: T[] = [];
   const add = (agent: T | undefined) => {
     if (agent && !owners.includes(agent)) owners.push(agent);
   };
-  // The topic owner first (it leads the hint), then the file role and every keyword role, so a
-  // two-domain request ("halaman login dan update README") keeps both owners.
+  const codeRole = codeRoleForRequest(text);
+  const fileChange = /\b(?:add|create|write|change|edit|update|remove|tambah|buat|ubah|tulis|hapus)\b/i.test(text);
+  // A concrete file change outranks a topic keyword: "add a comment saying
+  // QA checks..." is Frontend work that merely mentions QA, not QA work.
+  if (fileChange && codeRole) add(byRole(team, codeRole));
   if (route.kind === "specialist" && !CTO_ROLE.test(route.agent.role.trim())) add(route.agent);
-  add(byRole(team, codeRoleForRequest(text) ?? undefined));
+  if (!fileChange) add(byRole(team, codeRole ?? undefined));
   for (const [role, words] of ROLE_KEYWORDS) if (words.test(text)) add(byRole(team, role));
-  const domain = route.kind === "specialist" ? route.domain : undefined;
+  const domain = fileChange && codeRole ? codeRole : route.kind === "specialist" ? route.domain : undefined;
   const topic = route.kind === "specialist" ? route.topic : undefined;
   return { owners, ...(domain ? { domain } : {}), ...(topic ? { topic } : {}) };
 }

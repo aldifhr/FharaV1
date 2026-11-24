@@ -250,12 +250,18 @@ describe("githubPush.requestPush → claim → complete", () => {
     });
   });
 
-  test("requires a connected GitHub repository", async () => {
+  test("an unpinned project is approved and the claim leaves the target to the workspace origin", async () => {
     const { t, taskId, projectId } = await setup({ repo: false });
     const { pushId } = (await commit(t, taskId, projectId)) as any;
-    await expect(t.mutation(api.githubPush.requestPush, { pushId, openPr: true })).rejects.toThrow(
-      /Connect GitHub/
-    );
+    expect(await t.mutation(api.githubPush.requestPush, { pushId, openPr: true })).toEqual({
+      status: "requested",
+      changed: true,
+    });
+    const claim = await t.mutation(internal.githubPush.claimPushRequest, { workerId: "w9" });
+    expect(claim).toMatchObject({ pushId, token: "gho_secret_token" });
+    expect(claim?.owner).toBeUndefined();
+    expect(claim?.repo).toBeUndefined();
+    expect(claim?.baseBranch).toBeUndefined();
   });
 
   test("enforces project access when the project has an owner", async () => {

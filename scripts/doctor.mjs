@@ -255,20 +255,37 @@ async function run() {
     add({ name: "Worker service token", status: "ok", detail: "set and matches the FharaRuntime env" });
   }
 
-  // GitHub OAuth (optional; lives in the FharaRuntime env)
-  const ghSource = runtimeEnv ?? env;
-  const ghMissing = missingVars(ghSource, ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"]);
-  add(
-    ghMissing.length === 0
-      ? { name: "GitHub OAuth", status: "ok", detail: `GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET set${runtimeEnv ? " (FharaRuntime env)" : ""}` }
-      : {
-          name: "GitHub OAuth",
-          status: "warn",
-          required: false,
-          detail: `optional, missing ${ghMissing.join(", ")}${runtimeEnv ? "" : " (FharaRuntime env not read)"}`,
-          hint: "needed for push/draft PR: npx runtime env set GITHUB_CLIENT_ID … / GITHUB_CLIENT_SECRET …",
-        },
-  );
+  // GitHub access (plan 079): the Git CLI's credential helper, not an OAuth app.
+  // `git credential fill` is checked live because there is no env var to inspect.
+  try {
+    const out = execFileSync("git", ["credential", "fill"], {
+      input: "protocol=https\nhost=github.com\n\n",
+      encoding: "utf8",
+      timeout: 10_000,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      stdio: ["pipe", "pipe", "ignore"],
+    });
+    const hasToken = /^password=.+/m.test(out);
+    add(
+      hasToken
+        ? { name: "GitHub credential (Git)", status: "ok", detail: "a credential helper for github.com is configured" }
+        : {
+            name: "GitHub credential (Git)",
+            status: "warn",
+            required: false,
+            detail: "no credential helper entry for github.com",
+            hint: "set up a Git credential helper: https://git-scm.com/docs/gitcredentials",
+          },
+    );
+  } catch {
+    add({
+      name: "GitHub credential (Git)",
+      status: "warn",
+      required: false,
+      detail: "could not query the Git credential helper",
+      hint: "set up a Git credential helper: https://git-scm.com/docs/gitcredentials",
+    });
+  }
 
   // Chromium for browser QA
   const qaRequired = envFlag(env, "ORCHESTRATOR_QA_REQUIRED", envFlag(env, "QA_REQUIRED", false));

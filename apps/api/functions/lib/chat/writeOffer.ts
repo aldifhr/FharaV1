@@ -57,7 +57,10 @@ export function planWriteOffer<A extends { _id: string; name: string; role: stri
   const runCommands = opts.taskIntent.runCommands;
   const byFiles = codeRoleForRequest(opts.text);
   const roleAgent = byFiles ? opts.team.find((a) => normalizeRoleKey(a.role) === byFiles) ?? null : null;
-  const assignee = !opts.isCto && isCodeWritingRole(opts.speaker.role) ? opts.speaker : roleAgent;
+  // An explicit @Role from the user binds the reply's owner. Keyword/file
+  // routing is only a fallback for unaddressed requests.
+  const assignee =
+    !opts.isCto && (opts.mentioned || isCodeWritingRole(opts.speaker.role)) ? opts.speaker : roleAgent;
   // P1a: what chat decided rides on the offer; the task inherits it as a planner prior.
   const hintFor = (kind: string) =>
     buildRoutingHint({

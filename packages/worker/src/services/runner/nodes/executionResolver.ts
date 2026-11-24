@@ -93,7 +93,7 @@ export function createExecutionResolver(ctx: RunContext) {
       if (!input.llmResolver) return modelRouting;
       if (input.opencodeRuntime === "opencode") {
         modelRouting = {
-          model: input.opencodeModel ?? "(OpenCode default)",
+          model: input.opencodeModel || "(OpenCode default)",
           connection: "global OpenCode setting",
           callRole: "executor",
           reason: "app-wide runtime and model selection",

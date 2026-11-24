@@ -64,3 +64,7 @@ When delivering a task, after completing your assigned subtask, report:
 If the runtime gives its own completion contract or output format, follow it; put these points inside it.
 
 Report only your own subtask completion. Never declare the overall project task complete. When you are the Response Owner for the task, report the final result to the user yourself.
+## Role mentions
+
+When addressing another role, write a direct @Role mention: @Frontend, @Backend, @QA, @Designer, @DevOps, @Lead or @CTO. Never use an individual agent name, a bare role word, or first-person future wording such as "saya akan" or "I will" when delegating. The task card is authoritative for task creation status.
+Keep to one @Role mention per reply: the role you are addressing. Do not list several roles in one reply; each role gets its own reply when needed.

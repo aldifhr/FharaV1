@@ -126,6 +126,59 @@ export function gitChildEnv(extra: Record<string, string> = {}): NodeJS.ProcessE
   return { ...untrustedGitEnv(buildChildEnv()), GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", ...extra };
 }
 
+/** A GitHub owner/repo parsed from a workspace's `origin` remote. */
+export type GitHubRepoTarget = { owner: string; repo: string };
+
+/**
+ * Parse the origin URL forms Git accepts for GitHub. Only owner/repo is kept:
+ * any credentials embedded in the URL are discarded and never logged.
+ */
+export function parseGitHubRemote(raw: string): GitHubRepoTarget | undefined {
+  const url = raw.trim();
+  if (!url) return undefined;
+  const forms = [
+    // git@github.com:owner/repo.git and github.com:owner/repo.git
+    /^(?:[^@/\s]+@)?github\.com:([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i,
+    // https://user:token@github.com/owner/repo.git, ssh://git@github.com/...
+    /^(?:https?|ssh|git):\/\/(?:[^@/\s]+@)?github\.com[/:]([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i,
+  ];
+  for (const form of forms) {
+    const match = url.match(form);
+    if (!match) continue;
+    const [, owner, repo] = match;
+    if (/^[A-Za-z0-9-]{1,100}$/.test(owner) && /^[A-Za-z0-9._-]{1,200}$/.test(repo)) return { owner, repo };
+  }
+  return undefined;
+}
+
+/**
+ * Plan 080: a project without a pinned repo uses the workspace's Git origin.
+ * Reads it with the same hardened git runner as the push, so no repository
+ * hook or inherited GIT_* variable can redirect the lookup.
+ */
+export async function readGitHubRepoFromRemote({
+  repoPath,
+  execGit = defaultExecGit,
+  signal,
+}: {
+  repoPath: string;
+  execGit?: ExecGit;
+  signal?: AbortSignal;
+}): Promise<GitHubRepoTarget> {
+  const cwd = assertGitCwd(repoPath);
+  const { stdout } = await execGit(["remote", "get-url", "origin"], {
+    cwd,
+    env: gitChildEnv(),
+    signal,
+    timeoutMs: GIT_TIMEOUT_MS,
+  });
+  const target = parseGitHubRemote(String(stdout).split(/\r?\n/)[0] ?? "");
+  if (!target) {
+    throw new Error("This workspace has no GitHub origin remote. Add one with `git remote add origin https://github.com/owner/repo.git`, or pin a repository in project settings.");
+  }
+  return target;
+}
+
 /** Plain-words hint for common push rejections. */
 export function pushFailureHint(message: string): string | undefined {
   if (/timed out after/i.test(message)) return "GitHub did not answer in time; try again";
@@ -137,7 +190,7 @@ export function pushFailureHint(message: string): string | undefined {
     return "the GitHub connection has no push access to this repository";
   }
   if (/\b401\b|authentication failed|could not read Username|invalid credentials/i.test(message)) {
-    return "GitHub refused the credential; reconnect GitHub";
+    return "GitHub refused the credential; refresh the local Git import in Settings → Account";
   }
   if (/repository not found|\b404\b/i.test(message)) return "the repository was not found or the connection cannot see it";
   if (/could not resolve host|unable to access|connection (refused|reset|timed out)/i.test(message)) {

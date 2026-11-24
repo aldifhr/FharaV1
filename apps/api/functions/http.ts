@@ -1,19 +1,12 @@
 import { httpRouter } from "@fhara/runtime/server";
-import { handleOAuthCallback, handleWebhook } from "./integrations";
+import { handleWebhook } from "./integrations";
 import { handleScheduledHook } from "./scheduledTaskHooks";
 
 /**
- * Plan 019: HTTP routes for the GitHub integration. The Next app forwards
- * its OAuth callback URL (`/api/integrations/github/callback`) here, so the
- * GitHub OAuth app can keep pointing at the web origin.
+ * Plan 079: GitHub uses the operator's local `gh` login, so no OAuth
+ * callback route exists. Webhooks and scheduled hooks are unchanged.
  */
 const http = httpRouter();
-
-http.route({
-  path: "/integrations/github/callback",
-  method: "GET",
-  handler: handleOAuthCallback,
-});
 
 // GitHub webhooks. Every delivery is HMAC-verified (x-hub-signature-256)
 // before it is parsed; with no secret configured the handler answers 401.

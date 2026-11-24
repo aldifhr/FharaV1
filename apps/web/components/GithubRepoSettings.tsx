@@ -1,9 +1,9 @@
 
 import { useEffect, useState } from "react";
-import { Link } from "@/lib/spaRouter";
 import { useAction, useMutation, useQuery } from "@fhara/runtime/react";
 import { GitBranch, Loader2 } from "lucide-react";
 import { api } from "@fhara/runtime/api";
+import { useSettings } from "./Settings";
 import { useToast } from "./Toasts";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message.replace(/^.*Uncaught Error: /s, "").split("\n")[0] : "Please try again.");
@@ -16,16 +16,18 @@ const PRIMARY_BTN =
 type Repo = { fullName: string; owner: string; name: string; defaultBranch: string; private: boolean };
 
 /**
- * A project's GitHub repository. The GitHub account is connected once for
- * every project in Integrations; a project only binds owner/name and the
- * PR base branch. The token never reaches the browser.
+ * A project's GitHub repository. The GitHub credential is imported once for
+ * every project in Settings → Account; a project only binds owner/name and
+ * the PR base branch. The token never reaches the browser.
  */
 export default function GithubRepoSettings({ projectId }: { projectId: string }) {
   const toast = useToast();
+  const { openSettings } = useSettings();
   const account = useQuery(api.integrations.githubAccount, {});
   const integrations = useQuery(api.integrations.listByProject, { projectId: projectId as never });
   const listRepos = useAction(api.integrations.listGithubRepos);
   const bindRepo = useMutation(api.integrations.bindRepo);
+  const unbindRepo = useMutation(api.integrations.unbindRepo);
   const binding = (integrations ?? []).find((row) => row.type === "github" && row.status !== "disconnected");
   const bound = binding?.githubOwner && binding?.githubRepo ? `${binding.githubOwner}/${binding.githubRepo}` : "";
 
@@ -53,6 +55,22 @@ export default function GithubRepoSettings({ projectId }: { projectId: string })
 
   const save = async () => {
     const [owner, name] = repoFullName.split("/");
+    if (!repoFullName.trim()) {
+      if (!bound) {
+        toast("error", "Enter owner/repo to pin one, or leave it empty to use origin");
+        return;
+      }
+      setSaving(true);
+      try {
+        await unbindRepo({ projectId: projectId as never });
+        toast("success", "Repository pin removed — using the workspace origin");
+      } catch (err) {
+        toast("error", "Couldn't remove the repository pin", errorText(err));
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     if (!owner?.trim() || !name?.trim()) {
       toast("error", "Choose a repository as owner/name");
       return;
@@ -83,6 +101,7 @@ export default function GithubRepoSettings({ projectId }: { projectId: string })
         <h3 className="text-[14px] font-medium text-ink">GitHub</h3>
       </div>
       <p className="mt-1 text-[12.5px] text-ink-3">
+        Pushes use this workspace's Git origin. Pinning a repository here is optional.
         Task branches are pushed and draft PRs opened only after you click Approve push on a push card.
       </p>
 
@@ -94,11 +113,11 @@ export default function GithubRepoSettings({ projectId }: { projectId: string })
         <div className="mt-3 grid gap-3">
           <div className="divide-y divide-line rounded-lg border border-line">
             <div className="flex items-center gap-3 px-3 py-2.5">
-              <p className="min-w-0 flex-1 truncate text-[13.5px] text-ink">Repo: {bound || "none chosen"}</p>
+              <p className="min-w-0 flex-1 truncate text-[13.5px] text-ink">Repo: {bound || "origin (automatic)"}</p>
               {!connected && (
-                <Link href="/integrations" className={GHOST_BTN}>
-                  Connect GitHub
-                </Link>
+                <button type="button" onClick={() => openSettings(projectId, "signin")} className={GHOST_BTN}>
+                  Use local git
+                </button>
               )}
             </div>
             <p className="truncate px-3 py-2.5 text-[12.5px] text-ink-3">
@@ -106,14 +125,14 @@ export default function GithubRepoSettings({ projectId }: { projectId: string })
                 ? account?.login
                   ? `Account: @${account.login} (shared by every project)`
                   : "Account: connected (shared by every project)"
-                : "No GitHub account connected. Connect it once in Settings → Account for every project."}
+                : "No GitHub credential imported. Use local git once in Settings → Account for every project."}
             </p>
           </div>
 
           {connected && (
             <>
               <label className="grid gap-1.5 text-[12.5px] text-ink-2">
-                Repository
+                Repository override (optional — leave empty to use origin)
                 {repos ? (
                   <select
                     value={repoFullName}
@@ -157,7 +176,7 @@ export default function GithubRepoSettings({ projectId }: { projectId: string })
               </label>
               <div>
                 <button type="button" disabled={saving} onClick={() => void save()} className={PRIMARY_BTN}>
-                  {saving ? "Saving…" : "Save repository"}
+                  {saving ? "Saving…" : repoFullName.trim() ? "Save repository" : bound ? "Use origin" : "Save repository"}
                 </button>
               </div>
             </>

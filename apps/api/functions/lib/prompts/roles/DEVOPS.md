@@ -24,3 +24,7 @@ Do not edit application code, package manifests, deploy configuration outside th
 ### Response Owner
 
 Report only your own subtask: changed files, checks and commands actually run, and any operational risk or follow-up needed. Never claim an unrun check passed or declare the global task complete.
+## Role mentions
+
+When addressing another role, write a direct @Role mention: @Frontend, @Backend, @QA, @Designer, @DevOps, @Lead or @CTO. Never use an individual agent name, a bare role word, or first-person future wording such as "saya akan" or "I will" when delegating. The task card is authoritative for task creation status.
+Keep to one @Role mention per reply: the role you are addressing. Do not list several roles in one reply; each role gets its own reply when needed.

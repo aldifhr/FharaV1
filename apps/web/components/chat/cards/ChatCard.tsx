@@ -27,12 +27,15 @@ export type MessageCard = { kind: string; data: any };
  * nothing, so an older client never breaks on a newer card.
  */
 export default function ChatCard({ card }: { card: MessageCard | undefined | null }) {
+  const surface = useCardSurface();
   if (!card || typeof card !== "object" || !card.data) return null;
   switch (card.kind) {
     case "assignment":
       return <AssignmentCard data={card.data as AssignmentCardData} />;
     case "verification":
-      return <VerificationCard data={card.data as VerificationCardData} />;
+      // Verification output is detailed and belongs in the task thread;
+      // the project chat shows the task card and approvals instead.
+      return surface.surface === "task-thread" ? <VerificationCard data={card.data as VerificationCardData} /> : null;
     case "qa":
       return <QaCard data={card.data as QaCardData} />;
     case "push":

@@ -25,13 +25,18 @@ function storageDir(): string {
 }
 
 export class LocalExecutor {
-  private readonly executionContext = new AsyncLocalStorage<{ lockHeld: boolean; transactionOpen: boolean }>();
+  private readonly executionContext = new AsyncLocalStorage<{
+    lockHeld: boolean;
+    transactionOpen: boolean;
+    identity: { subject: string } | null;
+  }>();
   private executionTail: Promise<void> = Promise.resolve();
 
   constructor(readonly db: LocalDatabase) {}
 
   context(kind: string): any {
     const executor = this;
+    const identity = this.executionContext.getStore()?.identity ?? null;
     const baseUrl = process.env.LOCAL_BACKEND_URL ?? "http://127.0.0.1:8787";
     return {
       db: {
@@ -78,14 +83,19 @@ export class LocalExecutor {
           return fs.existsSync(target) ? new Uint8Array(fs.readFileSync(target)) : null;
         },
       },
-      auth: { getUserIdentity: async () => null },
+      auth: { getUserIdentity: async () => identity },
       kind,
     };
   }
 
-  async execute(functionRef: string, args: Record<string, unknown> = {}): Promise<any> {
+  async execute(
+    functionRef: string,
+    args: Record<string, unknown> = {},
+    identity?: { subject: string } | null
+  ): Promise<any> {
     const current = this.executionContext.getStore();
     if (current) {
+      if (identity !== undefined) current.identity = identity;
       if (current.lockHeld) return this.executeWithinContext(functionRef, args, current);
       const fn = getFunction(functionRef);
       if (fn.kind !== "query" && fn.kind !== "internalQuery" && fn.kind !== "mutation" && fn.kind !== "internalMutation") {
@@ -102,7 +112,11 @@ export class LocalExecutor {
     }
 
     const fn = getFunction(functionRef);
-    const context = { lockHeld: false, transactionOpen: false };
+    const context = {
+      lockHeld: false,
+      transactionOpen: false,
+      identity: identity ?? null,
+    };
     const run = () => this.executionContext.run(context, () => this.executeWithinContext(functionRef, args, context));
     if (fn.kind === "query" || fn.kind === "internalQuery" || fn.kind === "mutation" || fn.kind === "internalMutation") {
       return this.withExecutionLock(async () => {
@@ -132,7 +146,7 @@ export class LocalExecutor {
   private async executeWithinContext(
     functionRef: string,
     args: Record<string, unknown>,
-    context: { lockHeld: boolean; transactionOpen: boolean }
+    context: { lockHeld: boolean; transactionOpen: boolean; identity: { subject: string } | null }
   ): Promise<any> {
     const fn = getFunction(functionRef);
     const errors = validateArgs(args, fn.definition.args);

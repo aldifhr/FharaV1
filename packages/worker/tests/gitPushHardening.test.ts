@@ -10,8 +10,10 @@ import {
   defaultExecGit,
   gitChildEnv,
   githubAuthEnv,
+  parseGitHubRemote,
   pushCommitToGithub,
   pushFailureHint,
+  readGitHubRepoFromRemote,
   type ExecGit,
 } from "@/tools/gitPush";
 import { PUSH_LEASE_MS, processNextPushRequest } from "@/services/pushRequests";
@@ -31,6 +33,40 @@ function tempRepo(): string {
   git(["commit", "-q", "-m", "base"]);
   return dir;
 }
+
+describe("T1 push hardening: local origin target", () => {
+  it("parses GitHub https, ssh and scp-style remotes and drops credentials", () => {
+    expect(parseGitHubRemote("https://github.com/acme/app.git\n")).toEqual({ owner: "acme", repo: "app" });
+    expect(parseGitHubRemote("https://user:token@github.com/acme/app.git")).toEqual({ owner: "acme", repo: "app" });
+    expect(parseGitHubRemote("git@github.com:acme/app.git")).toEqual({ owner: "acme", repo: "app" });
+    expect(parseGitHubRemote("ssh://git@github.com/acme/app.git")).toEqual({ owner: "acme", repo: "app" });
+    expect(parseGitHubRemote("git://github.com/acme/app")).toEqual({ owner: "acme", repo: "app" });
+  });
+
+  it("rejects non-GitHub and malformed remotes", () => {
+    expect(parseGitHubRemote("/srv/git/private.git")).toBeUndefined();
+    expect(parseGitHubRemote("https://gitlab.com/acme/app.git")).toBeUndefined();
+    expect(parseGitHubRemote("https://github.com/acme")).toBeUndefined();
+    expect(parseGitHubRemote("git@github.com:../evil.git")).toBeUndefined();
+  });
+
+  it("reads origin with the hardened git runner and no inherited GIT_* variables", async () => {
+    const calls: Array<{ args: string[]; env: NodeJS.ProcessEnv }> = [];
+    const execGit: ExecGit = async (args, opts) => {
+      calls.push({ args, env: opts.env });
+      return { stdout: "git@github.com:acme/app.git\n", stderr: "" };
+    };
+    const dir = mkdtempSync(join(tmpdir(), "fhara-origin-"));
+    try {
+      await expect(readGitHubRepoFromRemote({ repoPath: dir, execGit })).resolves.toEqual({ owner: "acme", repo: "app" });
+      expect(calls[0].args).toEqual(["remote", "get-url", "origin"]);
+      expect(calls[0].env.GIT_DIR).toBeUndefined();
+      expect(calls[0].env.GIT_TERMINAL_PROMPT).toBe("0");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("T1 push hardening: environment", () => {
   it("an inherited GIT_DIR / GIT_WORK_TREE / GIT_CONFIG_PARAMETERS never reaches the push", () => {
@@ -164,7 +200,7 @@ describe("T1 push hardening: cwd, timeout, errors", () => {
   it("hints for common rejections", () => {
     expect(pushFailureHint("remote: Permission to a/b.git denied to x. The requested URL returned error: 403")).toMatch(/push access/);
     expect(pushFailureHint("remote: error: GH006: Protected branch update failed")).toMatch(/protected/);
-    expect(pushFailureHint("fatal: Authentication failed for 'https://github.com/a/b.git/'")).toMatch(/reconnect/);
+    expect(pushFailureHint("fatal: Authentication failed for 'https://github.com/a/b.git/'")).toMatch(/local Git import/);
     expect(pushFailureHint("remote: Repository not found.")).toMatch(/not found/);
     expect(pushFailureHint("git push timed out after 300s and was killed")).toMatch(/did not answer/);
     expect(pushFailureHint("something odd")).toBeUndefined();

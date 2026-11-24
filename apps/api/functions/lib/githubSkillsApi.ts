@@ -67,14 +67,14 @@ export class GithubClient {
         : Number.isFinite(retryAfter) && retryAfter > 0
           ? ` Try again in ${Math.ceil(retryAfter / 60)} min.`
           : " Try again in a few minutes.";
-      const hint = this.token ? "" : " Connecting GitHub in a project's settings raises the limit.";
+      const hint = this.token ? "" : " Importing your local Git credential in Settings → Account raises the limit.";
       throw new GithubImportError(`GitHub rate limit reached.${when}${hint}`, "rate_limited");
     }
     if (res.status === 404) {
       throw new GithubImportError(
         this.token
           ? `${what} not found, or the connected GitHub account cannot see it.`
-          : `${what} not found. It may be private: connect GitHub in a project's settings to import from private repositories.`,
+          : `${what} not found. It may be private: import your local Git credential in Settings → Account to import private repositories.`,
         "not_found"
       );
     }

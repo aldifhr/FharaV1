@@ -142,7 +142,7 @@ export function useQuery<T = any>(reference: unknown, args: unknown): any {
       unsubscribe();
       clearInterval(timer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reference/args are new objects each render; the effect is keyed by their serialized form to avoid resubscribing on every render.
   }, [client, getFunctionName(reference), argsKey, args === "skip"]);
 
   return value;

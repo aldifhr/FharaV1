@@ -141,12 +141,10 @@ export default function PushCard({ data }: { data: PushCardData }) {
   const repo = view.github.repoFullName;
   const canAct = view.status === "ready" || view.status === "failed";
   const blockedReason = !view.github.connected
-    ? "Connect GitHub in project settings first"
-    : !repo
-      ? "Choose a repository in project settings first"
-      : !phones.settled
-        ? "Waits for QA first"
-        : null;
+    ? "Import your local Git credential in Settings → Account first"
+    : !phones.settled
+      ? "Waits for QA first"
+      : null;
   const subtitle =
     view.status === "pushed"
       ? view.prNumber
@@ -160,7 +158,7 @@ export default function PushCard({ data }: { data: PushCardData }) {
             ? view.error ?? "The push failed"
             : repo
               ? `then open a draft PR into ${view.github.baseBranch} on ${repo}`
-              : "Nothing leaves this machine until you approve";
+              : "then open a draft PR from this workspace's Git origin";
   const sha = view.commitSha.slice(0, 7);
   const aheadBehind =
     typeof view.ahead === "number" && typeof view.behind === "number"

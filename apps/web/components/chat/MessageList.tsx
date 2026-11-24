@@ -21,6 +21,7 @@ import { SectionLoading } from "@/app/WorkspaceContext";
 import { groupActivity, groupByIndex } from "@/lib/activityGroups";
 import ActivityGroupRow from "./ActivityGroupRow";
 import { useToast } from "../Toasts";
+import { normalizeRoleMentions } from "@/api/functions/lib/chat/roleMentions";
 import { QuotedSnippet, quoteOf } from "./QuoteBlock";
 import { ChatOpinionLine, useChatOpinions, useRequestMessageOpinion } from "../review/Reviewer";
 import ContextDrawer from "../context/ContextDrawer";
@@ -164,6 +165,7 @@ export default function MessageList(props: Props) {
       pendingApprovals: pendingItems,
       approvalMode: projectApprovalMode,
       onOpenTask: onSelectTask,
+      surface: "project-chat" as const,
     }),
     [agents, tasks, subtasksOf, pendingItems, projectApprovalMode, onSelectTask]
   );
@@ -249,6 +251,7 @@ export default function MessageList(props: Props) {
 
   // One voice: the speaker label shows only when the speaker changes.
   const speakerOf = (m: any) => (m?.authorType === "agent" && systemLineText(m) === null ? `agent:${m.agentId ?? ""}` : m ? `${m.authorType}` : "");
+  const timelinePositions = new Map(timeline.map((item: any, itemIndex: number) => [String(item._id), itemIndex]));
   const renderItem = (m: any, index: number, animate: boolean) => {
     const previous = timeline[index - 1];
     const key = blockKey(m);
@@ -257,16 +260,55 @@ export default function MessageList(props: Props) {
     // that spawned it), not a transition back to plain conversation.
     const boundary = key !== prevKey && key !== "conversation";
     const systemText = systemLineText(m);
+    const sameTaskTurn = (item: any) => {
+      if (blockKey(item) === key) return true;
+      if (m.replyToMessageId && item?.replyToMessageId === m.replyToMessageId) return true;
+      const itemIndex = timelinePositions.get(String(item?._id));
+      if (itemIndex === undefined) return false;
+      const from = Math.min(index, itemIndex);
+      const to = Math.max(index, itemIndex);
+      return !timeline.slice(from + 1, to).some((row: any) => row.authorType === "user");
+    };
     const messageAgent = m.authorType === "agent"
       ? (agents as any)?.find((a: any) => a._id === m.agentId)
       : undefined;
     const isCto = /^(cto|architect)$/i.test(String(messageAgent?.role ?? ""));
     const hasEarlierCtoReply = timeline.slice(0, index).some((item: any) => {
-      if (blockKey(item) !== key || item.authorType !== "agent" || systemLineText(item) !== null) return false;
+      if (!sameTaskTurn(item) || item.authorType !== "agent" || systemLineText(item) !== null) return false;
       const agent = (agents as any)?.find((a: any) => a._id === item.agentId);
       return /^(cto|architect)$/i.test(String(agent?.role ?? ""));
     });
-    const showTaskCard = key !== "conversation" && m.authorType === "agent" && isCto && !hasEarlierCtoReply && systemText === null;
+    const hasLaterCtoReply = timeline.slice(index + 1).some((item: any) => {
+      if (!sameTaskTurn(item) || item.authorType !== "agent" || systemLineText(item) !== null) return false;
+      const agent = (agents as any)?.find((a: any) => a._id === item.agentId);
+      return /^(cto|architect)$/i.test(String(agent?.role ?? ""));
+    });
+    const isAssignmentForTask = (item: any) => item?.card?.kind === "assignment"
+      && (String(item.card.data?.taskId ?? "") === String(key) || sameTaskTurn(item));
+    const deferredAssignment = isAssignmentForTask(m) ? m : timeline.slice(0, index).find((item: any) =>
+      sameTaskTurn(item) && isAssignmentForTask(item),
+    );
+    const deferAssignment = isAssignmentForTask(m) && hasLaterCtoReply && !hasEarlierCtoReply;
+    // Anchor the live task card to the LAST CTO message in the task block:
+    // that is the assignment summary the user reads. Earlier CTO replies in
+    // the same block must not duplicate the card.
+    // The project-chat copy of the CTO assignment may not carry taskId or
+    // a card. Link it through the user message it replies to.
+    const replyAnchor = timeline.find(
+      (item: any) => String(item?._id) === String((m as any).replyToMessageId) && item?.authorType === "user"
+    );
+    const linkedTask = (tasks ?? []).find(
+      (task: any) =>
+        String(task.command ?? task.title ?? "").trim() === String(replyAnchor?.content ?? "").trim()
+    );
+    const taskForRoute = linkedTask ?? (tasks ?? []).find((t: any) => String(t._id) === key);
+    const messageRouteRole = String(
+      taskForRoute?.routingHint?.role ??
+        taskForRoute?.responseOwner ??
+        ""
+    );
+    const showTaskCard = (key !== "conversation" || Boolean(deferredAssignment) || Boolean(linkedTask))
+      && m.authorType === "agent" && isCto && !hasLaterCtoReply && systemText === null;
     const group = activityGroups.get(index);
     if (group && !showActivityGroups) return null;
     const open = group ? (groupOpen[group.id] ?? group.expandedByDefault) : true;
@@ -301,8 +343,10 @@ export default function MessageList(props: Props) {
         )}
         {!open ? null : systemText !== null ? (
           <>
-            <SystemLineRow id={`message-${m._id}`} text={systemText} time={formatTime(m._creationTime)} className="my-5" />
-            {m.card && (
+            {!(m.projectId && systemText === "Task created · planning") && (
+              <SystemLineRow id={`message-${m._id}`} text={systemText} time={formatTime(m._creationTime)} className="my-5" />
+            )}
+            {m.card && !deferAssignment && (
               <div className="mx-auto mt-3 w-full max-w-3xl">
                 <ChatCard card={m.card} />
               </div>
@@ -317,7 +361,7 @@ export default function MessageList(props: Props) {
             transition={{ duration: 0.2, delay: Math.min(index * 0.03, 0.18) }}
             className={rowClass}
           >
-            {renderMessageBody(m, index, messageAgent, showSpeaker)}
+            {renderMessageBody(m, index, messageAgent, showSpeaker, messageRouteRole)}
           </motion.div>
         ) : (
           <div
@@ -325,34 +369,42 @@ export default function MessageList(props: Props) {
             id={`message-${m._id}`}
             className={rowClass}
           >
-            {renderMessageBody(m, index, messageAgent, showSpeaker)}
+            {renderMessageBody(m, index, messageAgent, showSpeaker, messageRouteRole)}
           </div>
         )}
         {showTaskCard && (() => {
-          const cardTask = (tasks ?? []).find((t: any) => t._id === key);
-          if (!cardTask) return null;
+          const taskCardKey = String(deferredAssignment?.card?.data?.taskId ?? key);
+          const cardTask =
+            (tasks ?? []).find((t: any) => String(t._id) === taskCardKey) ?? linkedTask;
+          if (!cardTask && !deferredAssignment) return null;
+          const resolvedTaskId = String(cardTask?._id ?? taskCardKey);
           // Plan reviews render as their own Plan card message, not here.
-          const pending = pendingItems.filter((a: any) => a.taskId === key && a.status === "pending" && a.kind !== "plan");
-          const qaEvents = (projectEvents ?? []).filter((e: any) => e.taskId === key && e.type === "task.check");
+          const pending = pendingItems.filter((a: any) => String(a.taskId) === resolvedTaskId && a.status === "pending" && a.kind !== "plan");
+          const qaEvents = (projectEvents ?? []).filter((e: any) => String(e.taskId) === resolvedTaskId && e.type === "task.check");
           return (
             <div className="ml-11 mt-2 space-y-2">
-              {/* An assignment card IS the task card; do not draw it twice. */}
-              {m.card?.kind !== "assignment" && (
+              {/* The CTO's assignment message must show the live task card
+                  directly, with its role routing visible. AssignmentCard
+                  would render the same card a second time, so skip it when
+                  the live task is available. */}
+              {cardTask && (
                 <TaskCard
                   task={cardTask}
-                  subtasks={subtasksOf.get(key) ?? []}
+                  subtasks={subtasksOf.get(resolvedTaskId) ?? []}
                   pending={pending}
                   onOpen={onSelectTask}
                   agents={agents}
                   approvalMode={projectApprovalMode}
+                  assignees={(deferredAssignment?.card?.data?.assignees ?? m.card?.data?.assignees) as any}
                 />
               )}
+              {deferredAssignment && !cardTask && <ChatCard card={deferredAssignment.card} />}
               {pending.map((a: any) => (
                 <ApprovalCard
                   key={a._id}
                   approval={a}
                   agent={(agents as any)?.find((agent: any) => agent._id === a.requestedByAgentId) ?? null}
-                  taskTitle={cardTask.title}
+                  taskTitle={cardTask?.title ?? deferredAssignment?.card?.data?.title ?? "task"}
                   onApprove={approve}
                   onReject={reject}
                   onHold={hold}
@@ -360,7 +412,7 @@ export default function MessageList(props: Props) {
                   onReview={onSelectTask}
                 />
               ))}
-              {qaEvents.length > 0 && !tasksWithQaCard.has(String(key)) && <QaPanel events={qaEvents} />}
+              {qaEvents.length > 0 && !tasksWithQaCard.has(resolvedTaskId) && <QaPanel events={qaEvents} />}
             </div>
           );
         })()}
@@ -403,7 +455,7 @@ export default function MessageList(props: Props) {
     </div>
   );
 
-  const renderMessageBody = (m: any, index: number, messageAgent: any, showSpeaker = true) => m.authorType !== "agent" ? renderUserBody(m) : (
+  const renderMessageBody = (m: any, index: number, messageAgent: any, showSpeaker = true, routeRole?: string) => m.authorType !== "agent" ? renderUserBody(m) : (
     <>
       {/* The avatar opens a speaker group; later replies keep its column. */}
       {showSpeaker ? (
@@ -459,7 +511,7 @@ export default function MessageList(props: Props) {
               </div>
               {hasText && (
                 <div className="mt-1 w-fit min-w-0 max-w-[min(100%,48rem)] rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-2.5 text-ink">
-                  <MessageText content={parseOptions(m.content).text} isAnimating={live || (conversationTyping && index === timeline.length - 1)} />
+                  <MessageText content={normalizeRoleMentions(parseOptions(m.content).text, routeRole || undefined)} isAnimating={live || (conversationTyping && index === timeline.length - 1)} />
                 </div>
               )}
               {!live && hasText && (
@@ -513,7 +565,7 @@ export default function MessageList(props: Props) {
               <div className="mt-1 w-fit min-w-0 max-w-[min(100%,48rem)] rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-2.5 text-ink">
                 {hasText ? (
                   <MessageText
-                    content={parseOptions(m.content).text}
+                    content={normalizeRoleMentions(parseOptions(m.content).text, routeRole || undefined)}
                     isAnimating={isLive(m) || (conversationTyping && index === timeline.length - 1)}
                   />
                 ) : (

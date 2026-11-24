@@ -48,7 +48,23 @@ export function runtimeTest(_schema: unknown, _modules?: unknown): any {
     fetch: async () => {
       throw new Error("HTTP actions are not supported by the local test runtime");
     },
-    withIdentity: () => api,
+    withIdentity: (identity: { subject: string }) => {
+      const call = (method: "query" | "mutation" | "action") => async (
+        reference: unknown,
+        args: Record<string, unknown> = {}
+      ) => {
+        await ensureRegistered();
+        return executor.execute(functionPath(reference), args, identity);
+      };
+      return {
+        query: call("query"),
+        mutation: call("mutation"),
+        action: call("action"),
+        run: api.run,
+        finishAllScheduledFunctions: api.finishAllScheduledFunctions,
+        finishInProgressScheduledFunctions: api.finishInProgressScheduledFunctions,
+      };
+    },
     cleanup: () => {
       db.close();
       try {

@@ -288,9 +288,10 @@ const RISKY =
   /\b(auth\w*|login|password|token|session|oauth|jwt|permission|security|keamanan|payment|pembayaran|billing|checkout|migrat\w*|migrasi|schema|database|concurr\w*|transaction|transaksi)\b/i;
 
 function withComplexity(classification: Classification, command: string, domains: number): Classification {
-  if (classification.kind !== "code_change" && classification.kind !== "multi") return classification;
+  const withFlag = { ...classification, defaulted: classification.defaulted ?? false };
+  if (withFlag.kind !== "code_change" && withFlag.kind !== "multi") return withFlag;
   const concerns = extractConcerns(command);
-  return { ...classification, concerns, complexity: estimateComplexity(command, concerns, domains) };
+  return { ...withFlag, concerns, complexity: estimateComplexity(command, concerns, domains) };
 }
 
 export function classifyCommand(command: string): Classification {
@@ -514,6 +515,7 @@ function classifyCommandBase(command: string): Classification {
   return {
     kind: "research",
     strategy: "single",
+    defaulted: true,
     reasons: ["unrecognised request treated as read-only; ask for clarification"],
     suggestedCapabilities: researchCapabilities(),
   };

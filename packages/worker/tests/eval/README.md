@@ -53,12 +53,15 @@ auth provider. Trace payloads must therefore stay non-sensitive.
   file path) are known failures to be fixed by the semantic classifier, not by
   more regex.
 - `pnpm --filter @fhara/worker eval:model` is a separate OPT-IN paid real-model
-  eval (not in `test:evals`/CI). First run 2026-11-25: model `farayag` on the
-  9router compatible endpoint, schema v1, tokens in 47,123 / out 8,751, token
-  prices unavailable in the registry so reported cost is 0 (unknown, not free).
-  Tuning 73 cases: kind **56.2%**, full **46.6%**. Held-out 31 cases: kind
-  **64.5%**, full **58.1%**. Both are below the deterministic fallback, so the
-  semantic flag stays OFF; no prompt was tuned on these numbers.
+  eval (not in `test:evals`/CI). Latest run 2026-11-25: model `farayag`
+  (9router compatible endpoint), schema v1, temperature 0, 3 runs, shared
+  harness grader. Token prices are unavailable in the registry, so reported
+  cost is 0 (unknown, not free). Tuning 73: kind **86,3–86,3%**, full
+  **78,1–78,1%**. Held-out 31: kind **80,6–83,9%**, full **74,2–77,4%**.
+  Source distribution per run: fast-path 90, llm 0–1, fallback 13–14 with
+  `reasonCode=LLM_INVALID` — the model mostly returned unusable JSON even with
+  `response_format: json`. Paired comparison: 0 fixed, 0–1 broken (held-out
+  English). Flag stays OFF; no prompt was tuned on these numbers.
 - Owner-approved labels (2026-11-25): typo → backend-development **only for
   `.md`/`.txt`/plain data files**; verify → research + browser-testing, with a
   test proving the forced plan has no write node; design → research **only for

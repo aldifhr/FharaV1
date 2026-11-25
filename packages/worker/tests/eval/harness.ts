@@ -53,8 +53,7 @@ export interface EvalReport {
   results: CaseResult[];
 }
 
-export function runCase(testCase: ClassifierCase): CaseResult {
-  const got = classifyCommand(testCase.command);
+export function gradePrediction(testCase: ClassifierCase, got: ReturnType<typeof classifyCommand>): CaseResult {
   const want = testCase.expect;
   const mismatches: string[] = [];
 
@@ -84,6 +83,10 @@ export function runCase(testCase: ClassifierCase): CaseResult {
     ok: mismatches.length === 0,
     mismatches,
   };
+}
+
+export function runCase(testCase: ClassifierCase): CaseResult {
+  return gradePrediction(testCase, classifyCommand(testCase.command));
 }
 
 const ratio = (num: number, den: number) => (den === 0 ? 0 : num / den);

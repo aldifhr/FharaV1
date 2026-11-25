@@ -79,6 +79,8 @@ export interface Classification {
   strategy: ExecutionPlan["strategy"];
   reasons: string[];
   suggestedCapabilities: string[];
+  /** True only when the deterministic classifier fell through to its unknown-input default. */
+  defaulted?: boolean;
   /**
    * Size of the requested change (code_change/multi only): low = one
    * focused concern, medium = two, high = three or a risky/multi-domain

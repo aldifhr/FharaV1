@@ -21,6 +21,10 @@ export interface LLMCallOptions {
   timeoutMs?: number;
   /** Per-call output cap; defaults to ORCHESTRATOR_LLM_MAX_TOKENS. */
   maxTokens?: number;
+  /** Sampling temperature; evals use 0 for reproducibility. */
+  temperature?: number;
+  /** Ask the provider for JSON output when it supports response_format. */
+  responseFormat?: "json";
 }
 
 export interface LLMProvider {
@@ -125,6 +129,7 @@ export class AnthropicProvider implements LLMProvider {
     const res = await this.client.messages.create({
       model: model ?? this.model,
       max_tokens: maxTokens,
+      ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
       system: system || undefined,
       messages: user.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
     }, { signal: opts?.signal, timeout: effectiveLlmTimeoutMs(opts?.timeoutMs) });
@@ -212,7 +217,13 @@ export class OpenAICompatibleProvider implements LLMProvider {
           "content-type": "application/json",
           authorization: `Bearer ${this.apiKey}`,
         },
-        body: JSON.stringify({ model: model ?? this.model, messages, max_tokens: maxTokens }),
+        body: JSON.stringify({
+          model: model ?? this.model,
+          messages,
+          max_tokens: maxTokens,
+          ...(opts?.temperature !== undefined ? { temperature: opts.temperature } : {}),
+          ...(opts?.responseFormat === "json" ? { response_format: { type: "json_object" } } : {}),
+        }),
         signal: controller.signal,
       });
       responseBody = await response.text();

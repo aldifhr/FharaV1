@@ -14,8 +14,14 @@
   `verificationPlan.ts`). 104 cases: overall kind **69.2%** / full **64.4%**;
   tuning 73 → **72.6% / 67.1%**; held-out 31 → **61.3% / 58.1%**. Step 2 must
   raise held-out by ≥3 clean cases, with no regression and tuning not lower.
-- `verifyWorkingTree.test.ts` is the integration guard: a verification plan is
-  read-only-locked and leaves a real git working tree unchanged.
+- `verifyPlanReadOnly.test.ts` checks the plan structure only: a verification
+  plan is read-only-locked and has no write node. `verifyExecutionReadOnly.test.ts`
+  is the execution guard: a QA agent is given a code_change node plus a fake LLM
+  that proposes a write, the executor refuses, and a real git working tree is
+  unchanged.
+- Hidden cases live in `hidden.cases.local.json` (gitignored, supplied by the
+  owner). `pnpm --filter @fhara/worker eval:hidden` runs them once and prints
+  only counts and accuracies; it has not been run.
 - Owner-approved labels (2026-11-25): typo → backend-development **only for
   `.md`/`.txt`/plain data files**; verify → research + browser-testing, with a
   test proving the forced plan has no write node; design → research **only for

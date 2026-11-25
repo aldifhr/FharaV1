@@ -8,7 +8,8 @@
     "dev": "tsx watch src/index.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "build:mcp": "node scripts/build-mcp.mjs"
+    "build:mcp": "node scripts/build-mcp.mjs",
+    "eval:hidden": "tsx scripts/eval-hidden.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.5.0",

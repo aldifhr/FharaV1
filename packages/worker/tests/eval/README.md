@@ -28,12 +28,18 @@ success, invalid LLM output, budget veto and validator override. Fields: `at`,
 text), `proposedChoice` **in addition to** `choice` on validator override,
 `model`, `tokensIn`, `tokensOut`, `decisionId`, `promptVersion`, `schemaVersion`.
 No raw prompt, raw command, or tool output is stored; `traceCanary.test.ts`
-pins that rule with a unique marker.
+pins that rule with a unique marker. Proof it is load-bearing: adding a
+`rawReason` field containing the canary made that test **red once**
+(2026-11-25), then the field was removed and the test is green again.
 
 `taskEvents` is the existing sink. No TTL/pruning job was found in this tree:
-rows live until the task/project is deleted. `TASK_EVENT_WINDOW_DEFAULT=500`,
-`TASK_EVENT_WINDOW_MAX=1000` bound per-task reads. Readers: web task thread /
-run trace through `taskEvents.listByTask`, `pageByTask`, `sinceByTask`
+rows live until the task/project is deleted. **Adding any free-text column to
+the trace or to `taskEvents` requires the owner's explicit approval**, because
+retention has no TTL. `TASK_EVENT_WINDOW_DEFAULT=500`,
+`TASK_EVENT_WINDOW_MAX=1000` bound per-task reads — a long task's trace can be
+cut off by that window, so the trace is NOT the sole source for measuring
+decision quality; the eval datasets are. Readers: web task thread / run trace
+through `taskEvents.listByTask`, `pageByTask`, `sinceByTask`
 (`apps/api/functions/taskEvents.ts`), and worker/backend internals; public
 queries filter by `visibleProjectIds` / `getVisibleTask`, and local mode has no
 auth provider. Trace payloads must therefore stay non-sensitive.

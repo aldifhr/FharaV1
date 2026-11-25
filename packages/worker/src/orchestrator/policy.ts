@@ -10,6 +10,7 @@ import { settingEnv } from "@/api/functions/lib/appSettings";
 const setting = <N extends Parameters<typeof wenv>[0]>(name: N) => wenv(name, settingEnv);
 
 export interface ExecutionPolicy {
+  semanticClassifier?: boolean;
   maxSubtasks: number;
   maxConcurrency: number;
   maxReplans: number;
@@ -391,6 +392,7 @@ export function loadPolicy(): ExecutionPolicy {
     agentReachTimeoutMs: setting("ORCHESTRATOR_AGENT_REACH_TIMEOUT_MS"),
     agentReachMaxItems: setting("ORCHESTRATOR_AGENT_REACH_MAX_ITEMS"),
     agentReachMaxToolIterations: setting("ORCHESTRATOR_AGENT_REACH_MAX_TOOL_ITERATIONS"),
+    semanticClassifier: setting("ORCHESTRATOR_SEMANTIC_CLASSIFIER"),
     reviewMode: setting("ORCHESTRATOR_REVIEW_MODE"),
     qaMode: setting("ORCHESTRATOR_QA_MODE"),
     // QA gets its own, smaller fix budget than review (QA audit §5);

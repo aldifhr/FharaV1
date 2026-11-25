@@ -1,32 +1,35 @@
 import { describe, expect, it } from "vitest";
+import { buildDecisionTrace, reasonCodeFor } from "@/orchestrator/decisionTrace";
 
-/**
- * Canary contract for plan 085 step 3. The unique command marker below must
- * never appear in any decision trace written to taskEvents. Step 2 wires the
- * production trace builder into this assertion; the policy is fixed here:
- * no free-form LLM text, only enum reason codes and metadata.
- */
-describe("decision trace canary", () => {
-  it("serialised trace contains no raw command or model prose", () => {
+/** Canary: a unique command marker must never appear in a production trace. */
+describe("decision trace canary (production builder)", () => {
+  it("no trace path contains the raw command or model prose", () => {
     const canary = `CANARY_${Date.now()}_7f3a`;
     const command = `Verify the preview URL ${canary}`;
-    const trace = {
-      at: Date.now(),
-      stage: "classify",
-      choice: "research",
-      source: "llm",
-      reasonCode: "LLM_SCHEMA_VALID",
-      proposedChoice: undefined,
-      model: "fake-model",
-      tokensIn: 10,
-      tokensOut: 3,
-      decisionId: "d-1",
-      promptVersion: "v1",
-      schemaVersion: "1",
-    };
-    const serialised = JSON.stringify(trace);
-    expect(serialised).not.toContain(canary);
-    expect(serialised).not.toContain(command);
-    expect(Object.values(trace).some((value) => typeof value === "string" && value.length > 64)).toBe(false);
+    const cases = [
+      { source: "fast-path" as const, reasonCode: "UNAMBIGUOUS_SHAPE" as const },
+      { source: "llm" as const, reasonCode: "LLM_SCHEMA_VALID" as const },
+      { source: "fallback" as const, reasonCode: "LLM_INVALID" as const },
+      { source: "fallback" as const, reasonCode: "BUDGET_VETO" as const },
+      { source: "validator-override" as const, reasonCode: "VALIDATOR_OVERRIDE" as const, proposedChoice: "code_change" },
+    ];
+    for (const entry of cases) {
+      const trace = buildDecisionTrace({
+        stage: "decide",
+        choice: "research",
+        ...entry,
+        decisionId: "d-1",
+      });
+      const serialised = JSON.stringify(trace);
+      expect(serialised).not.toContain(canary);
+      expect(serialised).not.toContain(command);
+      expect(Object.values(trace).some((value) => typeof value === "string" && value.length > 64)).toBe(false);
+    }
+  });
+
+  it("reason codes are enum-only, including fallback and step limit", () => {
+    expect(reasonCodeFor("complete", { stepLimit: true })).toBe("STEP_LIMIT");
+    expect(reasonCodeFor("execute", { fallback: true })).toBe("FALLBACK_RECORDED");
+    expect(reasonCodeFor("delegate", { override: true })).toBe("VALIDATOR_OVERRIDE");
   });
 });

@@ -192,6 +192,7 @@ export const POLICY_VARS = [
   pint("ORCHESTRATOR_AGENT_REACH_TIMEOUT_MS", 60_000, 1_000, 300_000, "Wall-clock limit per Agent Reach call (ms)."),
   pint("ORCHESTRATOR_AGENT_REACH_MAX_ITEMS", 10, 1, 20, "Items one Agent Reach call returns (1–20)."),
   pint("ORCHESTRATOR_AGENT_REACH_MAX_TOOL_ITERATIONS", 4, 1, 20, "Agent Reach tool-loop rounds (1–20)."),
+  pbool("ORCHESTRATOR_SEMANTIC_CLASSIFIER", false, "Use the LLM semantic classifier with regex fast path and read-only fallback (plan 085)."),
   penum("ORCHESTRATOR_REVIEW_MODE", ["always", "auto", "never"] as const, "auto", "When a review node is added for a code change."),
   penum("ORCHESTRATOR_QA_MODE", ["always", "auto", "never"] as const, "auto", "When a browser QA node is added for a code change.", {
     knob: { reader: "worker" },

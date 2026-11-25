@@ -3,6 +3,7 @@ import type { RunContext, RunState } from "./types";
 import type { SchedulerNode, NodeOutcome } from "@/scheduler/dagScheduler";
 import type { ReviewResult } from "@/utils/json";
 import { evaluateAfterExecution } from "@/orchestrator/orchestrator";
+import { buildDecisionTrace, reasonCodeFor } from "@/orchestrator/decisionTrace";
 import type { DecisionContext, DecisionObservation } from "@/orchestrator/decision";
 import { decideNext, directNext, judgeObjective, targetAgent } from "@/orchestrator/decisionEngine";
 import { decideWithLlm } from "@/orchestrator/decisionLlm";
@@ -306,6 +307,14 @@ export async function handleNodeOutcome(
               planVersion: decided.planVersion,
               step: ctx.decisionStep,
               expectedOutcome: decided.expectedOutcome,
+              trace: buildDecisionTrace({
+                stage: "decide",
+                choice: decided.action,
+                source: decided.decidedBy === "llm" ? "llm" : "fast-path",
+                reasonCode: reasonCodeFor(decided.action, { stepLimit: true }),
+                model: decided.decidedBy === "llm" ? "recorded-model" : undefined,
+                decisionId: decided.id,
+              }),
             },
             executionId,
             subtaskKey: node.id,
@@ -319,7 +328,16 @@ export async function handleNodeOutcome(
             taskId: task._id,
             projectId: project._id,
             type: "orchestrator.decision_fallback",
-            payload: { subtaskKey: node.id, reason: fallback.slice(0, 500) },
+            payload: {
+              subtaskKey: node.id,
+              reason: fallback.slice(0, 500),
+              trace: buildDecisionTrace({
+                stage: "decide",
+                choice: "fallback",
+                source: "fallback",
+                reasonCode: "FALLBACK_RECORDED",
+              }),
+            },
             executionId,
             subtaskKey: node.id,
             level: "warn",
@@ -339,6 +357,13 @@ export async function handleNodeOutcome(
             planVersion: decision.planVersion,
             step: ctx.decisionStep,
             expectedOutcome: decision.expectedOutcome ?? null,
+            trace: buildDecisionTrace({
+              stage: "decide",
+              choice: decision.action,
+              source: decision.decidedBy === "llm" ? "llm" : fallback ? "fallback" : "fast-path",
+              reasonCode: reasonCodeFor(decision.action, { fallback: Boolean(fallback) }),
+              decisionId: decision.id,
+            }),
           },
           executionId,
           subtaskKey: node.id,

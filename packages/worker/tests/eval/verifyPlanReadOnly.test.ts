@@ -51,7 +51,7 @@ describe("verification task leaves the working tree untouched", () => {
 
     expect(result.ok).toBe(true);
     expect(result.plan?.subtasks.some((node) => node.kind === "code_change" || node.kind === "shell")).toBe(false);
-    expect(execFileSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" })).toBe("");
+    expect(execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: repo, encoding: "utf8" })).toBe("");
     expect(fs.readFileSync(path.join(repo, "README.md"), "utf8")).toBe("demo\n");
   });
 });

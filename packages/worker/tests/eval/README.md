@@ -19,6 +19,25 @@
   is the execution guard: a QA agent is given a code_change node plus a fake LLM
   that proposes a write, the executor refuses, and a real git working tree is
   unchanged.
+## Decision trace policy (approved 2026-11-25)
+
+Each task gets one trace written on **every** path, including fast-path, LLM
+success, invalid LLM output, budget veto and validator override. Fields: `at`,
+`stage`, `choice`, `source` (`fast-path | llm | fallback | validator-override`),
+`reasonCode` from a fixed enum (model prose is mapped, never stored as free
+text), `proposedChoice` **in addition to** `choice` on validator override,
+`model`, `tokensIn`, `tokensOut`, `decisionId`, `promptVersion`, `schemaVersion`.
+No raw prompt, raw command, or tool output is stored; `traceCanary.test.ts`
+pins that rule with a unique marker.
+
+`taskEvents` is the existing sink. No TTL/pruning job was found in this tree:
+rows live until the task/project is deleted. `TASK_EVENT_WINDOW_DEFAULT=500`,
+`TASK_EVENT_WINDOW_MAX=1000` bound per-task reads. Readers: web task thread /
+run trace through `taskEvents.listByTask`, `pageByTask`, `sinceByTask`
+(`apps/api/functions/taskEvents.ts`), and worker/backend internals; public
+queries filter by `visibleProjectIds` / `getVisibleTask`, and local mode has no
+auth provider. Trace payloads must therefore stay non-sensitive.
+
 - Hidden cases live in `hidden.cases.local.json` (gitignored, supplied by the
   owner). `pnpm --filter @fhara/worker eval:hidden` runs them once and prints
   only counts and accuracies; it has not been run.

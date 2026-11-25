@@ -68,7 +68,7 @@ describe("verification execution cannot write", () => {
 
     const result = await executeSubtask(input);
     expect(result).toMatchObject({ status: "failed", error: expect.stringMatching(/Refused/) });
-    expect(execFileSync("git", ["status", "--porcelain"], { cwd: workspace, encoding: "utf8" })).toBe("");
+    expect(execFileSync("git", ["status", "--porcelain", "--untracked-files=all"], { cwd: workspace, encoding: "utf8" })).toBe("");
     expect(fs.readFileSync(path.join(workspace, "README.md"), "utf8")).toBe("demo\n");
   });
 });

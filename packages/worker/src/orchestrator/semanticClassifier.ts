@@ -29,6 +29,14 @@ export interface SemanticOptions {
   enabled: boolean;
   complete?: (prompt: string) => Promise<{ content: string }>;
   assertBudgetForCall?: () => void;
+  /** Eval-only diagnostic hook; never written to taskEvents. */
+  onFailure?: (info: { code: string; raw: string; error: string }) => void;
+}
+
+class SemanticFailure extends Error {
+  constructor(readonly code: string, readonly raw: string) {
+    super(code);
+  }
 }
 
 /** Regex fast path only for unambiguous shapes; everything else goes to the LLM. */
@@ -55,7 +63,7 @@ function safeFallback(command: string, reasonCode: string): SemanticClassificati
 }
 
 const VALID_CAPABILITIES = new Set<string>(Object.values(CAPABILITY));
-const PURE_QUESTION = /^(?:kenapa|mengapa|apa|apakah|bagaimana|gimana|gmn|why|how come|what|when|where)\b|[?？]\s*$/i;
+const PURE_QUESTION = /^(?:kenapa|mengapa|apa|apakah|bagaimana|gimana|gmn|why|how come|what|when|where)\b|[?？]/i;
 
 /**
  * Deterministic validator after the LLM proposal. The model may only propose;
@@ -81,10 +89,10 @@ export function validateSemanticProposal(command: string, proposed: z.infer<type
     override(base.kind === "conversation" ? "conversation" : base.kind === "audit" ? "audit" : "research");
   }
   if (kind === "command" && !(detectRunCommands(command)?.length)) override("research");
-  // Multi is accepted from the LLM when it names 2-8 concerns; this does not
-  // depend on the language-specific concern regex in the deterministic path.
-  const llmConcerns = proposed.concerns ?? [];
-  if (kind === "multi" && (llmConcerns.length < 2 || llmConcerns.length > 8)) {
+  // Multi needs deterministic, language-independent concern evidence; LLM
+  // concern strings are not evidence. A code_change proposal still goes
+  // through plan validation and the human approval gate.
+  if (kind === "multi" && (base.concerns?.length ?? 0) < 2) {
     override(base.kind === "code_change" ? "code_change" : "research");
   }
 
@@ -121,10 +129,20 @@ export async function classifyCommandSemantic(command: string, options: Semantic
   try {
     options.assertBudgetForCall?.();
     const reply = await options.complete(`${CLASSIFY_SYSTEM_PROMPT}\n\nRequest: ${command}`);
-    const unwrapped = reply.content
+    const raw = reply.content;
+    if (!raw.trim()) throw new SemanticFailure("LLM_EMPTY", raw);
+    const unwrapped = raw
       .replace(/^\s*```(?:json)?\s*/i, "")
       .replace(/\s*```\s*$/, "");
-    const parsed = schema.parse(JSON.parse(unwrapped));
+    let json: unknown;
+    try {
+      json = JSON.parse(unwrapped);
+    } catch {
+      throw new SemanticFailure("LLM_NOT_JSON", raw);
+    }
+    const parsedResult = schema.safeParse(json);
+    if (!parsedResult.success) throw new SemanticFailure("LLM_SCHEMA_INVALID", raw);
+    const parsed = parsedResult.data;
     const base = classifyCommand(command);
     const validated = validateSemanticProposal(command, parsed, base);
     return {
@@ -136,7 +154,13 @@ export async function classifyCommandSemantic(command: string, options: Semantic
       reasonCode: validated.proposedChoice ? "VALIDATOR_OVERRIDE" : "LLM_SCHEMA_VALID",
     };
   } catch (error) {
-    const code = error instanceof Error && /budget/i.test(error.message) ? "BUDGET_VETO" : "LLM_INVALID";
+    const code =
+      error instanceof Error && /budget/i.test(error.message)
+        ? "BUDGET_VETO"
+        : error instanceof SemanticFailure
+          ? error.code
+          : "LLM_ERROR";
+    options.onFailure?.({ code, raw: error instanceof SemanticFailure ? error.raw : "", error: error instanceof Error ? error.name : "unknown" });
     return safeFallback(command, code);
   }
 }

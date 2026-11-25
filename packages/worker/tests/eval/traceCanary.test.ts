@@ -9,7 +9,7 @@ describe("decision trace canary (production builder)", () => {
     const cases = [
       { source: "fast-path" as const, reasonCode: "UNAMBIGUOUS_SHAPE" as const },
       { source: "llm" as const, reasonCode: "LLM_SCHEMA_VALID" as const },
-      { source: "fallback" as const, reasonCode: "LLM_INVALID" as const },
+      { source: "fallback" as const, reasonCode: "LLM_SCHEMA_INVALID" as const },
       { source: "fallback" as const, reasonCode: "BUDGET_VETO" as const },
       { source: "validator-override" as const, reasonCode: "VALIDATOR_OVERRIDE" as const, proposedChoice: "code_change" },
     ];

@@ -34,6 +34,9 @@ const runs = await Promise.all([1, 2, 3].map(async (run) => {
         );
         return { content: result.content };
       },
+      onFailure: (info) => {
+        console.log(`  failure ${info.code} (${info.error}): ${info.raw.slice(0, 200).replace(/\s+/g, " ")}`);
+      },
     });
     source = semantic.source;
     reason = semantic.reasonCode;

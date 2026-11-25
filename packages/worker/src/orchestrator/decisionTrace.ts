@@ -5,7 +5,8 @@ export const TRACE_SCHEMA_VERSION = "1";
 
 const SOURCES = ["fast-path", "llm", "fallback", "validator-override"] as const;
 const REASON_CODES = [
-  "FLAG_OFF", "UNAMBIGUOUS_SHAPE", "LLM_SCHEMA_VALID", "LLM_INVALID", "LLM_UNAVAILABLE",
+  "FLAG_OFF", "UNAMBIGUOUS_SHAPE", "LLM_SCHEMA_VALID", "LLM_ERROR", "LLM_EMPTY", "LLM_NOT_JSON",
+  "LLM_SCHEMA_INVALID", "LLM_UNAVAILABLE",
   "BUDGET_VETO", "VALIDATOR_OVERRIDE", "DECISION_EXECUTE", "DECISION_DELEGATE", "DECISION_REPLAN",
   "DECISION_COMPLETE", "DECISION_ASK_USER", "STEP_LIMIT", "FALLBACK_RECORDED",
 ] as const;
@@ -50,7 +51,7 @@ export function fallbackTrace(reason: string): DecisionTrace {
   const reasonCode: TraceReasonCode = /budget/i.test(reason)
     ? "BUDGET_VETO"
     : /invalid|unparseable/i.test(reason)
-      ? "LLM_INVALID"
+      ? "LLM_SCHEMA_INVALID"
       : "FALLBACK_RECORDED";
   return buildDecisionTrace({ stage: "decide", choice: "fallback", source: "fallback", reasonCode });
 }

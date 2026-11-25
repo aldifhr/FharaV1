@@ -25,7 +25,7 @@ describe("decision trace rows contain no raw command", () => {
     const paths = [
       { source: "fast-path" as const, reasonCode: "UNAMBIGUOUS_SHAPE" as const, action: "execute" },
       { source: "llm" as const, reasonCode: "LLM_SCHEMA_VALID" as const, action: "delegate" },
-      { source: "fallback" as const, reasonCode: "LLM_INVALID" as const, action: "replan" },
+      { source: "fallback" as const, reasonCode: "LLM_SCHEMA_INVALID" as const, action: "replan" },
       { source: "fallback" as const, reasonCode: "BUDGET_VETO" as const, action: "complete", fromCommand: true },
       { source: "validator-override" as const, reasonCode: "VALIDATOR_OVERRIDE" as const, action: "ask_user", proposedChoice: "code_change" },
     ];

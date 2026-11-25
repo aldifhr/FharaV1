@@ -34,11 +34,18 @@ export interface SplitStats {
   failures: string[];
 }
 
+export interface KindStatsExtended extends KindStats {
+  split: "tuning" | "held-out";
+  accuracy: number;
+}
+
 export interface EvalReport {
   total: number;
   kindAccuracy: number;
   fullAccuracy: number;
   bySplit: Record<"tuning" | "held-out", SplitStats>;
+  bySplitKind: KindStatsExtended[];
+  macroF1: Record<"tuning" | "held-out" | "all", number>;
   byKind: KindStats[];
   byLang: Array<{ lang: string; total: number; kindAccuracy: number }>;
   confusion: Record<string, Record<string, number>>;
@@ -91,16 +98,24 @@ export function runClassifierEval(cases: ClassifierCase[] = ALL_CASES): EvalRepo
     confusion[r.expectedKind][r.actualKind] = (confusion[r.expectedKind][r.actualKind] ?? 0) + 1;
   }
 
-  const byKind: KindStats[] = kinds
-    .filter((kind) => results.some((r) => r.expectedKind === kind))
-    .map((kind) => {
-      const tp = results.filter((r) => r.expectedKind === kind && r.actualKind === kind).length;
-      const predicted = results.filter((r) => r.actualKind === kind).length;
-      const support = results.filter((r) => r.expectedKind === kind).length;
-      const precision = ratio(tp, predicted);
-      const recall = ratio(tp, support);
-      return { kind, support, precision, recall, f1: ratio(2 * precision * recall, precision + recall) };
-    });
+  const statsFor = (subset: typeof results, split?: "tuning" | "held-out") =>
+    kinds
+      .filter((kind) => subset.some((r) => r.expectedKind === kind))
+      .map((kind) => {
+        const tp = subset.filter((r) => r.expectedKind === kind && r.actualKind === kind).length;
+        const predicted = subset.filter((r) => r.actualKind === kind).length;
+        const support = subset.filter((r) => r.expectedKind === kind).length;
+        const precision = ratio(tp, predicted);
+        const recall = ratio(tp, support);
+        return { kind, support, precision, recall, f1: ratio(2 * precision * recall, precision + recall), ...(split ? { split, accuracy: ratio(tp, support) } : {}) };
+      });
+
+  const byKind: KindStats[] = statsFor(results);
+  const bySplitKind: KindStatsExtended[] = [
+    ...statsFor(results.filter((r) => r.split === "tuning"), "tuning"),
+    ...statsFor(results.filter((r) => r.split === "held-out"), "held-out"),
+  ] as KindStatsExtended[];
+  const macroF1 = (rows: Array<{ f1: number }>) => ratio(rows.reduce((sum, row) => sum + row.f1, 0), rows.length);
 
   const langs = [...new Set(results.map((r) => r.lang))].sort();
   const byLang = langs.map((lang) => {
@@ -127,6 +142,12 @@ export function runClassifierEval(cases: ClassifierCase[] = ALL_CASES): EvalRepo
     kindAccuracy: ratio(results.filter((r) => r.kindOk).length, results.length),
     fullAccuracy: ratio(results.filter((r) => r.ok).length, results.length),
     bySplit,
+    bySplitKind,
+    macroF1: {
+      tuning: macroF1(bySplitKind.filter((row) => row.split === "tuning")),
+      "held-out": macroF1(bySplitKind.filter((row) => row.split === "held-out")),
+      all: macroF1(byKind),
+    },
     byKind,
     byLang,
     confusion,
@@ -150,7 +171,17 @@ export function formatReport(report: EvalReport, verbose = false): string {
       `${split.padEnd(19)} ${String(s.total).padStart(3)} cases  kind ${pct(s.kindAccuracy)}  full ${pct(s.fullAccuracy)}`
     );
   }
+  lines.push(`macro-F1            all ${pct(report.macroF1.all)}  tuning ${pct(report.macroF1.tuning)}  held-out ${pct(report.macroF1["held-out"])}`);
   lines.push("");
+  for (const split of ["tuning", "held-out"] as const) {
+    lines.push(`Per kind (${split}) support  precision  recall     f1    accuracy`);
+    for (const s of report.bySplitKind.filter((row) => row.split === split)) {
+      lines.push(
+        `  ${s.kind.padEnd(16)} ${String(s.support).padStart(7)}  ${pct(s.precision).padStart(9)}  ${pct(s.recall).padStart(6)}  ${pct(s.f1).padStart(6)}  ${pct(s.accuracy).padStart(8)}`
+      );
+    }
+    lines.push("");
+  }
   lines.push("Per kind            support  precision  recall     f1");
   for (const s of report.byKind) {
     lines.push(`  ${s.kind.padEnd(16)} ${String(s.support).padStart(7)}  ${pct(s.precision).padStart(9)}  ${pct(s.recall).padStart(6)}  ${pct(s.f1).padStart(6)}`);

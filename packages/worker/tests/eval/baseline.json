@@ -23,5 +23,9 @@
     "x-qa-nocode-id",
     "x-verify-en",
     "x-verify-id"
-  ]
+  ],
+  "notes": {
+    "chg-013": "diperbaiki oleh classifier semantik (flag ORCHESTRATOR_SEMANTIC_CLASSIFIER); tidak ditambal regex",
+    "chg-014": "diperbaiki oleh classifier semantik (flag ORCHESTRATOR_SEMANTIC_CLASSIFIER); tidak ditambal regex"
+  }
 }

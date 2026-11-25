@@ -15,7 +15,8 @@ import { validateStoredPlan } from "@/orchestrator/planValidator";
 import { BudgetTracker } from "@/orchestrator/budget";
 import { createSharedTaskContext } from "@/orchestrator/taskContext";
 import type { GlobalLLMConfig } from "@/llm";
-import { LlmConcurrencyGate } from "@/effects/llmCall";
+import { LlmConcurrencyGate, runLlmCallWithFallback } from "@/effects/llmCall";
+import { classifyCommandSemantic } from "@/orchestrator/semanticClassifier";
 import type { TaskLlmResolver } from "@/llm/resolver";
 import type { RunnerDeps, RunState } from "./runner/types";
 import { buildStateFromDb } from "./runner/state";
@@ -224,8 +225,28 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
     })
     .map(({ agent }) => agent);
   const command = await withFileContexts(deps.workspaceRoot, project.workspacePath, task.command);
+  // Intelligent orchestrator: shared context + budget. The gate exists before
+  // the semantic classifier makes an LLM call, so every call is metered.
+  const budget = new BudgetTracker(deps.policy);
+  await seedBudgetFromPersisted({ deps, taskId: task._id, projectId: project._id, budget });
+  const assertBudgetForCall = createBudgetGate(deps, budget, task._id, project._id);
+  const recordUsage = createUsageRecorder(deps, budget, task._id, project._id);
+
+  // Plan 085: semantic classifier is behind its own flag (default off). Regex
+  // stays the fast path and the safe read-only fallback lives in the module.
+  const semantic = await classifyCommandSemantic(command, {
+    enabled: deps.policy.semanticClassifier === true,
+    complete: deps.policy.semanticClassifier
+      ? async (prompt: string) => {
+          const handles = llmResolver.handlesFor(runAgents[0]);
+          const { result } = await runLlmCallWithFallback(handles, [{ role: "user", content: prompt }]);
+          return { content: result.content };
+        }
+      : undefined,
+    assertBudgetForCall,
+  });
   // P1a: chat's routing hint is the prior; the text classifier keeps its hard rules.
-  const classification = applyRoutingHint(classifyCommand(command), command, taskRoutingHint(task));
+  const classification = applyRoutingHint(semantic, command, taskRoutingHint(task));
   // High/ultra changes run under the larger subtask timeout / deadline.
   deps = { ...deps, policy: policyForComplexity(deps.policy, classification.complexity) };
   await deps.api.logEvent({
@@ -241,21 +262,6 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
       subtaskTimeoutMs: subtaskTimeoutFor(deps.policy),
     },
   });
-
-  // Intelligent orchestrator: shared context + budget
-  const budget = new BudgetTracker(deps.policy);
-  // Seed the tracker with usage already persisted for this task (e.g. calls
-  // made before a worker restart) so limits apply to the task as a whole —
-  // the FULL state (agents/delegations/retries from the budget snapshot),
-  // with failures surfaced as events (Phase 5; see seedBudgetFromPersisted).
-  await seedBudgetFromPersisted({
-    deps,
-    taskId: task._id,
-    projectId: project._id,
-    budget,
-  });
-  const assertBudgetForCall = createBudgetGate(deps, budget, task._id, project._id);
-  const recordUsage = createUsageRecorder(deps, budget, task._id, project._id);
   const sharedContext = createSharedTaskContext({
     taskId: task._id,
     projectId: project._id,

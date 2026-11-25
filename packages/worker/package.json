@@ -9,7 +9,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "build:mcp": "node scripts/build-mcp.mjs",
-    "eval:hidden": "tsx scripts/eval-hidden.ts"
+    "eval:hidden": "tsx scripts/eval-hidden.ts",
+    "eval:model": "tsx scripts/eval-model.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.5.0",

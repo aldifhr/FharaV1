@@ -1,0 +1,779 @@
+{
+  "source": "packages/worker/src/orchestrator/classifier.ts",
+  "baseline": {
+    "kind": 0.8557692307692307,
+    "full": 0.7788461538461539,
+    "tuningKind": 0.863013698630137,
+    "tuningFull": 0.7808219178082192,
+    "heldKind": 0.8387096774193549,
+    "heldFull": 0.7741935483870968,
+    "failures": [
+      "aud-004",
+      "chg-013",
+      "chg-014",
+      "cmd-007",
+      "real-001",
+      "real-002",
+      "real-003",
+      "real-006",
+      "real-007",
+      "real-019",
+      "real-024",
+      "real-025",
+      "real-027",
+      "res-006",
+      "x-api-en",
+      "x-api-id",
+      "x-design-id",
+      "x-explain-id",
+      "x-greet-id",
+      "x-qa-nocode-en",
+      "x-qa-nocode-id",
+      "x-verify-en",
+      "x-verify-id"
+    ]
+  },
+  "ablated": 25,
+  "rows": [
+    {
+      "name": "GREETING",
+      "line": 5,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "sameMetrics": true,
+      "sameFailures": true,
+      "newlyFailing": [],
+      "newlyPassing": []
+    },
+    {
+      "name": "CHANGE_VERB",
+      "line": 14,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.7884615384615384,
+        "full": 0.7019230769230769,
+        "tuningKind": 0.8082191780821918,
+        "tuningFull": 0.7123287671232876,
+        "heldKind": 0.7419354838709677,
+        "heldFull": 0.6774193548387096
+      },
+      "sameMetrics": false,
+      "sameFailures": false,
+      "newlyFailing": [
+        "chg-003",
+        "chg-004",
+        "chg-006",
+        "chg-007",
+        "chg-010",
+        "chg-011",
+        "chg-012",
+        "real-028",
+        "x-typo-en",
+        "x-typo-id"
+      ],
+      "newlyPassing": [
+        "aud-004",
+        "real-001"
+      ]
+    },
+    {
+      "name": "AUDIT_ONLY",
+      "line": 20,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8076923076923077,
+        "full": 0.7307692307692307,
+        "tuningKind": 0.8082191780821918,
+        "tuningFull": 0.726027397260274,
+        "heldKind": 0.8064516129032258,
+        "heldFull": 0.7419354838709677
+      },
+      "sameMetrics": false,
+      "sameFailures": false,
+      "newlyFailing": [
+        "aud-001",
+        "aud-002",
+        "aud-003",
+        "aud-005",
+        "real-005"
+      ],
+      "newlyPassing": []
+    },
+    {
+      "name": "QUESTION",
+      "line": 22,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.8767123287671232,
+        "tuningFull": 0.7945205479452054,
+        "heldKind": 0.8064516129032258,
+        "heldFull": 0.7419354838709677
+      },
+      "sameMetrics": false,
+      "sameFailures": false,
+      "newlyFailing": [
+        "res-001"
+      ],
+      "newlyPassing": [
+        "x-greet-id"
+      ]
+    },
+    {
+      "name": "FRONTEND",
+      "line": 24,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8365384615384616,
+        "full": 0.7115384615384616,
+        "tuningKind": 0.8356164383561644,
+        "tuningFull": 0.726027397260274,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.6774193548387096
+      },
+      "sameMetrics": false,
+      "sameFailures": false,
+      "newlyFailing": [
+        "mul-001",
+        "mul-002",
+        "mul-003",
+        "mul-004",
+        "real-004",
+        "real-011",
+        "real-021",
+        "x-question-en",
+        "x-question-id"
+      ],
+      "newlyPassing": [
+        "real-003",
+        "x-design-id"
+      ]
+    },
+    {
+      "name": "DESIGN",
+      "line": 26,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.875,
+        "full": 0.7980769230769231,
+        "tuningKind": 0.8767123287671232,
+        "tuningFull": 0.7945205479452054,
+        "heldKind": 0.8709677419354839,
+        "heldFull": 0.8064516129032258
+      },
+      "sameMetrics": false,
+      "sameFailures": false,
+      "newlyFailing": [],
+      "newlyPassing": [
+        "real-003",
+        "x-design-id"
+      ]
+    },
+    {
+      "name": "BACKEND",
+      "line": 28,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8173076923076923,
+        "full": 0.7019230769230769,
+        "tuningKind": 0.821917808219178,
+        "tuningFull": 0.6986301369863014,
+        "heldKind": 0.8064516129032258,
+        "heldFull": 0.7096774193548387
+      },
+      "sameMetrics": false,
+      "sameFailures": false,
+      "newlyFailing": [
+        "chg-007",
+        "mul-001",
+        "mul-002",
+        "mul-003",
+        "mul-004",
+        "real-010",
+        "real-017",
+        "real-020"
+      ],
+      "newlyPassing": []
+    },
+    {
+      "name": "DEVOPS",
+      "line": 30,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "sameMetrics": true,
+      "sameFailures": true,
+      "newlyFailing": [],
+      "newlyPassing": []
+    },
+    {
+      "name": "PLAIN_DATA_FILE",
+      "line": 37,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8557692307692307,
+        "full": 0.7307692307692307,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7397260273972602,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7096774193548387
+      },
+      "sameMetrics": false,
+      "sameFailures": false,
+      "newlyFailing": [
+        "chg-003",
+        "chg-004",
+        "real-028",
+        "x-typo-en",
+        "x-typo-id"
+      ],
+      "newlyPassing": []
+    },
+    {
+      "name": "CODE_FILE",
+      "line": 39,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8461538461538461,
+        "full": 0.7692307692307693,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8064516129032258,
+        "heldFull": 0.7419354838709677
+      },
+      "sameMetrics": false,
+      "sameFailures": false,
+      "newlyFailing": [
+        "x-comment-de"
+      ],
+      "newlyPassing": []
+    },
+    {
+      "name": "BUG_HUNT",
+      "line": 45,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8269230769230769,
+        "full": 0.75,
+        "tuningKind": 0.821917808219178,
+        "tuningFull": 0.7397260273972602,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "sameMetrics": false,
+      "sameFailures": false,
+      "newlyFailing": [
+        "res-009",
+        "res-010",
+        "res-011"
+      ],
+      "newlyPassing": []
+    },
+    {
+      "name": "BUG_SYMPTOM",
+      "line": 47,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "sameMetrics": true,
+      "sameFailures": true,
+      "newlyFailing": [],
+      "newlyPassing": []
+    },
+    {
+      "name": "FIX_ONLY_VERB",
+      "line": 51,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "sameMetrics": true,
+      "sameFailures": true,
+      "newlyFailing": [],
+      "newlyPassing": []
+    },
+    {
+      "name": "TESTING",
+      "line": 59,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "sameMetrics": true,
+      "sameFailures": true,
+      "newlyFailing": [],
+      "newlyPassing": []
+    },
+    {
+      "name": "SECURITY",
+      "line": 60,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "sameMetrics": true,
+      "sameFailures": true,
+      "newlyFailing": [],
+      "newlyPassing": []
+    },
+    {
+      "name": "NO_CODE_NEGATION",
+      "line": 67,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.6442307692307693,
+        "full": 0.6153846153846154,
+        "tuningKind": 0.6575342465753424,
+        "tuningFull": 0.6301369863013698,
+        "heldKind": 0.6129032258064516,
+        "heldFull": 0.5806451612903226
+      },
+      "sameMetrics": false,
+      "sameFailures": false,
+      "newlyFailing": [
+        "cmd-005",
+        "real-008",
+        "real-009",
+        "real-010",
+        "real-011",
+        "real-012",
+        "real-013",
+        "real-014",
+        "real-015",
+        "real-016",
+        "real-017",
+        "real-018",
+        "real-020",
+        "real-021",
+        "real-022",
+        "real-026",
+        "res-008"
+      ],
+      "newlyPassing": []
+    },
+    {
+      "name": "RESEARCH_ONLY",
+      "line": 76,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "sameMetrics": true,
+      "sameFailures": true,
+      "newlyFailing": [],
+      "newlyPassing": []
+    },
+    {
+      "name": "RESEARCH_WORD",
+      "line": 80,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "sameMetrics": true,
+      "sameFailures": true,
+      "newlyFailing": [],
+      "newlyPassing": []
+    },
+    {
+      "name": "ATTACHED_CONTEXT",
+      "line": 82,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "sameMetrics": true,
+      "sameFailures": true,
+      "newlyFailing": [],
+      "newlyPassing": []
+    },
+    {
+      "name": "QUESTION_START",
+      "line": 104,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "sameMetrics": true,
+      "sameFailures": true,
+      "newlyFailing": [],
+      "newlyPassing": []
+    },
+    {
+      "name": "REQUEST_MARKER",
+      "line": 106,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "sameMetrics": true,
+      "sameFailures": true,
+      "newlyFailing": [],
+      "newlyPassing": []
+    },
+    {
+      "name": "RUN_VERB",
+      "line": 129,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8365384615384616,
+        "full": 0.7596153846153846,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.7741935483870968,
+        "heldFull": 0.7096774193548387
+      },
+      "sameMetrics": false,
+      "sameFailures": false,
+      "newlyFailing": [
+        "cmd-004",
+        "cmd-005"
+      ],
+      "newlyPassing": []
+    },
+    {
+      "name": "NPM_ALIAS",
+      "line": 142,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "sameMetrics": true,
+      "sameFailures": true,
+      "newlyFailing": [],
+      "newlyPassing": []
+    },
+    {
+      "name": "RUN_FILLER",
+      "line": 145,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "sameMetrics": true,
+      "sameFailures": true,
+      "newlyFailing": [],
+      "newlyPassing": []
+    },
+    {
+      "name": "RISKY",
+      "line": 287,
+      "before": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "after": {
+        "kind": 0.8557692307692307,
+        "full": 0.7788461538461539,
+        "tuningKind": 0.863013698630137,
+        "tuningFull": 0.7808219178082192,
+        "heldKind": 0.8387096774193549,
+        "heldFull": 0.7741935483870968
+      },
+      "sameMetrics": true,
+      "sameFailures": true,
+      "newlyFailing": [],
+      "newlyPassing": []
+    }
+  ],
+  "zeroImpactCandidates": [
+    {
+      "name": "GREETING",
+      "line": 5
+    },
+    {
+      "name": "DEVOPS",
+      "line": 30
+    },
+    {
+      "name": "BUG_SYMPTOM",
+      "line": 47
+    },
+    {
+      "name": "FIX_ONLY_VERB",
+      "line": 51
+    },
+    {
+      "name": "TESTING",
+      "line": 59
+    },
+    {
+      "name": "SECURITY",
+      "line": 60
+    },
+    {
+      "name": "RESEARCH_ONLY",
+      "line": 76
+    },
+    {
+      "name": "RESEARCH_WORD",
+      "line": 80
+    },
+    {
+      "name": "ATTACHED_CONTEXT",
+      "line": 82
+    },
+    {
+      "name": "QUESTION_START",
+      "line": 104
+    },
+    {
+      "name": "REQUEST_MARKER",
+      "line": 106
+    },
+    {
+      "name": "NPM_ALIAS",
+      "line": 142
+    },
+    {
+      "name": "RUN_FILLER",
+      "line": 145
+    },
+    {
+      "name": "RISKY",
+      "line": 287
+    }
+  ]
+}

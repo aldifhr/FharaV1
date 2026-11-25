@@ -3,7 +3,7 @@ import type { RunContext, RunState } from "./types";
 import type { SchedulerNode, NodeOutcome } from "@/scheduler/dagScheduler";
 import type { ReviewResult } from "@/utils/json";
 import { evaluateAfterExecution } from "@/orchestrator/orchestrator";
-import { buildDecisionTrace, reasonCodeFor } from "@/orchestrator/decisionTrace";
+import { buildDecisionTrace, fallbackTrace, reasonCodeFor } from "@/orchestrator/decisionTrace";
 import type { DecisionContext, DecisionObservation } from "@/orchestrator/decision";
 import { decideNext, directNext, judgeObjective, targetAgent } from "@/orchestrator/decisionEngine";
 import { decideWithLlm } from "@/orchestrator/decisionLlm";
@@ -330,13 +330,7 @@ export async function handleNodeOutcome(
             type: "orchestrator.decision_fallback",
             payload: {
               subtaskKey: node.id,
-              reason: fallback.slice(0, 500),
-              trace: buildDecisionTrace({
-                stage: "decide",
-                choice: "fallback",
-                source: "fallback",
-                reasonCode: "FALLBACK_RECORDED",
-              }),
+              trace: fallbackTrace(fallback),
             },
             executionId,
             subtaskKey: node.id,

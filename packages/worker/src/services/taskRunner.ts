@@ -17,6 +17,7 @@ import { createSharedTaskContext } from "@/orchestrator/taskContext";
 import type { GlobalLLMConfig } from "@/llm";
 import { LlmConcurrencyGate, runLlmCallWithFallback } from "@/effects/llmCall";
 import { classifyCommandSemantic } from "@/orchestrator/semanticClassifier";
+import { buildDecisionTrace, type TraceReasonCode } from "@/orchestrator/decisionTrace";
 import type { TaskLlmResolver } from "@/llm/resolver";
 import type { RunnerDeps, RunState } from "./runner/types";
 import { buildStateFromDb } from "./runner/state";
@@ -234,12 +235,26 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
 
   // Plan 085: semantic classifier is behind its own flag (default off). Regex
   // stays the fast path and the safe read-only fallback lives in the module.
+  let classifierModel: string | undefined;
+  let classifierTokensIn = 0;
+  let classifierTokensOut = 0;
   const semantic = await classifyCommandSemantic(command, {
-    enabled: deps.policy.semanticClassifier === true,
-    complete: deps.policy.semanticClassifier
+    enabled: deps.policy.semanticClassifier === true && runAgents.length > 0,
+    complete: deps.policy.semanticClassifier && runAgents.length > 0
       ? async (prompt: string) => {
           const handles = llmResolver.handlesFor(runAgents[0]);
-          const { result } = await runLlmCallWithFallback(handles, [{ role: "user", content: prompt }]);
+          const { result, servedBy } = await runLlmCallWithFallback(handles, [{ role: "user", content: prompt }]);
+          classifierModel = servedBy?.config?.model;
+          classifierTokensIn = result.inputTokens ?? 0;
+          classifierTokensOut = result.outputTokens ?? 0;
+          await recordUsage(
+            classifierTokensIn,
+            classifierTokensOut,
+            classifierModel ?? "unknown",
+            runAgents[0]?.name,
+            runAgents[0]?._id as never,
+            { providerId: servedBy?.connectionId, modelRowId: servedBy?.modelRowId }
+          );
           return { content: result.content };
         }
       : undefined,
@@ -260,6 +275,14 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
       ...(classification.complexity ? { complexity: classification.complexity } : {}),
       ...(classification.concerns ? { concerns: classification.concerns.map((c) => c.category) } : {}),
       subtaskTimeoutMs: subtaskTimeoutFor(deps.policy),
+      trace: buildDecisionTrace({
+        stage: "classify",
+        choice: semantic.kind,
+        source: semantic.source,
+        reasonCode: semantic.reasonCode as TraceReasonCode,
+        ...(semantic.proposedChoice ? { proposedChoice: semantic.proposedChoice } : {}),
+        ...(classifierModel ? { model: classifierModel, tokensIn: classifierTokensIn, tokensOut: classifierTokensOut } : {}),
+      }),
     },
   });
   const sharedContext = createSharedTaskContext({

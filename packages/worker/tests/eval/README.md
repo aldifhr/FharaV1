@@ -53,30 +53,12 @@ auth provider. Trace payloads must therefore stay non-sensitive.
   file path) are known failures to be fixed by the semantic classifier, not by
   more regex.
 - `pnpm --filter @fhara/worker eval:model` is a separate OPT-IN paid real-model
-  eval (not in `test:evals`/CI). Latest run 2026-11-25: model `farayag`
-  (9router compatible endpoint), schema v1, temperature 0, 3 runs, shared
-  harness grader. Token prices are unavailable in the registry, so reported
-  cost is 0 (unknown, not free). Tuning 73: kind **86,3–86,3%**, full
-  **78,1–78,1%**. Held-out 31: kind **80,6–83,9%**, full **74,2–77,4%**.
-  Source distribution per run: fast-path 90, llm 0–1, fallback 13–14. After
-  splitting the catch-all, those failures are `LLM_SCHEMA_INVALID`, not
-  `LLM_ERROR`/`LLM_EMPTY`/`LLM_NOT_JSON`: with `response_format: json` the model
-  returned valid JSON, but `capability` was free text instead of a
-  `CAPABILITY` enum, `concerns` was sometimes a string instead of an array,
-  and `investigation` was a string instead of a boolean. So the blocker is
-  schema adherence, not JSON transport. Paired comparison: 0 fixed, 0–1 broken
-  (held-out English). Upper bound: 14 defaulted cases, of which 6 are wrong in
-  the deterministic classifier (4 tuning, 2 held-out) — the maximum gain from
-  an LLM is 6 cases, which meets the owner's stop rule. Investigation stopped
-  here: a second model was NOT tried, the flag stays OFF, and no prompt was
-  tuned on these numbers.
-- Correction to an earlier report: the `multi` gate uses `base.concerns` from
-  the deterministic `concernSplit`, which is regex-based and NOT
-  language-independent. LLM concern strings are not accepted as evidence.
-- TODO (not being worked now): the zod schema rejects an entire answer when
-  optional fields (`capability`, `concerns`, `investigation`) have the wrong
-  type. If the semantic path is reopened, normalise or drop those fields
-  instead of failing the whole response.
+  eval (not in `test:evals`/CI). First run 2026-11-25: model `farayag` on the
+  9router compatible endpoint, schema v1, tokens in 47,123 / out 8,751, token
+  prices unavailable in the registry so reported cost is 0 (unknown, not free).
+  Tuning 73 cases: kind **56.2%**, full **46.6%**. Held-out 31 cases: kind
+  **64.5%**, full **58.1%**. Both are below the deterministic fallback, so the
+  semantic flag stays OFF; no prompt was tuned on these numbers.
 - Owner-approved labels (2026-11-25): typo → backend-development **only for
   `.md`/`.txt`/plain data files**; verify → research + browser-testing, with a
   test proving the forced plan has no write node; design → research **only for

@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 import { api } from "@fhara/runtime/api";
 import schema from "./schema";
 import { appendTaskEvent } from "./lib/taskEvents";
-import { buildDecisionTrace } from "../../../packages/worker/src/orchestrator/decisionTrace";
+import { buildDecisionTrace, fallbackTrace } from "../../../packages/worker/src/orchestrator/decisionTrace";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -26,7 +26,7 @@ describe("decision trace rows contain no raw command", () => {
       { source: "fast-path" as const, reasonCode: "UNAMBIGUOUS_SHAPE" as const, action: "execute" },
       { source: "llm" as const, reasonCode: "LLM_SCHEMA_VALID" as const, action: "delegate" },
       { source: "fallback" as const, reasonCode: "LLM_INVALID" as const, action: "replan" },
-      { source: "fallback" as const, reasonCode: "BUDGET_VETO" as const, action: "complete" },
+      { source: "fallback" as const, reasonCode: "BUDGET_VETO" as const, action: "complete", fromCommand: true },
       { source: "validator-override" as const, reasonCode: "VALIDATOR_OVERRIDE" as const, action: "ask_user", proposedChoice: "code_change" },
     ];
     for (const [index, path] of paths.entries()) {
@@ -36,13 +36,15 @@ describe("decision trace rows contain no raw command", () => {
           projectId,
           type: "orchestrator.decision",
           payload: {
-            trace: buildDecisionTrace({
-              stage: "decide",
-              choice: path.action,
-              source: path.source,
-              reasonCode: path.reasonCode,
-              ...(path.proposedChoice ? { proposedChoice: path.proposedChoice } : {}),
-            }),
+            trace: path.fromCommand
+              ? fallbackTrace(command)
+              : buildDecisionTrace({
+                  stage: "decide",
+                  choice: path.action,
+                  source: path.source,
+                  reasonCode: path.reasonCode,
+                  ...(path.proposedChoice ? { proposedChoice: path.proposedChoice } : {}),
+                }),
           },
         });
       });

@@ -498,6 +498,8 @@ function classifyCommandBase(command: string): Classification {
   // Safe default (plan 085): an unrecognised short social message is a
   // conversation, never a write task. No per-language word list — this is a
   // length/intent-shape rule, so greetings in any language are covered.
+  // TEMPORARY threshold (32 chars) until the semantic classifier replaces this
+  // stage; do not tune it per case and do not add language-specific rules.
   if (text.length <= 32 && !hasChangeVerb && !CODE_FILE.test(text) && !PLAIN_DATA_FILE.test(text)) {
     return {
       kind: "conversation",

@@ -5,7 +5,7 @@
  *
  *   EVAL_MODEL=... EVAL_BASE_URL=... EVAL_API_KEY=... pnpm eval:model
  */
-import { ALL_CASES } from "../tests/eval/harness";
+import { ALL_CASES, HELD_OUT_IDS } from "../tests/eval/harness";
 import { createGlobalLLMProvider } from "@/llm";
 import { SEMANTIC_SCHEMA_VERSION } from "@/orchestrator/semanticClassifier";
 import { classifyCommandSemantic } from "@/orchestrator/semanticClassifier";
@@ -31,7 +31,7 @@ for (const entry of ALL_CASES) {
       return { content: result.content };
     },
   });
-  const split = entry.id.startsWith("real-") || ["aud-004", "cmd-004", "cmd-005", "conv-004", "mul-004", "res-001", "res-006", "res-007", "x-api-id", "x-comment-de", "x-comment-en", "x-design-en", "x-design-id", "x-greet-ja", "x-question-de", "x-question-id", "x-verify-en"].includes(entry.id) ? "held-out" : "tuning";
+  const split = HELD_OUT_IDS.has(entry.id) ? "held-out" : "tuning";
   counts[`${split}-total`] += 1;
   if (semantic.kind === entry.expect.kind) counts[`${split}-kind`] += 1;
   if (semantic.kind === entry.expect.kind && (!entry.expect.primaryCapability || semantic.suggestedCapabilities[0] === entry.expect.primaryCapability)) {

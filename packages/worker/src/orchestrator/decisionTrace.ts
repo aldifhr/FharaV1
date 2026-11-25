@@ -45,6 +45,16 @@ export function reasonCodeFor(action: string, flags: { stepLimit?: boolean; fall
   return map[action] ?? "DECISION_EXECUTE";
 }
 
+/** Production emitter for fallback reasons: free text is mapped to an enum, never stored. */
+export function fallbackTrace(reason: string): DecisionTrace {
+  const reasonCode: TraceReasonCode = /budget/i.test(reason)
+    ? "BUDGET_VETO"
+    : /invalid|unparseable/i.test(reason)
+      ? "LLM_INVALID"
+      : "FALLBACK_RECORDED";
+  return buildDecisionTrace({ stage: "decide", choice: "fallback", source: "fallback", reasonCode });
+}
+
 export function buildDecisionTrace(input: Omit<DecisionTrace, "at" | "promptVersion" | "schemaVersion">): DecisionTrace {
   return schema.parse({
     ...input,

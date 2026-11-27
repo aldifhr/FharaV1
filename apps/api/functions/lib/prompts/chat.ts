@@ -9,7 +9,7 @@ import { isSystemLine } from "../systemLine";
 import { LOAD_SKILL_MAX_CALLS, LOAD_SKILL_TOOL } from "../skills";
 import { LOAD_SKILL_TOOL_LINE } from "../skillRuntime";
 import { PAST_WORK_MAX_CALLS, PAST_WORK_TOOL, PAST_WORK_TOOL_LINE } from "../pastWork";
-import { LEGACY_ROLE_SUCCESSORS, ROLE_KEYS, isRoleKey, normalizeRoleKey, roleChatSummary, roleLabel } from "../roles";
+import { LEGACY_ROLE_SUCCESSORS, isRoleKey, normalizeRoleKey, roleChatSummary } from "../roles";
 import { AGENT_SEED_PROMPTS, GENERIC_AGENT_PROMPT, LEGACY_UI_UX_PROMPT, PREVIOUS_SEED_PROMPTS } from "./agents";
 import { CHAT_CANNOT_WRITE_LINE, writeNeededGuidance } from "../chat/offerBrief";
 import { REPO_TOOL_CAPS, SCOPE_EXIT_LINE } from "../chat/repoTools";
@@ -483,33 +483,6 @@ export function buildHandoffNotice(ctoName: string, request = ""): string {
     .join(" ");
 }
 
-/** Structured CTO/Lead reply: one schema-validated JSON object, no free-text parsing. */
-export const STRUCTURED_REPLY_SYSTEM =
-  "You turn one chat reply into a single JSON object. Output JSON only: no prose, no code fence, no comments. " +
-  "The object has exactly two fields: `message` (a string) and `handoff` (an array of at most three objects). " +
-  "Copy `message` verbatim from the reply: do not reword, summarise, translate or rewrite it. " +
-  "Each handoff object has exactly `role` and `instruction`; `role` must be one of the supplied role keys, " +
-  "and `instruction` must be a concrete request of at most 400 characters. " +
-  "Return an empty `handoff` array when the reply hands work to nobody. " +
-  "Never put role names into `message` as @mentions; mentions are rendered from `handoff`.";
-
-export function buildStructuredReplyPrompt(input: {
-  reply: string;
-  userRequest: string;
-  roles: readonly string[];
-}): string {
-  return [
-    `Allowed role keys (enum): ${ROLE_KEYS.join(", ")}.`,
-    `Roles available on this team: ${input.roles.join(", ") || "(none)"}.`,
-    `User's request: ${clip500(input.userRequest)}`,
-    `Reply to convert: ${clip500(input.reply)}`,
-    'Return exactly: {"message":"<reply verbatim>","handoff":[{"role":"<role key>","instruction":"<request>"}]}',
-  ].join("\n");
-}
-
-/** Fallback when the structured reply is invalid twice: ask the user to pick. */
-export const ROLE_CHOICE_QUESTION = "Which teammate should handle this request?";
-
 /** System-prompt lines that let the CTO hand parts of a chat turn to teammates. */
 export function buildHandoffGuidance(
   team: Array<{ _id: string; name: string; role: string }>,
@@ -519,9 +492,9 @@ export function buildHandoffGuidance(
   const others = team.filter((a) => String(a._id) !== String(speakerId));
   if (others.length === 0) return [];
   return [
-    `Teammates on this project: ${others.map((a) => roleLabel(a.role)).join(", ")}.`,
-    "Answer the user first, in plain text: never write @Name or @Role in the message. Each teammate you actually need is recorded separately as a handoff with a role and a concrete instruction (at most three). When a teammate's specialty is only being described, just name the role in prose.",
-    "Do not ask the user for permission to bring a teammate in. A handoff is a short opinion in chat, not execution; a question about your own role or capabilities needs no handoff and no Create task instruction.",
+    `Teammates on this project: ${others.map((a) => `@${a.name}`).join(", ")}.`,
+    "Answer the user first. Writing @Name in your reply DOES bring that teammate into this chat to answer the user's latest message next: @mention only the roles whose work is actually needed (at most three), and address them with a concrete request in the same sentence. When a teammate's specialty is only being described, write the role name WITHOUT @.",
+    "Do not ask the user for permission to bring a teammate in, and do not @mention yourself. A handoff is a short opinion in chat, not execution; a question about your own role or capabilities needs no handoff and no Create task instruction.",
     repo.hasRepoTools ? SELF_VERIFY_LINE : noRepoAccessHandoffLine(repo.offReason ?? ""),
   ];
 }

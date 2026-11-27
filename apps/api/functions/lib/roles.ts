@@ -389,42 +389,6 @@ export function roleKeyForMention(mention: string): RoleKey | null {
   return byLabel ?? null;
 }
 
-/**
- * The one free-text role resolver (keys, titles and retired aliases). Stored
- * agents, handoff output and LLM routing all use it; the worker re-exports it
- * from `utils/rolePolicy` so there is no second implementation.
- */
-const ROLE_ALIASES: Readonly<Record<string, RoleKey>> = {
-  ...LEGACY_ROLE_SUCCESSORS,
-  "ui/ux": "designer",
-  "ui/ux designer": "designer",
-  "frontend-developer": "frontend",
-  developer: "frontend",
-  "backend-developer": "backend",
-  tester: "qa",
-  security: "backend",
-  "security auditor": "backend",
-  "security engineer": "backend",
-  database: "backend",
-  "database engineer": "backend",
-  db: "backend",
-};
-
-const ROLE_BY_NAME: ReadonlyMap<string, RoleKey> = new Map<string, RoleKey>([
-  ...ROLE_KEYS.flatMap((key): Array<[string, RoleKey]> => [
-    [key, key],
-    [ROLES[key].title.toLowerCase(), key],
-  ]),
-  ...Object.entries(ROLE_ALIASES),
-]);
-
-/** Free-text role (key, title or alias) → live RoleKey, or null when unknown. */
-export function resolveRoleKey(role: string): RoleKey | null {
-  const raw = (role ?? "").trim().toLowerCase();
-  if (!raw) return null;
-  return ROLE_BY_NAME.get(raw) ?? ROLE_BY_NAME.get(raw.replace(/[\s_\/]+/g, "-")) ?? null;
-}
-
 /** Stack-neutral chat area for a role (null for an unknown/custom role). */
 export function roleChatSummary(role: string | undefined): string | null {
   const raw = normalizeRoleKey(role);

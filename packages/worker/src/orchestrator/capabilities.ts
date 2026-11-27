@@ -20,9 +20,9 @@ export function isAgentEnabled(agent: AgentDefinition): boolean {
  * agent that has signalled it cannot take it.
  */
 // Plan 040: design and documentation are read-only roles' work now
-// (Designer / QA / CTO / Lead never write), so only implementation
-// capabilities count as code-writing.
-const CODE_WRITING_CAPABILITIES = new Set([
+// (Designer / Support never write), so only implementation capabilities
+// count as code-writing.
+const WRITE_CAPABILITIES = new Set([
   "frontend-development",
   "backend-development",
   "devops",
@@ -101,16 +101,16 @@ export function routeCapability(
 
   const scored = rankCapability(capability, enabled);
   // A code-writing capability goes only to an agent that may write.
-  const eligible = CODE_WRITING_CAPABILITIES.has(normalized)
+  const eligible = WRITE_CAPABILITIES.has(normalized)
     ? scored.filter((entry) => canWriteAny(permissionsForAgent(entry.agent)))
     : scored;
   if (eligible.length > 0) return eligible[0].agent;
   if (options.allowFallback !== true) return null;
   const pool = enabled.filter((agent) => resolveRoleKey(agent.role ?? "") !== "cto");
-  const writers = CODE_WRITING_CAPABILITIES.has(normalized)
+  const writers = WRITE_CAPABILITIES.has(normalized)
     ? pool.filter((agent) => canWriteAny(permissionsForAgent(agent)))
     : pool;
-  if (CODE_WRITING_CAPABILITIES.has(normalized) && writers.length === 0) return null;
+  if (WRITE_CAPABILITIES.has(normalized) && writers.length === 0) return null;
   return (
     writers
       .slice()
@@ -126,7 +126,7 @@ export function unroutedReason(capability: string, agents: AgentDefinition[]): s
   const enabled = agents.filter(isAgentAvailable);
   if (enabled.length === 0) return `No agent available for capability "${capability}": no enabled agents`;
   const normalized = normalizeCapability(capability);
-  if (CODE_WRITING_CAPABILITIES.has(normalized) && rankCapability(capability, enabled).length > 0) {
+  if (WRITE_CAPABILITIES.has(normalized) && rankCapability(capability, enabled).length > 0) {
     return `No agent available for capability "${capability}": the agents that declare it may not write files`;
   }
   return `No agent available for capability "${capability}": no enabled agent declares it (no fallback; add or enable an agent with this capability)`;

@@ -1,21 +1,30 @@
 /**
- * Worker view of the fixed-team role registry: cto, lead, frontend,
- * backend, devops, qa, designer. Reviewer, researcher, support and the other
- * retired names survive only as aliases in `LEGACY_ROLE_SUCCESSORS`; they are
- * not roles in the roster. `architecture` etc. are capabilities, not roles.
+ * Organization role registry (Plan 008) — exactly the roles in the
+ * Organization spec §2–§3:
+ *  - cto (Leadership, mandatory Orchestrator)
+ *  - frontend, backend, devops (Engineering)
+ *  - qa, reviewer (Quality)
+ *  - researcher (Research)
+ *  - designer (Product)
+ *  - support (Operations)
  *
  * The role list, titles, capabilities, tools and hints come from the shared
  * registry apps/api/functions/lib/roles.ts (also read by the FharaRuntime seed and the
  * web app); this module only adds worker-side lookup and selection.
  *
  * Roles are configuration (capabilities + tool defaults) executed by the
- * Agent Runtime on demand — never permanent workers.
+ * Agent Runtime on demand — never permanent workers. `architecture` etc.
+ * are capabilities, not extra roles.
+ * Deleted: lead (duplicates orchestrator/CTO planning), growth (SEO-only,
+ * never suggested for dev tasks), product-analyst (same research capability
+ * as researcher, router tie-break always picked it first), ui-ux (duplicate
+ * of designer — normalizeRole maps ui-ux to designer).
  */
 import { ROLES, ROLE_KEYS, type RoleKey } from "@/api/functions/lib/roles";
 import { capabilitiesOf } from "./capabilities";
 import type { AgentDefinition } from "@/types";
 
-/** The seven fixed-team roles — the shared `RoleKey` (apps/api/functions/lib/roles.ts). */
+/** The nine fixed-team roles — the shared `RoleKey` (apps/api/functions/lib/roles.ts). */
 export type AgentRole = RoleKey;
 
 export interface RoleDefinition {

@@ -31,20 +31,8 @@ describe("routedOwners", () => {
     expect(ids(owners)).toEqual(expect.arrayContaining(["fe", "be"]));
   });
 
-  test("design words route to Frontend when the team has no Designer", () => {
+  test("design words route to Frontend, which carries the design role", () => {
     expect(ids(routedOwners("pilih palet warna dan tipografi", team).owners)).toEqual(["fe"]);
-  });
-
-  test("design words route to Designer when the Designer is on the team", () => {
-    const designTeam = [...team, { _id: "des", name: "Designer", role: "designer" }];
-    expect(ids(routedOwners("pilih palet warna dan branding", designTeam).owners)).toEqual(["des"]);
-  });
-
-  test("a role that the registry maps to CTO is a CTO even when it is not spelled cto", () => {
-    expect(teamCto([{ _id: "orch", name: "Orchestrator", role: "orchestrator" }])?._id).toBe("orch");
-    expect(hintForCommand("menurutmu nama produk ini bagus?", team, {
-      mentioned: [{ _id: "orch", name: "Orchestrator", role: "orchestrator" }],
-    })).toEqual({ source: "command" });
   });
 
   test("nothing matches: no owners, no Backend default", () => {

@@ -1,5 +1,4 @@
 import { observationFromOutcome } from "@/api/functions/lib/observations";
-import { resolveRoleKey } from "@/utils/rolePolicy";
 import type { RunContext, RunState } from "./types";
 import type { SchedulerNode, NodeOutcome } from "@/scheduler/dagScheduler";
 import type { ReviewResult } from "@/utils/json";
@@ -15,15 +14,6 @@ import { handleEscalation } from "./escalation";
 import { handleArchDecision } from "./archDecision";
 import { agentRoleLabel, postSystemLine } from "./systemLines";
 import { captureRunCheckpoint } from "./checkpoints";
-
-/** Clip a handoff reason on a word boundary, never mid-word. */
-function clipHandoffReason(reasoning: string, max = 300): string {
-  const text = reasoning.trim();
-  if (text.length <= max) return text;
-  const head = text.slice(0, max);
-  const boundary = head.lastIndexOf(" ");
-  return `${(boundary > 0 ? head.slice(0, boundary) : head).trimEnd()}…`;
-}
 
 export async function handleNodeOutcome(
   ctx: RunContext,
@@ -542,17 +532,6 @@ export async function handleNodeOutcome(
         if (decision.action === "delegate") {
           input.budget.incrementDelegation();
           const nextAgent = targetAgent(decision, input.agents, deps.policy.allowFallback);
-          const logDelegationFailure = (kind: string, err: unknown) => {
-            void deps.api.logEvent({
-              taskId,
-              projectId: project._id,
-              type: `orchestrator.${kind}_failed`,
-              payload: { message: err instanceof Error ? err.message : String(err) },
-              executionId,
-              subtaskKey: node.id,
-              level: "warn",
-            }).catch(() => undefined);
-          };
           await deps.api
             .recordDelegation?.({
               taskId,
@@ -563,25 +542,21 @@ export async function handleNodeOutcome(
               reason: decision.reasoning,
               capability: decision.target?.capability ?? nextAgent?.capabilities?.[0],
             })
-            ?.catch((err) => logDelegationFailure("delegation_record", err));
-          // Plan 006 Phase 4: delegation proposals write the addressed
-          // message row. The @Role chip is rendered from the structured
-          // `handoff` field; `content` stays verbatim (clipped on a word
-          // boundary, never mid-word).
+            ?.catch(() => undefined);
+          // Plan 006 Phase 4: delegation proposals write the
+          // addressed message row so the target agent sees the
+          // handoff, visible in the shared chat as an @-mention.
           if (nextAgent) {
-            const content = clipHandoffReason(decision.reasoning);
-            const role = resolveRoleKey(nextAgent.role ?? "");
             await deps.api
               .appendAgentMessage({
                 projectId: project._id,
                 taskId: task._id as any,
                 agentId: agent._id as any,
-                content,
-                ...(role ? { handoff: [{ role, instruction: content }] } : {}),
+                content: `@${nextAgent.name} ${decision.reasoning.slice(0, 300)}`,
                 subtaskKey: dynamicNodes?.[0]?.id ?? node.id,
                 executionId,
               })
-              .catch((err) => logDelegationFailure("handoff_message", err));
+              .catch(() => undefined);
           }
         }
         ctx.decisionStep += 1;

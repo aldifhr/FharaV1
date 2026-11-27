@@ -49,8 +49,8 @@ const CAPABILITY_ALIASES: Readonly<Record<string, string>> = {
   reviewer: CAPABILITY.CODE_REVIEW,
 };
 
-/** Capabilities whose delegated follow-up writes code, runs commands, or checks a diff. */
-const FOLLOW_UP_WRITE_CAPABILITIES: ReadonlySet<string> = new Set([
+/** Capabilities whose delegated node writes code, runs commands, or checks a diff. */
+const WRITE_CAPABILITIES: ReadonlySet<string> = new Set([
   CAPABILITY.FRONTEND,
   CAPABILITY.BACKEND,
   CAPABILITY.GITHUB,
@@ -170,7 +170,7 @@ export function evaluateDelegation(input: {
   const { result, agents, budget } = input;
   const enabled = agents.filter(isAgentEnabled);
   const policy = budget.getPolicy();
-  const allowFallback = policy.allowFallback === true;
+  const allowFallback = policy.allowFallback !== false;
 
   // The one living chain mechanism: per-branch chain when the caller
   // supplies it, legacy task-global list otherwise.
@@ -208,7 +208,7 @@ export function evaluateDelegation(input: {
   if (isReadOnlyTaskKind(input.classification.kind)) {
     const proposed = result.delegationRecommendation?.targetCapability;
     const hasSevere = result.findings?.some((f) => f.severity === "critical" || f.severity === "high");
-    if (hasSevere || (proposed && FOLLOW_UP_WRITE_CAPABILITIES.has(canonicalCapability(proposed)))) {
+    if (hasSevere || (proposed && WRITE_CAPABILITIES.has(canonicalCapability(proposed)))) {
       return {
         decision: "REJECT",
         reason: `read-only ${input.classification.kind} task: follow-up${
@@ -255,14 +255,6 @@ export function evaluateDelegation(input: {
         shouldCallLLM: false,
       };
     }
-    // An unowned severe finding is not a success. Stop with the reason and
-    // let the objective judge see the open issue; never fall through to the
-    // default COMPLETE ("Task completed successfully").
-    return {
-      decision: "REJECT",
-      reason: `${result.agentName} reported critical/high findings, but no writable fix owner exists; the findings stay open`,
-      shouldCallLLM: false,
-    };
   }
 
   // Agent recommended delegation

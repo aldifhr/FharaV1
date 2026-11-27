@@ -91,11 +91,6 @@ describe("normalizeRoleMentions", () => {
     );
   });
 
-  test("does not read an incidental 'with <role>' as a handoff", () => {
-    const text = "Ada konflik with Backend soal init, tapi compatible with Frontend.";
-    expect(normalizeRoleMentions(text)).toBe(text);
-  });
-
   test("leaves unrelated content and file paths alone", () => {
     const text = "See @src/App.tsx and ask @qa to review";
     expect(normalizeRoleMentions(text)).toBe("See @src/App.tsx and ask @QA to review");

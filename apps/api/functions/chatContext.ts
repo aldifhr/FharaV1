@@ -10,14 +10,15 @@ import { invokedSkillsField } from "./lib/invokedSkillsSchema";
 import { resolveInvokedSkills } from "./lib/chat/invokedSkills";
 import { loadLibrarySkills, loadPromptSkills } from "./skillLibrary";
 import { loadMemorySection, loadRecalledSection } from "./memories";
+import { extractAgentMentions } from "./lib/chat/team";
 import { stripLeakedToolCallTags } from "./lib/chat/strip";
+import { normalizeRoleMentions } from "./lib/chat/roleMentions";
 import { isContinueRequest } from "./lib/chat/continueReply";
 import { ChatStoppedError } from "./lib/chat/replyStop";
 import { chatScopeOf, type ChatScope } from "./lib/conversationShape";
 import { effectiveTeamIds, projectTeamIds } from "./lib/projectTeam";
 import { isSystemLine, normalizeSystemLine, SYSTEM_VOICE } from "./lib/systemLine";
 import { routingHintValidator } from "./lib/routingHint";
-import { handoffValidator } from "./schema";
 
 /** Drop the `--- File: <path> ---` blocks `attachMentionedFiles` appends so
  *  repeated file context does not accumulate in the chat prompt. */
@@ -116,16 +117,21 @@ export const insertAgentMessage = internalMutation({
     replyToMessageId: v.optional(v.id("messages")),
     taskId: v.optional(v.id("tasks")),
     conversationId: v.optional(v.id("conversations")),
-    handoff: v.optional(handoffValidator),
     card: v.optional(
       v.object({
-        kind: v.union(v.literal("assignment"), v.literal("push"), v.literal("qa"), v.literal("verification"), v.literal("changes"), v.literal("role_choice")),
+        kind: v.union(v.literal("assignment"), v.literal("push"), v.literal("qa"), v.literal("verification"), v.literal("changes")),
         data: v.any(),
       })
     ),
   },
   handler: async (ctx, args) => {
-    const content = stripLeakedToolCallTags(args.content.trim());
+    let content = stripLeakedToolCallTags(args.content.trim());
+    if (args.agentId) {
+      const agent = await ctx.db.get(args.agentId);
+      if (agent && /^(cto|lead)$/i.test(String((agent as any).role ?? ""))) {
+        content = normalizeRoleMentions(content);
+      }
+    }
     if (!content && !args.card) return null;
     if (await replyStopped(ctx, args.replyToMessageId)) return null;
     // A reply that finishes after its conversation was deleted has nowhere to go.
@@ -138,7 +144,6 @@ export const insertAgentMessage = internalMutation({
       replyToMessageId: args.replyToMessageId,
       taskId: args.taskId,
       conversationId: args.conversationId,
-      ...(args.handoff && args.handoff.length ? { handoff: args.handoff } : {}),
       ...(args.card ? { card: args.card } : {}),
     });
   },
@@ -217,6 +222,10 @@ export const getQuoteForReply = internalQuery({
       (a): a is Doc<"agents"> => a !== null && a.isEnabled !== false
     );
     const agent = quoted.agentId ? team.find((a) => a._id === quoted.agentId) ?? (await ctx.db.get(quoted.agentId)) : null;
+    const mentions = extractAgentMentions(
+      message.content,
+      team.map((a) => ({ _id: String(a._id), name: a.name, role: a.role }))
+    );
     return {
       quote: {
         authorType: quoted.authorType,
@@ -225,8 +234,7 @@ export const getQuoteForReply = internalQuery({
         content: quoted.content,
         inTeam: quoted.agentId ? team.some((a) => a._id === quoted.agentId) : undefined,
       },
-      // The composer's structured mention ids, never a parse of the text.
-      userMentionCount: message.replyOptions?.preferredAgentIds?.length ?? 0,
+      userMentionCount: mentions.length,
     };
   },
 });
@@ -286,7 +294,6 @@ export const updateStreamingAgentMessage = internalMutation({
     checkedFiles: v.optional(v.array(v.string())),
     unverifiedRefs: v.optional(v.array(v.string())),
     intentLine: v.optional(v.string()),
-    handoff: v.optional(handoffValidator),
     taskOffer: v.optional(v.object({ kind: v.string(), commands: v.optional(v.array(v.string())), assigneeAgentId: v.optional(v.string()), brief: v.optional(v.string()), hint: v.optional(routingHintValidator) })),
     // A reply kept with partial text (lib/chat/continueReply.ts); clearCutOff drops the marker (Continue started).
     cutOff: v.optional(v.object({ kind: v.union(v.literal("interrupted"), v.literal("truncated")), reason: v.string() })),

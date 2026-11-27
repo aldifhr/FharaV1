@@ -226,6 +226,9 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
     })
     .map(({ agent }) => agent);
   const command = await withFileContexts(deps.workspaceRoot, project.workspacePath, task.command);
+  // Arm cancellation before any LLM call (including semantic classification).
+  const taskAbort = armTaskAbort(deps.policy, deps.shutdownSignal, taskStatusReader(deps, task._id));
+  const signal = taskAbort.controller.signal;
   // Intelligent orchestrator: shared context + budget. The gate exists before
   // the semantic classifier makes an LLM call, so every call is metered.
   const budget = new BudgetTracker(deps.policy);
@@ -243,7 +246,7 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
     complete: deps.policy.semanticClassifier && runAgents.length > 0
       ? async (prompt: string) => {
           const handles = llmResolver.handlesFor(runAgents[0]);
-          const { result, servedBy } = await runLlmCallWithFallback(handles, [{ role: "user", content: prompt }]);
+          const { result, servedBy } = await runLlmCallWithFallback(handles, [{ role: "user", content: prompt }], { signal });
           classifierModel = servedBy?.config?.model;
           classifierTokensIn = result.inputTokens ?? 0;
           classifierTokensOut = result.outputTokens ?? 0;
@@ -318,12 +321,10 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
   // Phase 4 hardening: ONE per-task LLM gate for this whole run, sized
   // by THIS task's policy and owned by this run alone — concurrent
   // tasks never share it and never resize each other's bound. The task
-  // deadline is armed NOW, before planning, so a slow planner runs under
-  // the deadline and a task cancelled during planning never executes a
-  // fresh plan.
+  // deadline was armed before classification, so even the semantic
+  // classifier runs under it. A task cancelled during planning never
+  // executes a fresh plan.
   const llmTaskGate = new LlmConcurrencyGate(deps.policy.maxConcurrentLLMCalls);
-  const taskAbort = armTaskAbort(deps.policy, deps.shutdownSignal, taskStatusReader(deps, task._id));
-  const signal = taskAbort.controller.signal;
   const cancel = () => finishCancelledTask({ deps, task, project, signal });
   const fail = (message: string, failureKind?: FailureKind) =>
     failTaskWithError({ deps, taskId: task._id, projectId: project._id, message, failureKind });

@@ -28,7 +28,7 @@ import ContextDrawer from "../context/ContextDrawer";
 import ReplyInterrupted, { ReplyCutOff, ReplyStopped } from "./ReplyInterrupted";
 import { CheckedFilesLine, checkedFilesLabel, delegationParts, messageKindOf } from "./messageKinds";
 import SystemLineRow from "./SystemLineRow";
-import { systemLineText } from "@/lib/systemLine";
+import { roleLabelForName, systemLineText } from "@/lib/systemLine";
 import HistoryBar from "./HistoryBar";
 import { CreateTaskButton, MessageActions, TaskCreatedLink } from "./MessageActions";
 import type { MessageHistory } from "@/lib/useMessageHistory";
@@ -142,7 +142,7 @@ export default function MessageList(props: Props) {
     for (let i = timeline.length - 1; i >= 0; i--) {
       const m = timeline[i];
       if (m.authorType === "user") return null;
-      if (m.authorType !== "agent" || m.card || !m.content?.trim() || m.taskId || systemLineText(m)) continue;
+      if (m.authorType !== "agent" || m.card || !m.content?.trim() || m.taskId || systemLineText(m, (name) => roleLabelForName(agents, name))) continue;
       if (isLive(m)) return null;
       let prevUser: any = null;
       for (let j = i - 1; j >= 0; j--) if (timeline[j].authorType === "user") { prevUser = timeline[j]; break; }
@@ -250,7 +250,7 @@ export default function MessageList(props: Props) {
   }, [history, timeline]);
 
   // One voice: the speaker label shows only when the speaker changes.
-  const speakerOf = (m: any) => (m?.authorType === "agent" && systemLineText(m) === null ? `agent:${m.agentId ?? ""}` : m ? `${m.authorType}` : "");
+  const speakerOf = (m: any) => (m?.authorType === "agent" && systemLineText(m, (name) => roleLabelForName(agents, name)) === null ? `agent:${m.agentId ?? ""}` : m ? `${m.authorType}` : "");
   const timelinePositions = new Map(timeline.map((item: any, itemIndex: number) => [String(item._id), itemIndex]));
   const renderItem = (m: any, index: number, animate: boolean) => {
     const previous = timeline[index - 1];
@@ -259,7 +259,7 @@ export default function MessageList(props: Props) {
     // Divider marks the start of a task block (at the user's message
     // that spawned it), not a transition back to plain conversation.
     const boundary = key !== prevKey && key !== "conversation";
-    const systemText = systemLineText(m);
+    const systemText = systemLineText(m, (name) => roleLabelForName(agents, name));
     const sameTaskTurn = (item: any) => {
       if (blockKey(item) === key) return true;
       if (m.replyToMessageId && item?.replyToMessageId === m.replyToMessageId) return true;
@@ -274,12 +274,12 @@ export default function MessageList(props: Props) {
       : undefined;
     const isCto = /^(cto|architect)$/i.test(String(messageAgent?.role ?? ""));
     const hasEarlierCtoReply = timeline.slice(0, index).some((item: any) => {
-      if (!sameTaskTurn(item) || item.authorType !== "agent" || systemLineText(item) !== null) return false;
+      if (!sameTaskTurn(item) || item.authorType !== "agent" || systemLineText(item, (name) => roleLabelForName(agents, name)) !== null) return false;
       const agent = (agents as any)?.find((a: any) => a._id === item.agentId);
       return /^(cto|architect)$/i.test(String(agent?.role ?? ""));
     });
     const hasLaterCtoReply = timeline.slice(index + 1).some((item: any) => {
-      if (!sameTaskTurn(item) || item.authorType !== "agent" || systemLineText(item) !== null) return false;
+      if (!sameTaskTurn(item) || item.authorType !== "agent" || systemLineText(item, (name) => roleLabelForName(agents, name)) !== null) return false;
       const agent = (agents as any)?.find((a: any) => a._id === item.agentId);
       return /^(cto|architect)$/i.test(String(agent?.role ?? ""));
     });

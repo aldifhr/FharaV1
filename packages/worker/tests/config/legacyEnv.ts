@@ -208,6 +208,7 @@ export function legacyLoadPolicy(get: Get, rawEnv: Env): Record<string, unknown>
       agentReachTimeoutMs: intFromEnv("ORCHESTRATOR_AGENT_REACH_TIMEOUT_MS", 60_000, 1_000, 300_000),
       agentReachMaxItems: intFromEnv("ORCHESTRATOR_AGENT_REACH_MAX_ITEMS", 10, 1, 20),
       agentReachMaxToolIterations: intFromEnv("ORCHESTRATOR_AGENT_REACH_MAX_TOOL_ITERATIONS", 4, 1, 20),
+      semanticClassifier: boolFromEnv("ORCHESTRATOR_SEMANTIC_CLASSIFIER", false),
       reviewMode: planningModeFromEnv("ORCHESTRATOR_REVIEW_MODE"),
       qaMode: planningModeFromEnv("ORCHESTRATOR_QA_MODE", "auto"),
       // QA gets its own, smaller fix budget than review (QA audit §5).

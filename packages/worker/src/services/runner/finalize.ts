@@ -20,7 +20,7 @@ import type { RunnerDeps, RunState } from "./types";
 import { contentFingerprint } from "./applyLedger";
 import { pickResponseOwner, responseOwnerAgent } from "@/orchestrator/responseOwner";
 import { planSystemLine, postSystemLine } from "./systemLines";
-import { buildReportSummary } from "./reportSummary";
+import { buildReportSummary, buildVerificationLine } from "./reportSummary";
 import { runHostCheckAfterDone } from "./projectScriptHooks";
 import * as path from "node:path";
 import { resolveProjectPath } from "@fhara/config";
@@ -212,11 +212,13 @@ export async function finalize(input: {
     summary.reviewLine,
     summary.qaLine,
     summary.unfinishedLine,
-    ranNothing
-      ? "Verification: skipped (the command was declined)."
-      : declined.length > 0
-        ? `Verification: ${evaluation.verdict} for the work that ran; the declined command was not checked.`
-        : `Verification: ${evaluation.verdict}.`,
+    buildVerificationLine({
+      verdict: evaluation.verdict,
+      checks: evaluation.checks,
+      qaRequested: Object.keys(state.qaVerdicts).length > 0,
+      declined: declined.length > 0,
+      ranNothing,
+    }),
     // Environment-skipped steps (missing dependencies in the workspace) are
     // reported, never silently counted as passed.
     state.verification?.status === "skipped_env"

@@ -63,7 +63,6 @@ import { resetUiPrefs } from "@/lib/uiPrefs";
 import { defaultKeybindings, writeKeybindings } from "@/lib/keybindings";
 import { useFont, type FontChoice } from "@/components/ui/use-font";
 import { useTheme } from "@/components/ui/use-theme";
-import { BUDGET_STORAGE_KEY, readLocalBudget } from "@/lib/usageWeek";
 
 const FONT_OPTIONS: { value: FontChoice; label: string; description: string; style: CSSProperties }[] = [
   { value: "geist", label: "Geist", description: "Modern default", style: { fontFamily: "var(--font-geist)" } },
@@ -104,39 +103,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 }
 
 function BudgetField() {
-  const [value, setValue] = useState("");
-  useEffect(() => setValue(String(readLocalBudget() ?? "")), []);
-  const save = (next: string) => {
-    setValue(next);
-    const n = Math.floor(Number(next));
-    try {
-      if (Number.isFinite(n) && n > 0) localStorage.setItem(BUDGET_STORAGE_KEY, String(n));
-      else localStorage.removeItem(BUDGET_STORAGE_KEY);
-    } catch {
-      /* storage denied */
-    }
-    window.dispatchEvent(new Event("fhara:budget-changed"));
-  };
-
   return (
     <section className="rounded-xl border border-line bg-canvas p-3">
-      <label htmlFor="settings-weekly-budget" className="block text-[13px] font-semibold">Weekly usage budget</label>
-      <p id="settings-weekly-budget-help" className="mt-0.5 text-[11px] text-ink-3">
-        Weekly token budget for the sidebar meter (resets Monday 09:00). Leave empty to use the server&apos;s
-        MOAGENT_WEEKLY_TOKEN_BUDGET, or show raw tokens when neither is set.
+      <p className="text-[13px] font-semibold">Usage budget</p>
+      <p className="mt-0.5 text-[11px] text-ink-3">
+        Task LLM budgets are configured on the server. This device has no usage meter to configure.
       </p>
-      <input
-        type="number"
-        min={0}
-        step={100000}
-        inputMode="numeric"
-        value={value}
-        onChange={(e) => save(e.target.value)}
-        placeholder="e.g. 2000000"
-        id="settings-weekly-budget"
-        aria-describedby="settings-weekly-budget-help"
-        className="mt-2 h-8 w-full max-w-xs rounded-lg border border-line bg-canvas px-3 text-xs text-ink outline-none focus:border-ink/30 focus:ring-2 focus:ring-ink/10"
-      />
     </section>
   );
 }
@@ -507,7 +479,7 @@ function SettingsModal({
                           Agents can read the repo to answer with facts, not guesses. Requires an online worker.
                         </span>
                       </span>
-                      <span className="shrink-0 text-[12px] text-ink-3">Always on when a worker is online</span>
+                      <span className="shrink-0 text-[12px] text-ink-3">Fixed · on when a worker is online</span>
                     </div>
                     <div className="flex items-center justify-between gap-6 px-4 py-3.5">
                       <span className="min-w-0">
@@ -516,7 +488,7 @@ function SettingsModal({
                           How chat replies are rendered: markdown, code blocks, and streaming.
                         </span>
                       </span>
-                      <span className="shrink-0 text-[12px] text-ink-3">Markdown</span>
+                      <span className="shrink-0 text-[12px] text-ink-3">Fixed · Markdown</span>
                     </div>
                     <div className="flex items-center justify-between gap-6 px-4 py-3.5">
                       <span className="min-w-0">
@@ -525,7 +497,7 @@ function SettingsModal({
                           @mention a teammate to route the reply to that role.
                         </span>
                       </span>
-                      <span className="shrink-0 text-[12px] text-ink-3">Role-based</span>
+                      <span className="shrink-0 text-[12px] text-ink-3">Fixed · Role-based</span>
                     </div>
                   </div>
                 </section>

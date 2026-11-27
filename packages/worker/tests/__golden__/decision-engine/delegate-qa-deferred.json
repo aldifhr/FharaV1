@@ -21,7 +21,17 @@
         "decidedBy": "deterministic",
         "planVersion": 1,
         "step": 0,
-        "expectedOutcome": "delegated"
+        "expectedOutcome": "delegated",
+        "trace": {
+          "at": 0,
+          "stage": "decide",
+          "choice": "delegate",
+          "source": "fast-path",
+          "reasonCode": "DECISION_DELEGATE",
+          "decisionId": "dec_task-1_0",
+          "promptVersion": "v1",
+          "schemaVersion": "1"
+        }
       }
     },
     {
@@ -53,7 +63,17 @@
         "decidedBy": "deterministic",
         "planVersion": 1,
         "step": 1,
-        "expectedOutcome": "objective:met"
+        "expectedOutcome": "objective:met",
+        "trace": {
+          "at": 0,
+          "stage": "decide",
+          "choice": "complete",
+          "source": "fast-path",
+          "reasonCode": "DECISION_COMPLETE",
+          "decisionId": "dec_task-1_1",
+          "promptVersion": "v1",
+          "schemaVersion": "1"
+        }
       }
     },
     "qa.passed",
@@ -68,7 +88,7 @@
     "ui: @QA Check it in a browser",
     "system: Sent to QA: Delegated work",
     "-: QA checks passed.  Structural checks only — no visual comparison. Task-specific behaviour was not asserted automatically.",
-    "-: Done.\n\nQA: structural browser checks passed.\n\nVerification: passed."
+    "-: Done.\n\nQA: structural browser checks passed.\n\nChecks: passed (subtasks, qa)."
   ],
   "delegations": [
     {

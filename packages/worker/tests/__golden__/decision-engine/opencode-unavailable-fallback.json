@@ -37,7 +37,17 @@
         "decidedBy": "deterministic",
         "planVersion": 1,
         "step": 0,
-        "expectedOutcome": "objective:met"
+        "expectedOutcome": "objective:met",
+        "trace": {
+          "at": 0,
+          "stage": "decide",
+          "choice": "complete",
+          "source": "fast-path",
+          "reasonCode": "DECISION_COMPLETE",
+          "decisionId": "dec_task-1_0",
+          "promptVersion": "v1",
+          "schemaVersion": "1"
+        }
       }
     },
     {
@@ -58,7 +68,7 @@
   "messages": [
     "system: Planned 1 subtask",
     "system: Sent to Frontend: implement",
-    "-: Done.\n\nVerification: passed."
+    "-: Done.\n\nChecks: passed (subtasks; QA not requested)."
   ],
   "delegations": [],
   "pauses": [],

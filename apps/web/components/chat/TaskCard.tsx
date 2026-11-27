@@ -10,6 +10,7 @@ import { StatusTag, type StatusTone } from "../ui/status-tag";
 import { useToast } from "../Toasts";
 import { refusalCopy } from "@/lib/taskInput";
 import { dueDateLabel, isOverdue } from "@/lib/runFormat";
+import { canRetryTask } from "@/lib/taskStatus";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : "Please try again.");
 
@@ -46,7 +47,7 @@ export default function TaskCard({
   const options: string[] = Array.isArray(task.pendingOptions) ? task.pendingOptions : [];
   const hasOptions = options.length >= 2;
   const isCancelled = task.status === "cancelled";
-  // Failed, rejected and user-stopped tasks all offer Retry.
+  // Only failed tasks offer Retry; rejected and cancelled are final.
   const isFailed = task.status === "failed" || task.status === "rejected" || isCancelled;
   const sendAnswer = async (value: string) => {
     const trimmed = value.trim();
@@ -73,9 +74,7 @@ export default function TaskCard({
       ? "ok"
       : task.status === "failed" || task.status === "rejected"
         ? "danger"
-        : needsYou
-          ? "warn"
-          : task.status === "queued" || isCancelled
+        : task.status === "queued" || isCancelled
             ? "neutral"
             : "active";
   const statusLabel =
@@ -87,10 +86,10 @@ export default function TaskCard({
           ? "Rejected"
           : isCancelled
             ? "Cancelled"
-          : needsYou
-            ? "Needs you"
-            : task.status === "queued"
-              ? "Queued"
+          : task.status === "queued"
+            ? "Queued"
+            : task.status === "waiting_input"
+              ? "Waiting for you"
               : "In progress";
   const progress = subtasks.length ? Math.round((doneSubs / subtasks.length) * 100) : task.status === "done" ? 100 : 0;
   // Keep the assignment card focused on the active owner, like the chat reference.
@@ -175,6 +174,7 @@ export default function TaskCard({
           }
           aside={
             <>
+              {needsYou && <StatusTag tone="warn">Needs you</StatusTag>}
               <StatusTag tone={statusTone}>{statusLabel}</StatusTag>
               <ArrowUpRight size={16} aria-hidden="true" className="text-ink-3" />
             </>
@@ -260,23 +260,25 @@ export default function TaskCard({
         <PanelCard className="max-w-xl px-3.5 py-3 text-[13px]">
           <p className={isCancelled ? "font-semibold text-ink-2" : "font-semibold text-danger"}>{task.status === "rejected" ? "Task rejected" : isCancelled ? "Task cancelled" : "Task failed"}{task.errorMessage ? `: ${task.errorMessage}` : ""}</p>
           <div className="mt-2 flex items-center gap-2">
-            <button
-              type="button"
-              disabled={retrying}
-              onClick={async () => {
-                setRetrying(true);
-                try {
-                  await retryTask({ taskId: task._id as any });
-                } catch (err) {
-                  toast("error", "Couldn't retry task", errorText(err));
-                } finally {
-                  setRetrying(false);
-                }
-              }}
-              className={BTN_PRIMARY}
-            >
-              <RotateCcw size={14} className={retrying ? "animate-spin" : ""} /> Retry task
-            </button>
+            {canRetryTask(task.status) && (
+              <button
+                type="button"
+                disabled={retrying}
+                onClick={async () => {
+                  setRetrying(true);
+                  try {
+                    await retryTask({ taskId: task._id as any });
+                  } catch (err) {
+                    toast("error", "Couldn't retry task", errorText(err));
+                  } finally {
+                    setRetrying(false);
+                  }
+                }}
+                className={BTN_PRIMARY}
+              >
+                <RotateCcw size={14} className={retrying ? "animate-spin" : ""} /> Retry task
+              </button>
+            )}
             <button type="button" onClick={() => onOpen(task._id)} className={BTN_OUTLINE}>
               View thread
             </button>

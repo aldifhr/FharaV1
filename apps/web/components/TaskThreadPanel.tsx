@@ -19,7 +19,8 @@ import TaskHoldNotice from "./TaskHoldNotice";
 import TaskQuestionCard from "./TaskQuestionCard";
 import SystemLineRow from "./chat/SystemLineRow";
 import CtoTurnLine from "./chat/CtoTurnLine";
-import { canReplyTo, systemLineText, threadBlockOf } from "@/lib/systemLine";
+import { canReplyTo, roleLabelForName, systemLineText, threadBlockOf } from "@/lib/systemLine";
+import { canRetryTask } from "@/lib/taskStatus";
 import { useToast } from "./Toasts";
 import { useSequencedEvents } from "@/lib/useSequencedEvents";
 import { Skeleton } from "@/app/WorkspaceContext";
@@ -306,7 +307,7 @@ export default function TaskThreadPanel({
   const askCancel = () =>
     setConfirmReq({
       title: "Cancel this task?",
-      message: "The task stops and is marked as cancelled. You can retry it later.",
+      message: "The task stops and is marked as cancelled. Cancelled tasks are final.",
       confirmLabel: "Cancel task",
       icon: "stop",
       onOk: () => {
@@ -399,12 +400,14 @@ export default function TaskThreadPanel({
               <Check size={15} className="shrink-0 text-ok" aria-hidden="true" />
             ) : failed ? (
               <X size={15} className="shrink-0 text-danger" aria-hidden="true" />
+            ) : event.payload?.status === "blocked" ? (
+              <X size={15} className="shrink-0 text-warn" aria-hidden="true" />
             ) : (
-              <SendLoader size={15} className="shrink-0 animate-spin text-warn" aria-hidden="true" />
+              <span className="w-[15px] shrink-0 text-center text-ink-3" aria-hidden="true">—</span>
             )}
-            <span className="min-w-0 flex-1 truncate text-ink">{event.payload?.label ?? "QA check"}</span>
+            <span className="min-w-0 flex-1 truncate text-ink">{event.payload?.label ?? "Check"}</span>
             <span className="shrink-0 text-[13px] text-ink-3">
-              {passed ? "clean" : failed ? "failed" : event.payload?.status === "blocked" ? "blocked" : "running"}
+              {passed ? "clean" : failed ? "failed" : event.payload?.status === "blocked" ? "blocked" : "not run"}
             </span>
           </li>
         );
@@ -455,14 +458,16 @@ export default function TaskThreadPanel({
                 {taskStatus === "failed" && latestFailureKind(endedEvents as any[]) ? ` (${failureKindLabel(latestFailureKind(endedEvents as any[]))})` : ""}
                 {(task as any).errorMessage ? `: ${(task as any).errorMessage}` : ""}
               </p>
-              <button
-                type="button"
-                disabled={retrying}
-                onClick={() => void doRetry()}
-                className="mt-2.5 flex items-center gap-1.5 rounded-lg bg-ink px-3 py-1.5 text-[13px] font-medium text-canvas hover:bg-ink/85 disabled:opacity-50"
-              >
-                <RotateCcw size={14} className={retrying ? "animate-spin" : ""} /> Retry task
-              </button>
+              {canRetryTask(taskStatus) && (
+                <button
+                  type="button"
+                  disabled={retrying}
+                  onClick={() => void doRetry()}
+                  className="mt-2.5 flex items-center gap-1.5 rounded-lg bg-ink px-3 py-1.5 text-[13px] font-medium text-canvas hover:bg-ink/85 disabled:opacity-50"
+                >
+                  <RotateCcw size={14} className={retrying ? "animate-spin" : ""} /> Retry task
+                </button>
+              )}
             </div>
           )}
           <TaskHoldNotice task={task as any} />
@@ -556,7 +561,7 @@ export default function TaskThreadPanel({
                 />
               ) : null;
             if (!open) return summaryRow;
-            const systemText = systemLineText(m);
+            const systemText = systemLineText(m, (name) => roleLabelForName(agents as any[], name));
             const row = systemText !== null ? (
               <SystemLineRow key={m._id} id={`thread-message-${m._id}`} text={systemText} time={timeOf(m._creationTime)} />
             ) : (

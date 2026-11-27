@@ -21,7 +21,17 @@
         "decidedBy": "deterministic",
         "planVersion": 1,
         "step": 0,
-        "expectedOutcome": "delegated"
+        "expectedOutcome": "delegated",
+        "trace": {
+          "at": 0,
+          "stage": "decide",
+          "choice": "delegate",
+          "source": "fast-path",
+          "reasonCode": "DECISION_DELEGATE",
+          "decisionId": "dec_task-1_0",
+          "promptVersion": "v1",
+          "schemaVersion": "1"
+        }
       }
     },
     "subtask.routed",
@@ -39,7 +49,17 @@
         "decidedBy": "deterministic",
         "planVersion": 1,
         "step": 1,
-        "expectedOutcome": "objective:met"
+        "expectedOutcome": "objective:met",
+        "trace": {
+          "at": 0,
+          "stage": "decide",
+          "choice": "complete",
+          "source": "fast-path",
+          "reasonCode": "DECISION_COMPLETE",
+          "decisionId": "dec_task-1_1",
+          "promptVersion": "v1",
+          "schemaVersion": "1"
+        }
       }
     },
     {
@@ -62,7 +82,7 @@
     "system: Sent to Frontend: ui",
     "decision_delegate_0: @Backend The API endpoint is missing",
     "system: Sent to Backend: Delegated work",
-    "-: Done.\n\nVerification: passed."
+    "-: Done.\n\nChecks: passed (subtasks; QA not requested)."
   ],
   "delegations": [
     {

@@ -743,7 +743,11 @@ async function run(s: Scenario) {
     ...(s.traceLifecycle ? { lifecycle } : {}),
     ...(s.traceFixes ? { ranBy: Object.fromEntries(Object.entries(scenario.ranBy).sort(([a], [b]) => a.localeCompare(b))) } : {}),
   };
-  return JSON.stringify(trace, null, 2).split(workspace).join("<workspace>").replace(/"createdAt": \d+/g, '"createdAt": 0');
+  return JSON.stringify(trace, null, 2)
+    .split(workspace)
+    .join("<workspace>")
+    .replace(/"createdAt": \d+/g, '"createdAt": 0')
+    .replace(/"at": \d+/g, '"at": 0');
 }
 
 describe("decision engine seam: golden event sequences (no behaviour change)", () => {

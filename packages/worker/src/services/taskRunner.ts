@@ -15,7 +15,9 @@ import { validateStoredPlan } from "@/orchestrator/planValidator";
 import { BudgetTracker } from "@/orchestrator/budget";
 import { createSharedTaskContext } from "@/orchestrator/taskContext";
 import type { GlobalLLMConfig } from "@/llm";
-import { LlmConcurrencyGate } from "@/effects/llmCall";
+import { LlmConcurrencyGate, runLlmCallWithFallback } from "@/effects/llmCall";
+import { classifyCommandSemantic } from "@/orchestrator/semanticClassifier";
+import { buildDecisionTrace, type TraceReasonCode } from "@/orchestrator/decisionTrace";
 import type { TaskLlmResolver } from "@/llm/resolver";
 import type { RunnerDeps, RunState } from "./runner/types";
 import { buildStateFromDb } from "./runner/state";
@@ -224,8 +226,45 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
     })
     .map(({ agent }) => agent);
   const command = await withFileContexts(deps.workspaceRoot, project.workspacePath, task.command);
+  // Arm cancellation before any LLM call (including semantic classification).
+  const taskAbort = armTaskAbort(deps.policy, deps.shutdownSignal, taskStatusReader(deps, task._id));
+  const signal = taskAbort.controller.signal;
+  // Intelligent orchestrator: shared context + budget. The gate exists before
+  // the semantic classifier makes an LLM call, so every call is metered.
+  const budget = new BudgetTracker(deps.policy);
+  await seedBudgetFromPersisted({ deps, taskId: task._id, projectId: project._id, budget });
+  const assertBudgetForCall = createBudgetGate(deps, budget, task._id, project._id);
+  const recordUsage = createUsageRecorder(deps, budget, task._id, project._id);
+
+  // Plan 085: semantic classifier is behind its own flag (default off). Regex
+  // stays the fast path and the safe read-only fallback lives in the module.
+  let classifierModel: string | undefined;
+  let classifierTokensIn = 0;
+  let classifierTokensOut = 0;
+  const semantic = await classifyCommandSemantic(command, {
+    enabled: deps.policy.semanticClassifier === true && runAgents.length > 0,
+    complete: deps.policy.semanticClassifier && runAgents.length > 0
+      ? async (prompt: string) => {
+          const handles = llmResolver.handlesFor(runAgents[0]);
+          const { result, servedBy } = await runLlmCallWithFallback(handles, [{ role: "user", content: prompt }], { signal });
+          classifierModel = servedBy?.config?.model;
+          classifierTokensIn = result.inputTokens ?? 0;
+          classifierTokensOut = result.outputTokens ?? 0;
+          await recordUsage(
+            classifierTokensIn,
+            classifierTokensOut,
+            classifierModel ?? "unknown",
+            runAgents[0]?.name,
+            runAgents[0]?._id as never,
+            { providerId: servedBy?.connectionId, modelRowId: servedBy?.modelRowId }
+          );
+          return { content: result.content };
+        }
+      : undefined,
+    assertBudgetForCall,
+  });
   // P1a: chat's routing hint is the prior; the text classifier keeps its hard rules.
-  const classification = applyRoutingHint(classifyCommand(command), command, taskRoutingHint(task));
+  const classification = applyRoutingHint(semantic, command, taskRoutingHint(task));
   // High/ultra changes run under the larger subtask timeout / deadline.
   deps = { ...deps, policy: policyForComplexity(deps.policy, classification.complexity) };
   await deps.api.logEvent({
@@ -239,23 +278,16 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
       ...(classification.complexity ? { complexity: classification.complexity } : {}),
       ...(classification.concerns ? { concerns: classification.concerns.map((c) => c.category) } : {}),
       subtaskTimeoutMs: subtaskTimeoutFor(deps.policy),
+      trace: buildDecisionTrace({
+        stage: "classify",
+        choice: semantic.kind,
+        source: semantic.source,
+        reasonCode: semantic.reasonCode as TraceReasonCode,
+        ...(semantic.proposedChoice ? { proposedChoice: semantic.proposedChoice } : {}),
+        ...(classifierModel ? { model: classifierModel, tokensIn: classifierTokensIn, tokensOut: classifierTokensOut } : {}),
+      }),
     },
   });
-
-  // Intelligent orchestrator: shared context + budget
-  const budget = new BudgetTracker(deps.policy);
-  // Seed the tracker with usage already persisted for this task (e.g. calls
-  // made before a worker restart) so limits apply to the task as a whole —
-  // the FULL state (agents/delegations/retries from the budget snapshot),
-  // with failures surfaced as events (Phase 5; see seedBudgetFromPersisted).
-  await seedBudgetFromPersisted({
-    deps,
-    taskId: task._id,
-    projectId: project._id,
-    budget,
-  });
-  const assertBudgetForCall = createBudgetGate(deps, budget, task._id, project._id);
-  const recordUsage = createUsageRecorder(deps, budget, task._id, project._id);
   const sharedContext = createSharedTaskContext({
     taskId: task._id,
     projectId: project._id,
@@ -289,12 +321,10 @@ async function processTaskScoped(task: WorkerTask, deps: RunnerDeps): Promise<vo
   // Phase 4 hardening: ONE per-task LLM gate for this whole run, sized
   // by THIS task's policy and owned by this run alone — concurrent
   // tasks never share it and never resize each other's bound. The task
-  // deadline is armed NOW, before planning, so a slow planner runs under
-  // the deadline and a task cancelled during planning never executes a
-  // fresh plan.
+  // deadline was armed before classification, so even the semantic
+  // classifier runs under it. A task cancelled during planning never
+  // executes a fresh plan.
   const llmTaskGate = new LlmConcurrencyGate(deps.policy.maxConcurrentLLMCalls);
-  const taskAbort = armTaskAbort(deps.policy, deps.shutdownSignal, taskStatusReader(deps, task._id));
-  const signal = taskAbort.controller.signal;
   const cancel = () => finishCancelledTask({ deps, task, project, signal });
   const fail = (message: string, failureKind?: FailureKind) =>
     failTaskWithError({ deps, taskId: task._id, projectId: project._id, message, failureKind });

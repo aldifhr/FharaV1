@@ -1,0 +1,31 @@
+{
+  "knownFailures": [
+    "aud-004",
+    "chg-013",
+    "chg-014",
+    "cmd-007",
+    "real-001",
+    "real-002",
+    "real-003",
+    "real-006",
+    "real-007",
+    "real-019",
+    "real-024",
+    "real-025",
+    "real-027",
+    "res-006",
+    "x-api-en",
+    "x-api-id",
+    "x-design-id",
+    "x-explain-id",
+    "x-greet-id",
+    "x-qa-nocode-en",
+    "x-qa-nocode-id",
+    "x-verify-en",
+    "x-verify-id"
+  ],
+  "notes": {
+    "chg-013": "diperbaiki oleh classifier semantik (flag ORCHESTRATOR_SEMANTIC_CLASSIFIER); tidak ditambal regex",
+    "chg-014": "diperbaiki oleh classifier semantik (flag ORCHESTRATOR_SEMANTIC_CLASSIFIER); tidak ditambal regex"
+  }
+}

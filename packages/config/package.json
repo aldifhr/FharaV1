@@ -16,5 +16,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "env:example": "tsx scripts/gen-env.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
   }
 }

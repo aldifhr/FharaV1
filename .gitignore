@@ -25,6 +25,11 @@ dist/
 # Playwright output
 apps/web/playwright-report/
 apps/web/test-results/
+.playwright-cli/
+home.yaml
+# Hidden held-out eval cases are supplied by the owner; never commit them.
+packages/worker/tests/eval/hidden.cases.local.json
+packages/worker/tests/eval/.hidden-runs.local
 
 # Local agent tooling state (memory logs, per-machine plans mirror)
 .workbuddy-ai/

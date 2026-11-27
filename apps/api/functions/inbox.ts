@@ -115,6 +115,10 @@ export const list = query({
       questions: waiting.items
         .filter((i) => i.kind === "question")
         .map((i) => ({ key: i.key, title: i.title, taskId: i.taskId, projectId: i.projectId, projectName: i.projectName, agentRole: i.agentRole })),
+      /** Design option picks waiting on the user, as in Needs you. */
+      options: waiting.items
+        .filter((i) => i.kind === "options")
+        .map((i) => ({ key: i.key, title: i.title, taskId: i.taskId, projectId: i.projectId, projectName: i.projectName, note: i.note })),
       /** Pushes waiting for the Push click, as in Needs you. */
       pushes: waiting.items
         .filter((i) => i.kind === "push")

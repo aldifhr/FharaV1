@@ -1,5 +1,5 @@
 
-import { Bell, GitBranch, LoaderCircle, Menu, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
+import { Bell, GitBranch, History, Menu, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
 import { useQuery } from "@fhara/runtime/react";
 import { api } from "@fhara/runtime/api";
 import { useState } from "react";
@@ -188,18 +188,19 @@ export default function ChatHeader({
               type="button"
               onClick={ctxPop.toggle}
               aria-expanded={ctxPop.open}
-              aria-label={`Context used in this project: ~${formatTokens(contextTotals?.promptTokens ?? 0)} prompt tokens`}
-              title="Context used in this project"
+              aria-label={`Prompt tokens sent in this project (total): ~${formatTokens(contextTotals?.promptTokens ?? 0)}`}
+              title="Prompt tokens sent in this project (total)"
               className={iconButtonClass}
             >
-              <LoaderCircle size={15} />
+              <History size={15} />
               {(contextTotals?.promptTokens ?? 0) > 0 && (
                 <span className="text-[13px] tabular-nums">~{formatTokens(contextTotals?.promptTokens)}</span>
               )}
             </button>
             {ctxPop.open && (
               <div className={`${popoverClass} right-0 w-[min(24rem,calc(100vw-1.5rem))]`}>
-                <p className="px-3.5 py-2 text-[13px] font-semibold">Context used in this project</p>
+                <p className="px-3.5 py-2 text-[13px] font-semibold">Prompt tokens sent (total)</p>
+                <p className="px-3.5 pb-2 text-[12px] text-ink-3">Cumulative across recorded LLM calls, not the live context window.</p>
                 <div className="shell-scroll max-h-80 overflow-y-auto">
                   {!contextTotals && <p className="px-3.5 pb-3 text-[13px] text-ink-3">Loading…</p>}
                   {contextTotals && contextTotals.calls === 0 && (

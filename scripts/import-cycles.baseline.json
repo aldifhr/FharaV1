@@ -1,7 +1,7 @@
 {
   "web": [],
   "api": [
-    "runtime/orchestration.ts -> runtime/subtaskLive.ts"
+    "functions/orchestration.ts -> functions/subtaskLive.ts"
   ],
   "worker": [
     "src/services/runner/planning.ts -> src/services/runner/setup.ts -> src/services/runner/replan.ts"

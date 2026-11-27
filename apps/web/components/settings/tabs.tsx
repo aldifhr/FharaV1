@@ -203,8 +203,16 @@ export function KeybindingsTab() {
       {scopes.map((scope) => (
         <Section
           key={scope}
-          title={scope === "Global" ? "Global" : "Message composer"}
-          description={scope === "Global" ? "Work anywhere in the app." : "Work while typing a message."}
+          title={scope}
+          description={
+            scope === "Global"
+              ? "Work anywhere in the app."
+              : scope === "Composer"
+                ? "Work while typing a message."
+                : scope === "Task thread"
+                  ? "Work inside a task thread."
+                  : "Work in the changed-files view."
+          }
         >
           {KEYBINDING_ACTIONS.filter((a) => a.scope === scope).map((action) => {
             const conflicts = chordConflicts(bindings, action.id, bindings[action.id]);
@@ -503,7 +511,7 @@ export function DevicesTab() {
       </Section>
       <Section title="Phone" description="Use the Inbox and approvals from your phone over Tailscale.">
         <Row
-          label="Listen on your tailnet"
+          label="Tailnet access (set via .env)"
           stacked
           description={
             <>

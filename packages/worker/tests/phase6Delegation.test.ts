@@ -141,7 +141,7 @@ function createDeps() {
     _id: "task-1",
     projectId: "project-1",
     title: "Phase 6 delegation test",
-    command: "Phase 6 delegation test",
+    command: "Implement the delegation guard in src/delegation.ts",
     status: "running",
   };
   const project = {

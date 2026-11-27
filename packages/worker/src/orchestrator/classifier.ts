@@ -12,7 +12,7 @@ const GREETING = /^(hi|hello|hey|halo|hai|yo|good (morning|afternoon|evening))[!
 // "buatkan", "bikinin", "ubahlah" must match like their bare stems.
 const ID_SUFFIX = "(?:kan|lah|in|nya|kanlah)?";
 const CHANGE_VERB = new RegExp(
-  "\\b(add|create|build|implement|make|update|edit|fix|change|refactor|refaktor|remove|delete|rename|move|style|redesign|" +
+  "\\b(add|create|build|implement|make|write|update|edit|fix|change|refactor|refaktor|remove|delete|rename|move|style|redesign|" +
     `(?:tambah|buat|bikin|ubah|perbaiki|perbaik|hapus|pasang|sesuaikan|ganti|pindah|pisah|rapi|perbarui)${ID_SUFFIX}|` +
     "migrate|convert|scaffold|porting|port|setup|install|konversi|switch|ganti ke|pindah ke|too slow|should switch|switch to|postgres)\\b",
   "i"
@@ -482,21 +482,40 @@ function classifyCommandBase(command: string): Classification {
     };
   }
 
-  const plainFileOnly =
-    !hasFrontend &&
-    !hasBackend &&
-    !hasDevops &&
-    !hasDesign &&
-    PLAIN_DATA_FILE.test(text) &&
-    !CODE_FILE.test(text);
+  // A named source file is an explicit write target in any language: the
+  // request "add a comment in src/hello.tsx" stays a code change even when the
+  // verb itself is not in the English/Indonesian word list. No new language
+  // regex is needed — the path is a language-agnostic signal.
+  if (CODE_FILE.test(text) && !isExplicitNoCode(command) && !isPureQuestion(text)) {
+    return {
+      kind: "code_change",
+      strategy: "single",
+      reasons: ["named source file in the request"],
+      suggestedCapabilities: [hasBackend ? CAPABILITY.BACKEND : CAPABILITY.FRONTEND, CAPABILITY.CODE_REVIEW],
+    };
+  }
+
+  // Safe default (plan 085): an unrecognised short social message is a
+  // conversation, never a write task. No per-language word list — this is a
+  // length/intent-shape rule, so greetings in any language are covered.
+  // TEMPORARY threshold (32 chars) until the semantic classifier replaces this
+  // stage; do not tune it per case and do not add language-specific rules.
+  if (text.length <= 32 && !hasChangeVerb && !CODE_FILE.test(text) && !PLAIN_DATA_FILE.test(text)) {
+    return {
+      kind: "conversation",
+      strategy: "direct",
+      reasons: ["short non-instructional message"],
+      suggestedCapabilities: [CAPABILITY.DOCUMENTATION],
+    };
+  }
+
+  // A request we cannot classify is answered/asked back, not executed. Writing
+  // files is the risky default; read-only is the safe default (plan 085).
   return {
-    kind: "code_change",
+    kind: "research",
     strategy: "single",
-    reasons: ["defaulted to a focused implementation task"],
-    suggestedCapabilities: [
-      hasDevops ? CAPABILITY.DEVOPS : plainFileOnly ? CAPABILITY.BACKEND : CAPABILITY.FRONTEND,
-      CAPABILITY.CODE_REVIEW,
-    ],
+    reasons: ["unrecognised request treated as read-only; ask for clarification"],
+    suggestedCapabilities: researchCapabilities(),
   };
 }
 

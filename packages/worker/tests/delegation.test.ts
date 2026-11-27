@@ -142,6 +142,34 @@ describe("evaluateDelegation branch chains (Phase 3)", () => {
     expect(withFallback.decision).toBe("APPROVE");
   });
 
+  it("treats an unset allowFallback as false in the delegation path", () => {
+    const unset = new BudgetTracker({ ...loadPolicy(), allowFallback: undefined });
+    const blocked = evaluate({
+      result: recommending("frontend-development", "github"),
+      budget: unset,
+      chainCapabilities: ["frontend-development"],
+    });
+    expect(blocked.decision).toBe("BLOCKED");
+  });
+
+  it("stops with a reason when critical findings have no writable owner", () => {
+    const severe = {
+      agentName: "QA",
+      capability: "security-audit",
+      success: true,
+      summary: "audit done",
+      findings: [{ severity: "critical", filePath: "apps/api/functions/tasks.ts", description: "missing authz", suggestion: "" }],
+    } as any;
+    const out = evaluate({
+      result: severe,
+      classification: classifyCommand("implement feature"),
+      planSubtasks: [],
+      agents: [],
+    });
+    expect(out.decision).toBe("BLOCKED");
+    expect(out.reason).toContain("no writable fix owner");
+  });
+
   it("preventCircularDelegation reads the branch chain directly", () => {
     expect(
       preventCircularDelegation(

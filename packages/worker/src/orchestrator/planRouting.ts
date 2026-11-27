@@ -61,8 +61,8 @@ export function ensureRoutable(
     }
     anyRoutable = true;
     // Plan 040: a code_change owned by a read-only role (a Designer spec,
-    // Support docs guidance) becomes an analysis: the role delivers its
-    // output as text, the executor would refuse a write anyway.
+    // a QA report) becomes an analysis: the role delivers its output as text,
+    // the executor would refuse a write anyway.
     if (subtask.kind === "code_change" && !canWriteAny(permissionsForAgent(routable))) {
       kept.push({ ...subtask, kind: "analysis" });
       adjustments.push({ ...base, action: "made_read_only", reason: `${routable.name} (${routable.role}) may not write files; the subtask delivers its output as text` });

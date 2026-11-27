@@ -74,6 +74,8 @@
   --color-dot: var(--shell-dot);
   --color-ok: var(--shell-ok);
   --color-danger: var(--shell-danger);
+  --shadow-card: var(--shell-shadow-card);
+  --shadow-pop: var(--shell-shadow-pop);
   --font-mono: var(--font-jetbrains), ui-monospace, "SFMono-Regular", Menlo, monospace;
   /* Radius scale: field (inputs, buttons), card, panel (inspector, dialogs). */
   --radius-field: 0.5rem;
@@ -133,29 +135,30 @@
   --color-5: oklch(90.7% 0.231 133);
   --font-heading: var(--font-sans);
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  /* Warm paper white instead of #fff: easier on the eyes, and bubbles and
-     borders read against it. */
-  --shell-canvas: #f1f0ec;
-  --shell-panel: #fafaf8;
-  --shell-panel-2: #f5f4f1;
-  --shell-hover: #efeee9;
-  --shell-line: #e6e4de;
-  --shell-line-strong: #d9d6cf;
-  --shell-bubble: #efeee9;
-  --shell-ink: #1d1d22;
-  --shell-ink-2: #6b6b76;
-  --shell-ink-3: #9b9ba6;
-  --shell-inset: #f3f2ee;
+  /* Dashboard design skill tokens (light): calm off-white canvas, crisp white cards,
+     one entity accent blue (#3e63dd), semantic ok/warn/danger. */
+  --shell-canvas: #f8f8f6;
+  --shell-panel: #ffffff;
+  --shell-panel-2: #f3f3f1;
+  --shell-hover: #f1f1ef;
+  --shell-line: rgb(0 0 0 / .075);
+  --shell-line-strong: rgb(0 0 0 / .14);
+  --shell-bubble: #f1f1ef;
+  --shell-ink: #17171a;
+  --shell-ink-2: #48484d;
+  --shell-ink-3: #66666d;
+  --shell-inset: #f1f1ef;
   --shell-dot: #d9d6cf;
-  --shell-ok: #2f7d4f;
-  --shell-danger: #c2410c;
-  --shell-warn: #d9580b;
-  --shell-warn-soft: #fff1e6;
-  /* Accent (plan 067): the mockup's purple primary. */
-  --shell-brand: #6c5ce7;
-  --shell-brand-hover: #5b4bd1;
-  --shell-brand-soft: #efecfd;
+  --shell-ok: #0f7f57;
+  --shell-danger: #d23f45;
+  --shell-warn: #c98a00;
+  --shell-warn-soft: rgb(201 138 0 / .12);
+  --shell-brand: #3e63dd;
+  --shell-brand-hover: #3354c4;
+  --shell-brand-soft: rgb(62 99 221 / .08);
   --shell-brand-ink: #ffffff;
+  --shell-shadow-card: 0 1px 2px rgb(0 0 0 / .04), 0 1px 1px rgb(0 0 0 / .02);
+  --shell-shadow-pop: 0 12px 32px -8px rgb(0 0 0 / .18), 0 0 0 1px rgb(0 0 0 / .06);
   /* Diff viewer (plan 067): react-diff-viewer takes concrete colours through
      inline styles, so its palette is tokens here instead of hexes in
      components/DiffCard.tsx. Values are the light theme's original ones. */
@@ -217,26 +220,27 @@
   --color-4: oklch(80.2% 0.134 225);
   --color-5: oklch(90.7% 0.231 133);
   --shell-canvas: #0b0b0d;
-  --shell-panel: #131316;
-  --shell-panel-2: #18181c;
-  --shell-hover: #1d1d22;
-  --shell-bubble: #1c1c21;
-  --shell-line: #24242a;
-  --shell-line-strong: #2e2e35;
-  --shell-ink: #ececf1;
-  --shell-ink-2: #9a9aa5;
-  --shell-ink-3: #6c6c77;
-  --shell-inset: #18181c;
+  --shell-panel: #141417;
+  --shell-panel-2: #101013;
+  --shell-hover: #1c1c20;
+  --shell-bubble: #1c1c20;
+  --shell-line: rgb(255 255 255 / .08);
+  --shell-line-strong: rgb(255 255 255 / .16);
+  --shell-ink: #f3f3f5;
+  --shell-ink-2: #c4c4ca;
+  --shell-ink-3: #8c8c95;
+  --shell-inset: #1c1c20;
   --shell-dot: #2a2a31;
-  --shell-ok: #6cc08b;
-  --shell-danger: #f0845c;
-  --shell-warn: #f08a3c;
-  --shell-warn-soft: #2d1d12;
-  /* Accent (plan 067): lighter violet on dark, soft tint from the panel. */
-  --shell-brand: #7d6ef0;
-  --shell-brand-hover: #8d80f3;
-  --shell-brand-soft: #241f3d;
+  --shell-ok: #34c48b;
+  --shell-danger: #ff6b70;
+  --shell-warn: #f6b100;
+  --shell-warn-soft: rgb(246 177 0 / .14);
+  --shell-brand: #7b96ff;
+  --shell-brand-hover: #91a8ff;
+  --shell-brand-soft: rgb(123 150 255 / .12);
   --shell-brand-ink: #0b0b0d;
+  --shell-shadow-card: 0 1px 2px rgb(0 0 0 / .24);
+  --shell-shadow-pop: 0 12px 32px -8px rgb(0 0 0 / .5), 0 0 0 1px rgb(255 255 255 / .08);
   /* Diff viewer (plan 067): the dark values of the same tokens. */
   --shell-diff-bg: #111827;
   --shell-diff-fg: #e5e7eb;
@@ -261,7 +265,7 @@ html {
 }
 
 body {
-  font-size: 15px;
+  font-size: 14px;
 }
 
 html[data-font="geist"] {

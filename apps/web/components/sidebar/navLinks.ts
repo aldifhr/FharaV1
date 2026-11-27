@@ -30,5 +30,5 @@ export function sidebarNavLinks({
     { icon: ScrollText, label: "Audit log", href: withProject("/audit"), active: pathname === "/audit" },
     { icon: Sparkles, label: "Improve", href: withProject("/improve"), active: pathname === "/improve" },
   ];
-  return { build, development, observe, teamHref: withProject("/team") };
+  return { build, development, observe };
 }

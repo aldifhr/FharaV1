@@ -6,7 +6,7 @@ import { gotoApp, expectNoRuntimeError } from "./helpers";
  * FHARA_STRESS_PATH at a chat (or a page with a task thread open) that holds
  * a long seeded history, e.g. 3,000 messages:
  *
- *   FHARA_STRESS_PATH=/chats/<projectId> npm run --workspace=@fhara/web test:stress
+ *   FHARA_STRESS_PATH=/project/<projectId> npm run --workspace=@fhara/web test:stress
  *
  * It pages back to the first message with "Load earlier", then jumps to the
  * first turn from the outline, and fails on a runtime error or a page that

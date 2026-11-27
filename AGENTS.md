@@ -27,6 +27,11 @@ Read this file before changing code. Each surface has its own rules:
 For work with more than a few steps, keep a checklist in `TASKS.md` at the repo
 root (git-ignored) so the plan survives context compaction.
 
+## Code rules
+
+- **No regex.** Do not use regular expressions in code, scripts, or config.
+  Use literal string operations or explicit parsing instead.
+
 ## Non-negotiable
 
 These protect credentials, user work, and the approval model. Change them only on

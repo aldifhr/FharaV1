@@ -100,9 +100,6 @@
   "apps/web/components/chat/ManageProjectModal.tsx": {
     "tint": 1
   },
-  "apps/web/components/chat/PersonalChatPanel.tsx": {
-    "tint": 6
-  },
   "apps/web/components/chat/cards/ChangesCard.tsx": {
     "tint": 2,
     "hex": 2

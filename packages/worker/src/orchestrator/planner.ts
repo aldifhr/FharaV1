@@ -131,15 +131,31 @@ export type { RoutingAdjustment };
  * or a ms number is accepted; anything unparsable or already in the past
  * (beyond a day of slack) is dropped — a wrong date is worse than none.
  */
+function isDigits(value: string): boolean {
+  return value.length > 0 && [...value].every((ch) => ch >= "0" && ch <= "9");
+}
+
 export function parsePlanDue(value: unknown, now = Date.now()): number | undefined {
   const slackMs = 24 * 60 * 60 * 1000;
   if (typeof value === "number") return Number.isFinite(value) && value > now - slackMs ? value : undefined;
   if (typeof value !== "string") return undefined;
-  const match = /^(\d{4}-\d{2}-\d{2})(?:[T\s](\d{2}:\d{2}))?/.exec(value.trim());
-  if (!match) return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length < 10) return undefined;
+  const datePart = trimmed.slice(0, 10);
+  if (datePart[4] !== "-" || datePart[7] !== "-") return undefined;
+  const year = datePart.slice(0, 4);
+  const month = datePart.slice(5, 7);
+  const day = datePart.slice(8, 10);
+  if (!isDigits(year) || !isDigits(month) || !isDigits(day)) return undefined;
+  let timePart: string | undefined;
+  if (trimmed.length >= 16 && (trimmed[10] === "T" || trimmed[10] === " ") && trimmed[13] === ":") {
+    const hh = trimmed.slice(11, 13);
+    const mm = trimmed.slice(14, 16);
+    if (isDigits(hh) && isDigits(mm)) timePart = `${hh}:${mm}`;
+  }
   // A bare date parses as UTC midnight; noon local keeps the calendar day
   // stable in every timezone the app runs in.
-  const ms = Date.parse(match[2] ? `${match[1]}T${match[2]}:00` : `${match[1]}T12:00:00`);
+  const ms = Date.parse(timePart ? `${datePart}T${timePart}:00` : `${datePart}T12:00:00`);
   return Number.isFinite(ms) && ms > now - slackMs ? ms : undefined;
 }
 
@@ -637,7 +653,7 @@ export function heuristicPlan(input: PlannerInput): ExecutionPlan {
           description:
             PLAN_NODE_INSTRUCTIONS.reply,
           kind: "analysis",
-          // O1: the topic owner answers conversation (Support by default), not the CTO.
+          // O1: the chat-routed owner answers conversation, not the CTO.
           capability: conversationReplyCapability(command, agents, input.routingHint?.role),
           dependencies: [],
           order: 0,
@@ -751,7 +767,15 @@ export function heuristicPlan(input: PlannerInput): ExecutionPlan {
   }
 
   if (classification.kind === "multi") {
-    const isPricingOrDesign = /\b(pricing|tier|grid|layout|redesign)\b/i.test(command);
+    const lowerCmd = command.toLowerCase();
+    const isPricingOrDesign = ["pricing", "tier", "grid", "layout", "redesign"].some((w) => {
+      const idx = lowerCmd.indexOf(w);
+      if (idx === -1) return false;
+      const before = idx === 0 || lowerCmd[idx - 1] < "a" || lowerCmd[idx - 1] > "z";
+      const afterIdx = idx + w.length;
+      const after = afterIdx >= lowerCmd.length || lowerCmd[afterIdx] < "a" || lowerCmd[afterIdx] > "z";
+      return before && after;
+    });
     const frontendTask: ExecutionPlan["subtasks"][number] = {
       key: "implement_frontend",
       title: isPricingOrDesign ? "Design token sync & responsive layout" : "Implement frontend changes",

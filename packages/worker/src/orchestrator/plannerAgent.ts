@@ -7,15 +7,15 @@
  */
 import { CAPABILITY, type AgentDefinition } from "@/types";
 import { capabilitiesOf, isAgentEnabled } from "./capabilities";
-import { DOMAIN_ROLES, matchDomains } from "@/api/functions/lib/chat/dispatch";
+import { resolveRoleKey } from "@/utils/rolePolicy";
 
-const isRole = (agent: AgentDefinition, role: string) => agent.role.trim().toLowerCase() === role;
+const isCtoRole = (agent: AgentDefinition) => resolveRoleKey(agent.role ?? "") === "cto";
 
-/** The run's CTO (or a custom "orchestrator" role), the preferred planner model source. */
+/** The run's CTO (including registry aliases), the preferred planner model source. */
 export function pickOrchestrator(agents: AgentDefinition[]): AgentDefinition | null {
   const enabled = agents.filter(isAgentEnabled);
   if (enabled.length === 0) return null;
-  return enabled.find((agent) => isRole(agent, "cto")) ?? enabled.find((agent) => isRole(agent, "orchestrator")) ?? null;
+  return enabled.find(isCtoRole) ?? null;
 }
 
 /**
@@ -44,24 +44,20 @@ export function pickPlannerModelSource(
 /**
  * The capability of the reply node of a conversation-only task: the routing
  * hint's role (chat already routed it, P1a), else the topic owner by the
- * chat domain rules, else Support (greetings / how-to), else any enabled
- * non-CTO role, else the CTO.
+ * chat domain rules, else the documentation owner (Backend: greetings and
+ * how-to), else any enabled non-CTO role, else the CTO.
  */
 export function conversationReplyCapability(command: string, agents: AgentDefinition[], hintRole?: string): string {
   const enabled = agents.filter(isAgentEnabled);
   const firstCapability = (agent: AgentDefinition | undefined) => (agent ? capabilitiesOf(agent)[0] : undefined);
-  const hinted = hintRole ? firstCapability(enabled.find((agent) => isRole(agent, hintRole))) : undefined;
+  const hinted = hintRole
+    ? firstCapability(enabled.find((agent) => resolveRoleKey(agent.role ?? "") === resolveRoleKey(hintRole)))
+    : undefined;
   if (hinted) return hinted;
-  for (const domain of matchDomains(command)) {
-    for (const role of DOMAIN_ROLES[domain]) {
-      const capability = firstCapability(enabled.find((agent) => isRole(agent, role)));
-      if (capability) return capability;
-    }
-  }
-  const support = enabled.find((agent) => capabilitiesOf(agent).includes(CAPABILITY.DOCUMENTATION));
-  if (support) return CAPABILITY.DOCUMENTATION;
+  const docsOwner = enabled.find((agent) => capabilitiesOf(agent).includes(CAPABILITY.DOCUMENTATION));
+  if (docsOwner) return CAPABILITY.DOCUMENTATION;
   return (
-    firstCapability(enabled.find((agent) => !isRole(agent, "cto") && capabilitiesOf(agent).length > 0)) ??
+    firstCapability(enabled.find((agent) => !isCtoRole(agent) && capabilitiesOf(agent).length > 0)) ??
     firstCapability(enabled.find((agent) => capabilitiesOf(agent).length > 0)) ??
     CAPABILITY.DOCUMENTATION
   );

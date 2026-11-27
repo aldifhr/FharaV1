@@ -173,7 +173,7 @@ function GithubProjectRepoRow({ projectId }: { projectId: string }) {
           <p className="truncate text-[14px]">{integrations === undefined ? "Loading…" : `Repo: ${repo ?? "none chosen"}`}</p>
           <p className="truncate text-[12.5px] text-ink-3">Pushes and pull requests use the GitHub account above.</p>
         </div>
-        <Link href={`/chats/${projectId}`} className={GHOST_BTN}>
+        <Link href={`/project/${projectId}`} className={GHOST_BTN}>
           {repo ? "Change" : "Choose"}
         </Link>
       </li>

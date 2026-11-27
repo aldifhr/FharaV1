@@ -1,9 +1,8 @@
 
 import { Link } from "@/lib/spaRouter";
 import { useEffect, useState } from "react";
-import { Moon, PanelLeftClose, PanelLeftOpen, Search, Settings, Share2, Sun } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Search, Share2 } from "lucide-react";
 import { formatChord, matchesChord, useKeybindings } from "@/lib/keybindings";
-import { useTheme } from "../ui/use-theme";
 import { ICON_STROKE, RailItem } from "./SidebarNav";
 
 /**
@@ -113,47 +112,6 @@ export function SearchBox({ chord, onOpen, rail = false, collapsed = false, onTo
           <PanelLeftClose size={16} strokeWidth={ICON_STROKE} />
         </button>
       )}
-    </div>
-  );
-}
-
-/**
- * Bottom row: the local account (Fhara has no login; connected accounts live
- * in Settings → Account), theme and Settings.
- */
-export function AccountRow({ rail, onSettings, onAccount }: { rail: boolean; onSettings: () => void; onAccount: () => void }) {
-  const { theme, toggleTheme } = useTheme();
-  const ThemeIcon = theme === "dark" ? Sun : Moon;
-  const themeLabel = theme === "dark" ? "Light mode" : "Dark mode";
-  if (rail) {
-    return (
-      <div className="flex flex-col items-center gap-1">
-        <RailItem icon={ThemeIcon} label={themeLabel} onClick={toggleTheme} />
-        <RailItem icon={Settings} label="Settings" onClick={onSettings} />
-      </div>
-    );
-  }
-  return (
-    <div className="flex items-center gap-1 rounded-card border border-line bg-panel p-1">
-      <button
-        type="button"
-        onClick={onAccount}
-        className="flex min-w-0 flex-1 items-center gap-2 rounded-field px-1.5 py-1 text-left outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30"
-      >
-        <span aria-hidden="true" className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-inset text-[11px] font-semibold text-ink-2">
-          F
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-medium text-ink">Local workspace</span>
-          <span className="block truncate text-[11.5px] text-ink-3">Accounts and sign-in</span>
-        </span>
-      </button>
-      <button type="button" onClick={toggleTheme} aria-label={themeLabel} title={themeLabel} className={iconBtn}>
-        <ThemeIcon size={15} strokeWidth={ICON_STROKE} />
-      </button>
-      <button type="button" onClick={onSettings} aria-label="Settings" title="Settings" className={iconBtn}>
-        <Settings size={15} strokeWidth={ICON_STROKE} />
-      </button>
     </div>
   );
 }

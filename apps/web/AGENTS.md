@@ -10,8 +10,8 @@ Vite + React 19 SPA, React Router, Tailwind 4, local runtime React client. Read 
 ## Layout
 
 ```
-app/              routes: /, /chats, /messages, /message, /project/[projectId],
-                  /runs, /pull-requests, /team, /library, /memory, /audit, /inbox, /search, /improve,
+app/              routes: /, /project/[projectId],
+                  /runs, /pull-requests, /library, /memory, /audit, /inbox, /search, /improve,
                   /integrations (plus the legacy redirects in plan 053)
 app/api/          server-side routes (llm-providers, mcp-servers, project-files, …)
 components/       feature components (ChatPanel, TaskBoard, TaskThreadPanel, Settings, …)

@@ -11,8 +11,9 @@ import type { Id } from "@fhara/runtime/data";
 import type { PermissionMode } from "../permissionModes";
 import type { RoutingHint } from "../routingHint";
 import { targetsOutsideRepo } from "./intent";
-import { extractAgentMentions, type ChatAgent } from "./team";
+import { type ChatAgent } from "./team";
 import { hintForCommand, resolveTaskAssignees, routedOwners } from "./taskAssignees";
+import type { RoutingClassification } from "./routingClassification";
 
 export type ChatTaskArgs = {
   projectId: Id<"projects">;
@@ -120,6 +121,8 @@ export async function dispatchTaskFromChat(
     orchestrator: ChatAgent | null;
     title?: string;
     conversationContext?: boolean;
+    /** The one validated classifier result for this turn; no keyword fallback. */
+    routing?: RoutingClassification | null;
     offer?: { assigneeAgentId?: string; hint?: RoutingHint } | null;
   }
 ): Promise<void> {
@@ -139,7 +142,7 @@ export async function dispatchTaskFromChat(
   const mentioned = (args.preferredAgentIds ?? [])
     .map((id) => team.find((a) => a._id === String(id)))
     .filter((a): a is ChatAgent => Boolean(a) && a!._id !== orchestrator?._id);
-  const routed = opts.offer || mentioned.length ? undefined : routedOwners(text, team);
+  const routed = opts.offer || mentioned.length ? undefined : routedOwners(opts.routing, team);
   const hint = opts.offer?.hint ?? hintForCommand(text, team, { mentioned, ...(routed ? { routed } : {}) });
   const assignees = resolveTaskAssignees({
     team,
@@ -170,15 +173,18 @@ export async function startOfferedTask(
   opts: { offer: StartOffer; team: ChatAgent[]; orchestrator: ChatAgent | null }
 ): Promise<void> {
   const { offer, team, orchestrator } = opts;
-  const mentioned = extractAgentMentions(offer.reply, team, String(orchestrator?._id ?? ""));
-  const routed = routedOwners(offer.command, team);
-  const hint = offer.hint ?? hintForCommand(offer.command, team, { routed });
+  // The offer already carries the server-resolved assignee: never parse
+  // @tokens out of the reply text.
+  const mentioned = offer.assigneeAgentId
+    ? team.filter((a) => String(a._id) === String(offer.assigneeAgentId))
+    : [];
+  // A go reply reuses the saved offer hint/assignee; it never re-derives an owner from words.
+  const hint = offer.hint ?? hintForCommand(offer.command, team);
   const assignees = resolveTaskAssignees({
     team,
     mentionedIds: mentioned.map((a) => a._id),
-    offerAssigneeId: offer.assigneeAgentId,
+    offerAssigneeId: opts.offer?.assigneeAgentId,
     hint,
-    routed: routed.owners,
   });
   await createChatTask(ctx, args, {
     command: offer.command,

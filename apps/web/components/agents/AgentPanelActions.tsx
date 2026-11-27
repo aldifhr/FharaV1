@@ -1,5 +1,4 @@
 
-import { Link } from "@/lib/spaRouter";
 import { useState } from "react";
 import { useMutation } from "@fhara/runtime/react";
 import { api } from "@fhara/runtime/api";
@@ -9,7 +8,7 @@ const ACTION =
   "inline-flex h-7 items-center rounded-field border border-line px-2.5 text-[12px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50";
 
 /**
- * Agent panel header actions: Performance, Disable/Enable (every agent, the
+ * Agent panel header actions: Disable/Enable (every agent, the
  * fixed team included) and Delete — only for agents outside the fixed team,
  * and only through the caller's ConfirmDialog (`onRemove`).
  */
@@ -40,9 +39,6 @@ export default function AgentPanelActions({
   };
   return (
     <>
-      <Link href={`/team/${agent._id}`} className={ACTION}>
-        Performance
-      </Link>
       <button type="button" onClick={() => void toggle()} disabled={pending} aria-pressed={!enabled} className={ACTION}>
         {enabled ? "Disable" : "Enable"}
       </button>

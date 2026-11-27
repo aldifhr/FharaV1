@@ -5,7 +5,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { FHARA_BUILTIN_COMMANDS, builtinCommandsForScope } from "../../../../apps/api/functions/lib/slashCommands.ts";
-import { personalSlashNames } from "../../lib/personalChat.ts";
 import {
   committedUsage,
   completeSlash,
@@ -32,11 +31,6 @@ test("runSlash handles exactly the registry builtins it owns", () => {
     [...NOT_IN_RUN_SLASH].sort(),
     "registry builtins not handled by runSlash changed; update runSlash or NOT_IN_RUN_SLASH",
   );
-});
-
-test("personal chat slash names come from the registry's personal scope", () => {
-  assert.deepEqual(personalSlashNames(false), []);
-  assert.deepEqual(personalSlashNames(true), ["task"]);
 });
 
 // ---------------------------------------------------------------------------
@@ -133,8 +127,6 @@ test("C3 dispatch: runSlash sends /research to createTask with the raw line, /me
   assert.ok(/createMemory\(\{[\s\S]*scope: "project"[\s\S]*pinned: true/.test(memory), "/memory pins a project memory");
   const panel = readFileSync(new URL("../../components/ChatPanel.tsx", import.meta.url), "utf8");
   assert.ok(/sendMessage\(\{[\s\S]*?skillFor\(text\)[\s\S]*?\}\)/.test(panel), "skill lines go through the normal (O3-routed) send");
-  const personal = readFileSync(new URL("../../components/chat/PersonalChatPanel.tsx", import.meta.url), "utf8");
-  assert.ok(/skillInvocation\(text, slashCommands\)/.test(personal));
 });
 
 test("personal scope: no commands until a project is attached, then /task", () => {

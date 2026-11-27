@@ -3,7 +3,6 @@ import { expect, type Page } from "@playwright/test";
 /** Routes that exist in the app, with the heading each one should settle on. */
 export const ROUTES = [
   { path: "/", heading: "Overview" },
-  { path: "/chats", heading: "Select a project" },
   { path: "/inbox", heading: "Inbox" },
   { path: "/search", heading: "Search" },
 ] as const;

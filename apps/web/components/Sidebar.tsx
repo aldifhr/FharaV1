@@ -2,7 +2,7 @@
 import { usePathname, useRouter } from "@/lib/spaRouter";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@fhara/runtime/react";
-import { Activity, BookOpen, Brain, FlaskConical, Home, Inbox, Menu, MessageCircle, MessageSquare, Moon, Plug, Plus, ScrollText, Sparkles, Sun, Users, X } from "lucide-react";
+import { Activity, BookOpen, Brain, FlaskConical, Home, Inbox, Menu, Plug, Plus, ScrollText, Sparkles, X } from "lucide-react";
 import { api } from "@fhara/runtime/api";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import AgentDetailPanel from "./AgentDetailPanel";
@@ -18,20 +18,19 @@ import { CreateAgentModal } from "./sidebar/AgentForms";
 import ActivityPopover from "./sidebar/ActivityPopover";
 import { InboxNav, NavRow, RailItem } from "./sidebar/SidebarNav";
 import { sidebarNavLinks } from "./sidebar/navLinks";
-import { AccountRow, Logo, SearchBox, SidebarHeader, useShellChords } from "./sidebar/SidebarChrome";
+import { Logo, SearchBox, SidebarHeader, useShellChords } from "./sidebar/SidebarChrome";
 import { agentName } from "@/lib/agentRoles";
 import { useOptionalWorkspace } from "@/app/WorkspaceContext";
 import { useUiPref } from "@/lib/uiPrefs";
 import { DESKTOP_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
-import { useTheme } from "./ui/use-theme";
 
 type Sections = { needsYou: boolean; projects: boolean; team: boolean };
 
 /**
  * The one app navigation (plan 067, mockup parity): a persistent icon rail —
- * logo, new project, inbox, personal messages, activity, settings + account
- * at the bottom — beside the expandable sidebar with the search (⌘K), Inbox /
- * Personal messages / Needs you, WORK (projects, team), and DEVELOPMENT.
+ * logo, new project, inbox, activity, settings + account at the bottom — beside
+ * the expandable sidebar with the search (⌘K), Inbox / Needs you, WORK
+ * (projects, team), and DEVELOPMENT.
  * Build, development, and observe destinations live on the rail. The sidebar
  * folds on desktop (remembered in uiPrefs); below 980px it is a drawer and the
  * rail hides.
@@ -48,7 +47,7 @@ export default function Sidebar({
   /** With `onCloseDrawer`, the page owns the phone drawer (its header has the menu button). */
   drawerOpen?: boolean;
   onCloseDrawer?: () => void;
-  /** Below 980px: a drawer behind a top bar (default), or the lists inline as the page (/chats). */
+  /** Below 980px: a drawer behind a top bar (default), or the lists inline as the page. */
   mobile?: "drawer" | "inline";
 }) {
   const pathname = usePathname();
@@ -116,7 +115,7 @@ export default function Sidebar({
         void runConfirmed(
           async () => {
             await removeProject({ projectId: project._id as never });
-            if (projectId === project._id) router.push("/chats");
+            if (projectId === project._id) router.push("/");
           },
           ["Project deleted", project.name],
           "Failed to delete project",
@@ -135,9 +134,6 @@ export default function Sidebar({
   };
 
   const { development } = sidebarNavLinks({ pathname, projectId });
-  const { theme, toggleTheme } = useTheme();
-  const ThemeIcon = theme === "dark" ? Sun : Moon;
-  const themeLabel = theme === "dark" ? "Light mode" : "Dark mode";
   const inboxActive = pathname === "/inbox";
   const activity = (
     <NavRow icon={Activity} label="Activity" buttonRef={activityRef} expanded={activityOpen} onClick={() => setActivityOpen((v) => !v)} />
@@ -167,33 +163,20 @@ export default function Sidebar({
           <InboxNav icon={Inbox} active={inboxActive} rail />
         </QueryBoundary>
         <SearchBox rail chord={chord} onOpen={openCommand} collapsed={collapsedPref} onToggleCollapsed={() => setCollapsedPref(false)} />
-        <RailItem
-          icon={MessageSquare}
-          label="Project chat"
-          href={projectId ? `/project/${projectId}` : "/chats"}
-          active={pathname.startsWith("/project/") || pathname.startsWith("/workspace/") || pathname === "/chats"}
-        />
         {development.map((item) => (
           <RailItem key={item.label} {...item} />
         ))}
-        <RailItem icon={Users} label="Team" href={projectId ? `/team?project=${projectId}` : "/team"} active={pathname.startsWith("/team")} />
         <RailItem icon={BookOpen} label="Library" href={projectId ? `/library?project=${projectId}` : "/library"} active={pathname === "/library"} />
         <RailItem icon={Brain} label="Memory" href={projectId ? `/memory?scope=project&project=${projectId}` : "/memory"} active={pathname.startsWith("/memory")} />
         <RailItem icon={FlaskConical} label="Sandbox" href={projectId ? `/sandbox?project=${projectId}` : "/sandbox"} active={pathname === "/sandbox"} />
         <RailItem icon={ScrollText} label="Audit log" href={projectId ? `/audit?project=${projectId}` : "/audit"} active={pathname === "/audit"} />
-        <RailItem
-          icon={MessageCircle}
-          label="Personal messages"
-          href="/messages"
-          active={pathname.startsWith("/messages") || pathname.startsWith("/message")}
-        />
         {projectId ? (
           <RailItem icon={Activity} label="Activity" buttonRef={activityRef} expanded={activityOpen} onClick={() => setActivityOpen((v) => !v)} />
         ) : null}
         <RailItem icon={Sparkles} label="Improve" href={projectId ? `/improve?project=${projectId}` : "/improve"} active={pathname.startsWith("/improve")} />
         <RailItem icon={Plug} label="Integrations" href="/integrations" active={pathname.startsWith("/integrations")} />
         <div className="mt-auto flex flex-col items-center gap-1">
-          <RailItem icon={ThemeIcon} label={themeLabel} onClick={toggleTheme} />
+          <RailItem icon={SettingsIcon} label="Settings" onClick={openShellSettings} />
         </div>
         {activityOpen && projectId && <ActivityPopover anchor={activityRef.current} projectId={projectId} onClose={() => setActivityOpen(false)} />}
       </aside>
@@ -266,10 +249,6 @@ export default function Sidebar({
             />
           </div>
         </nav>
-
-        <div className="shrink-0 border-t border-line p-2">
-          <AccountRow rail={false} onSettings={openShellSettings} onAccount={() => openSettings(projectId, "signin")} />
-        </div>
 
         {createOpen && <CreateAgentModal onClose={() => setCreateOpen(false)} />}
         {detail && (

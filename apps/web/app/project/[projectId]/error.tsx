@@ -38,7 +38,7 @@ export default function ProjectError({
             </button>
           )}
           <Link
-            href="/chats"
+            href="/"
             className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-canvas outline-none hover:bg-ink/85 focus-visible:ring-2 focus-visible:ring-ink/50"
           >
             Back to projects

@@ -401,7 +401,7 @@ const flows = {
     const agents = await q(anyApi.agents.list, {});
     const cto = agents.find((a) => a.role === "cto");
     if (!check("CTO agent found", !!cto)) return;
-    await open(`/chats/personal/${cto._id}`);
+    await open(`/message/${cto._id}`);
     const box = page.getByPlaceholder(/Message/).or(page.locator("main [contenteditable=true]")).first();
     await box.waitFor({ timeout: 60_000 });
     // The personal chat with the CTO persists across runs: a reply from an

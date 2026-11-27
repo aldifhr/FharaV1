@@ -12,26 +12,38 @@ export {
   type NormalizeOwnershipResult,
 } from "@/utils/ownershipPaths";
 
+function hasGlobChar(segment: string): boolean {
+  for (let i = 0; i < segment.length; i++) {
+    const ch = segment[i];
+    if (ch === "*" || ch === "?" || ch === "[" || ch === "{") return true;
+  }
+  return false;
+}
+
 function normalizePathPrefix(raw: string): string {
-  const segments = raw.trim().replace(/\\/g, "/").replace(/^\.\//, "").split("/");
+  const segments = raw.trim().replaceAll("\\", "/").split("/");
+  if (segments[0] === ".") segments.shift();
   // Keep only the literal directory part of a glob: "src/components/**/*.tsx"
   // scopes to "src/components".
   const literal: string[] = [];
   for (const segment of segments) {
-    if (/[*?[{]/.test(segment)) break;
+    if (hasGlobChar(segment)) break;
     literal.push(segment);
   }
-  return literal.join("/").replace(/\/+$/, "");
+  let joined = literal.join("/");
+  while (joined.endsWith("/")) joined = joined.slice(0, -1);
+  return joined;
 }
 
-/** True when a (possibly absolute, worktree-rooted) file sits inside scope. */
+/**
+ * True when a (possibly absolute, worktree-rooted) file sits inside scope.
+ * A single-segment scope such as `lib` is rooted at the worktree: it must not
+ * match every nested `lib` directory in a monorepo.
+ */
 function fileInScope(file: string, scope: string): boolean {
-  return (
-    file === scope ||
-    file.startsWith(`${scope}/`) ||
-    file.endsWith(`/${scope}`) ||
-    file.includes(`/${scope}/`)
-  );
+  if (file === scope || file.startsWith(`${scope}/`)) return true;
+  if (!scope.includes("/")) return false;
+  return file.endsWith(`/${scope}`) || file.includes(`/${scope}/`);
 }
 
 export interface FixCandidate {
@@ -43,9 +55,9 @@ export interface FixCandidate {
 
 /**
  * Pick the fix owner for review findings: the code_change subtask whose
- * allowedPaths is the LONGEST prefix of a finding file. Ties fall back to
- * the most recent (last) code_change, never the first — a first code_change
- * is often a Backend type-only node while findings live in Frontend files.
+ * allowedPaths is the LONGEST prefix of a finding file. No finding path, or
+ * no matching path, means no owner — the caller stops with that reason instead
+ * of silently selecting the most recent code_change.
  */
 export function pickFixOwner(
   candidates: FixCandidate[],
@@ -57,6 +69,7 @@ export function pickFixOwner(
     .map((f) => (f.filePath ?? "").trim().replace(/\\/g, "/").replace(/^\.\//, ""))
     .filter(Boolean)
     .map((f) => f.toLowerCase());
+  if (files.length === 0) return undefined;
 
   let best: FixCandidate | undefined;
   let bestLen = -1;
@@ -72,7 +85,7 @@ export function pickFixOwner(
       }
     }
   }
-  return best ?? codeChanges.at(-1) ?? codeChanges[0];
+  return best;
 }
 
 export interface FixOwner {
@@ -88,7 +101,7 @@ export interface FixOwner {
  * findings' files (`pickFixOwner`, or the caller's narrower candidate
  * list), and the agent that actually wrote it (`writerByKey`, the run's
  * assignment) — else the agent its capability routes to. Never the first
- * Frontend/Backend in the roster, never a catch-all ("general" / Support),
+ * Frontend/Backend in the roster, never a catch-all ("general"),
  * never a role that may not write. Null = nobody owns it: the caller
  * stops with a reason instead of guessing.
  */
@@ -101,7 +114,10 @@ export function ownerForFix(input: {
   prefer?: (candidate: FixCandidate) => boolean;
 }): FixOwner | null {
   const preferred = input.prefer ? input.subtasks.filter((candidate) => candidate.kind === "code_change" && input.prefer!(candidate)) : [];
-  const subtask = pickFixOwner(preferred.length > 0 ? preferred : input.subtasks, input.findings);
+  const subtask = pickFixOwner(
+    preferred.length > 0 ? preferred : input.subtasks,
+    input.findings
+  );
   if (!subtask) return null;
   const writer = input.writerByKey?.get(subtask.key);
   const enabled = input.agents.filter(isAgentAvailable);

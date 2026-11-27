@@ -146,7 +146,7 @@ const scenarios = {
   },
   async "personal-chat"() {
     check("CTO agent found", !!ctoId);
-    await open(`/chats/personal/${ctoId}`, "Lost updates");
+    await open(`/message/${ctoId}`, "Lost updates");
     check("seeded reply shown", (await bodyText()).includes("Lost updates"));
     await shot(page, "personal-chat");
     const del = page.getByRole("button", { name: "Delete chat" });

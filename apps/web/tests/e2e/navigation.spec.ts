@@ -8,10 +8,6 @@ test.describe("navigation", () => {
 
     const rail = page.getByRole("navigation").first();
 
-    await rail.getByRole("link", { name: "Chats" }).click();
-    await expect(page).toHaveURL(/\/chats$/);
-    await expect(page.getByText("Select a project").first()).toBeVisible();
-
     await rail.getByRole("link", { name: "Inbox" }).click();
     await expect(page).toHaveURL(/\/inbox$/);
     await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();

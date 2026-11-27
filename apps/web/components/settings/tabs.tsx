@@ -652,7 +652,7 @@ export function ProjectsTab() {
         {projects?.length === 0 && <Row label="No projects yet" />}
         {(projects ?? []).map((p) => (
           <Row key={p._id} label={p.name} description={<span className="font-mono">{p.workspacePath}</span>}>
-            <Link href={`/chats/${p._id}`} className={BUTTON}>
+            <Link href={`/project/${p._id}`} className={BUTTON}>
               Open
             </Link>
             <button
@@ -910,7 +910,6 @@ const WORKSPACE_LINKS = [
   { id: "integrations", label: "Integrations", description: "GitHub connection, MCP servers.", href: "/integrations" },
   { id: "library", label: "Library", description: "Agent skills and templates.", href: "/library" },
   { id: "memory", label: "Memory", description: "Saved facts and context.", href: "/memory" },
-  { id: "team", label: "Team", description: "Agents, roles and performance.", href: "/team" },
   { id: "audit", label: "Audit log", description: "Every action the app took.", href: "/audit" },
 ];
 

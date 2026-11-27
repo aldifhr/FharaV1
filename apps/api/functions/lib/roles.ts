@@ -142,7 +142,7 @@ export const ROLES: Record<RoleKey, RoleDefinition> = {
     permissions: { read: true, write: false, shell: "none", web: false, push: false, options: false },
     priority: 9,
     maxConcurrency: 2,
-    hint: "Decide technical approach, architecture, and risk with brief rationale. Read-only planning and review - no code writing, no over-engineering. Report to the owner in 2-3 plain-language sentences, no bullets, headers, or terminal output.",
+    hint: "Decide technical approach, architecture, and risk with brief rationale. Read-only planning and review - no code writing, no over-engineering. Two reply modes: for a decision report, use 2-3 plain-language sentences with no bullets, headers, or terminal output; for an analysis, explanation, audit or review, there is no sentence limit and structure is allowed - read the manifests/config, entry points, and every file in the directory being analysed before answering, never conclude about a file you did not open, name any parts you could not read, and cover structure and data flow, dependencies and versions from the manifests, connected vs orphan files, visible risks or bugs, and next steps.",
     chatSummary: "Technical direction, architecture, technology choices, data modelling and risk trade-offs.",
     defaultPromptKey: "cto",
     color: "bg-blue-500/10 text-blue-700 ring-blue-500/20 dark:bg-blue-500/20 dark:text-blue-300",
@@ -387,6 +387,49 @@ export function roleKeyForMention(mention: string): RoleKey | null {
   if (LEGACY_ROLE_SUCCESSORS[raw]) return LEGACY_ROLE_SUCCESSORS[raw];
   const byLabel = ROLE_KEYS.find((key) => ROLES[key].label.toLowerCase() === raw);
   return byLabel ?? null;
+}
+
+/**
+ * The one free-text role resolver (keys, titles and retired aliases). Stored
+ * agents, handoff output and LLM routing all use it; the worker re-exports it
+ * from `utils/rolePolicy` so there is no second implementation.
+ */
+const ROLE_ALIASES: Readonly<Record<string, RoleKey>> = {
+  ...LEGACY_ROLE_SUCCESSORS,
+  "ui/ux": "designer",
+  "ui/ux designer": "designer",
+  "frontend-developer": "frontend",
+  developer: "frontend",
+  "backend-developer": "backend",
+  tester: "qa",
+  security: "backend",
+  "security auditor": "backend",
+  "security engineer": "backend",
+  database: "backend",
+  "database engineer": "backend",
+  db: "backend",
+};
+
+const ROLE_BY_NAME: ReadonlyMap<string, RoleKey> = new Map<string, RoleKey>([
+  ...ROLE_KEYS.flatMap((key): Array<[string, RoleKey]> => [
+    [key, key],
+    [ROLES[key].title.toLowerCase(), key],
+  ]),
+  ...Object.entries(ROLE_ALIASES),
+]);
+
+/** Free-text role (key, title or alias) → live RoleKey, or null when unknown. */
+export function resolveRoleKey(role: string): RoleKey | null {
+  const raw = (role ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  return ROLE_BY_NAME.get(raw) ?? ROLE_BY_NAME.get(raw.replace(/[\s_\/]+/g, "-")) ?? null;
+}
+
+/** Whether a stored role is the CTO (including its orchestrator aliases). */
+export function isCtoRole(role: string): boolean {
+  const key = resolveRoleKey(role);
+  const raw = normalizeRoleKey(role);
+  return key === "cto" && ["cto", "architect", "orchestrator", "planner", "manager"].includes(raw);
 }
 
 /** Stack-neutral chat area for a role (null for an unknown/custom role). */

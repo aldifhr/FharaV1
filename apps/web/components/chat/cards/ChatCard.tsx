@@ -46,9 +46,36 @@ export default function ChatCard({ card }: { card: MessageCard | undefined | nul
       return <PlanCard data={card.data as PlanCardData} />;
     case "side_effect":
       return <SideEffectCard data={card.data as SideEffectCardData} />;
+    case "role_choice":
+      return <RoleChoiceCard data={card.data as { question?: string }} />;
     default:
       return null;
   }
+}
+
+/** Fallback when a structured role reply was invalid twice: the user picks a teammate. */
+function RoleChoiceCard({ data }: { data: { question?: string } }) {
+  const surface = useCardSurface();
+  const candidates = (surface.agents ?? []).filter(
+    (agent: any) => roleKeyForMention(agent.role) !== "cto"
+  );
+  return (
+    <div className={`${CARD_SURFACE} max-w-xl px-4 py-3`}>
+      <p className="text-[13px] text-ink">{data.question ?? "Which teammate should handle this request?"}</p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {candidates.map((agent: any) => (
+          <button
+            key={String(agent._id)}
+            type="button"
+            onClick={() => surface.onChooseRole?.(String(agent._id))}
+            className="rounded-md border border-line px-2 py-1 text-[12px] text-ink hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
+          >
+            {roleLabel(agent.role)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /**

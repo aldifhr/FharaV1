@@ -22,7 +22,7 @@ test.describe("overview", () => {
     await waitForData(page, "Overview of all projects and agents.");
 
     const emptyState = page.getByText("No projects yet. Add a project folder with the + Project button.");
-    const projectLink = page.locator("a[href^='/chats/']").first();
+    const projectLink = page.locator("a[href^='/project/']").first();
 
     await expect(emptyState.or(projectLink).first()).toBeVisible();
   });

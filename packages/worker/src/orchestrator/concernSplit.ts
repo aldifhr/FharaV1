@@ -12,25 +12,107 @@ import { type AgentDefinition, type Classification, type Concern, type Execution
  * stays small and a failure costs one concern, not the whole change.
  */
 
-const CATEGORY_PATTERN: Record<Concern["category"], RegExp> = {
-  tests: /\b(tests?|testing|unit[- ]?tests?|specs?|vitest|jest|playwright|coverage|uji|pengujian)\b/i,
-  docs: /\b(readme|docs?|documentation|dokumentasi|changelog|guide|panduan)\b/i,
-  theme: /\b(dark ?mode|light ?mode|mode gelap|mode terang|themes?|tema|toggle)\b/i,
-  refactor: /\b(refactor|refaktor|extract|komponen terpisah|separate component|split|pisah\w*|restructure)\b/i,
-  style: /\b(css|styles?|styling|tampilan|warna|colou?rs?|font)\b/i,
-  change: /$^/,
+function isWordChar(ch: string): boolean {
+  const code = ch.charCodeAt(0);
+  return (
+    (code >= 48 && code <= 57) || // 0-9
+    (code >= 65 && code <= 90) || // A-Z
+    (code >= 97 && code <= 122) || // a-z
+    ch === "_"
+  );
+}
+
+function tokenizeLower(text: string): string[] {
+  const lower = text.toLowerCase();
+  const tokens: string[] = [];
+  let start = -1;
+  for (let i = 0; i < lower.length; i++) {
+    if (isWordChar(lower[i])) {
+      if (start === -1) start = i;
+    } else if (start !== -1) {
+      tokens.push(lower.slice(start, i));
+      start = -1;
+    }
+  }
+  if (start !== -1) tokens.push(lower.slice(start));
+  return tokens;
+}
+
+function hasAnyWord(tokens: ReadonlySet<string>, words: readonly string[], prefixes: readonly string[] = []): boolean {
+  for (const w of words) {
+    if (tokens.has(w)) return true;
+  }
+  if (prefixes.length > 0) {
+    for (const token of tokens) {
+      for (const prefix of prefixes) {
+        if (token.startsWith(prefix)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function hasAnyPhrase(lower: string, phrases: readonly string[]): boolean {
+  for (const phrase of phrases) {
+    let idx = lower.indexOf(phrase);
+    while (idx !== -1) {
+      const beforeOk = idx === 0 || !isWordChar(lower[idx - 1]);
+      const afterIdx = idx + phrase.length;
+      const afterOk = afterIdx >= lower.length || !isWordChar(lower[afterIdx]);
+      if (beforeOk && afterOk) return true;
+      idx = lower.indexOf(phrase, idx + 1);
+    }
+  }
+  return false;
+}
+
+const CATEGORY_MATCHERS: Record<Concern["category"], (lower: string, tokens: ReadonlySet<string>) => boolean> = {
+  tests: (lower, tokens) =>
+    hasAnyWord(tokens, ["test", "tests", "testing", "spec", "specs", "vitest", "jest", "playwright", "coverage", "uji", "pengujian"]) ||
+    hasAnyPhrase(lower, ["unit test", "unit tests", "unit-test", "unit-tests"]),
+  docs: (_lower, tokens) =>
+    hasAnyWord(tokens, ["readme", "doc", "docs", "documentation", "dokumentasi", "changelog", "guide", "panduan"]),
+  theme: (lower, tokens) =>
+    hasAnyWord(tokens, ["darkmode", "lightmode", "theme", "themes", "tema", "toggle"]) ||
+    hasAnyPhrase(lower, ["dark mode", "light mode", "mode gelap", "mode terang"]),
+  refactor: (lower, tokens) =>
+    hasAnyWord(tokens, ["refactor", "refaktor", "extract", "split", "restructure"], ["pisah"]) ||
+    hasAnyPhrase(lower, ["komponen terpisah", "separate component"]),
+  style: (_lower, tokens) =>
+    hasAnyWord(tokens, ["css", "style", "styles", "styling", "tampilan", "warna", "color", "colors", "colour", "colours", "font"]),
+  change: () => false,
 };
 
 const DOC_PATHS = ["README.md", "docs/"];
 
 /** Concern categories of the request that a node's title/description covers. */
 export function coveredConcerns(node: Pick<PlanSubtask, "title" | "description">, concerns: Concern[]): Concern[] {
-  const text = `${node.title}\n${node.description}`;
-  return concerns.filter((concern) => concern.category !== "change" && CATEGORY_PATTERN[concern.category].test(text));
+  const lower = `${node.title}\n${node.description}`.toLowerCase();
+  const tokens = new Set(tokenizeLower(lower));
+  return concerns.filter((concern) => concern.category !== "change" && CATEGORY_MATCHERS[concern.category](lower, tokens));
+}
+
+function slugifyAscii(base: string): string {
+  const lower = base.toLowerCase();
+  let out = "";
+  let prevDash = true;
+  for (let i = 0; i < lower.length && out.length < 40; i++) {
+    const code = lower.charCodeAt(i);
+    const isAlnum = (code >= 48 && code <= 57) || (code >= 97 && code <= 122);
+    if (isAlnum) {
+      out += lower[i];
+      prevDash = false;
+    } else if (!prevDash) {
+      out += "-";
+      prevDash = true;
+    }
+  }
+  while (out.endsWith("-")) out = out.slice(0, -1);
+  return out || "part";
 }
 
 function uniqueKey(base: string, used: Set<string>): string {
-  const slug = base.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "part";
+  const slug = slugifyAscii(base);
   let key = slug;
   let index = 2;
   while (used.has(key)) key = `${slug}-${index++}`;
@@ -86,8 +168,8 @@ function splitByConcerns(node: PlanSubtask, concerns: Concern[], used: Set<strin
         .join(", ")}) are separate subtasks. Context: ${node.description}`,
       kind: "code_change",
       // The docs part of a code-affecting multi-concern request stays with the
-      // implementer (user decision 2026-11-11): Support only owns pure-docs
-      // requests, where nothing is split. Its paths are still docs-only.
+      // implementer (user decision 2026-11-11): pure-docs requests are not
+      // split. Its paths are still docs-only.
       capability: node.capability,
       dependencies: previous,
       order: node.order,
@@ -104,7 +186,9 @@ function splitByPaths(node: PlanSubtask, used: Set<string>): PlanSubtask[] {
   const parts: PlanSubtask[] = [];
   let previous: string[] = node.dependencies;
   for (const path of paths) {
-    const key = uniqueKey(`${node.key}-${path.replace(/\/$/, "").split("/").pop() ?? "part"}`, used);
+    const trimmed = path.endsWith("/") ? path.slice(0, -1) : path;
+    const leaf = trimmed.split("/").pop() ?? "part";
+    const key = uniqueKey(`${node.key}-${leaf}`, used);
     parts.push({
       key,
       title: `${node.title} — ${path}`,
@@ -124,7 +208,7 @@ function splitByPaths(node: PlanSubtask, used: Set<string>): PlanSubtask[] {
 /**
  * For high/ultra requests: every code_change node that covers two or more
  * of the request's concerns is split into one node per concern. Bounded by
- * `maxSubtasks` (a split that would exceed it is skipped).
+ * `maxSubtasks` (if the full split would exceed it, splits as many as fit).
  */
 export function splitMultiConcernNodes(
   plan: ExecutionPlan,
@@ -144,17 +228,60 @@ export function splitMultiConcernNodes(
     if (node.kind !== "code_change") continue;
     const covered = coveredConcerns(node, concerns);
     if (covered.length < 2) continue;
-    if (current.subtasks.length - 1 + covered.length > options.maxSubtasks) continue;
-    current = replaceNode(current, node.key, splitByConcerns(node, covered, used));
+    const room = options.maxSubtasks - current.subtasks.length + 1;
+    if (room < 2) continue;
+    const toSplit =
+      covered.length <= room
+        ? covered
+        : [
+            ...covered.slice(0, room - 1),
+            {
+              category: covered[room - 1].category,
+              text: covered
+                .slice(room - 1)
+                .map((c) => c.text)
+                .join("; "),
+            },
+          ];
+    current = replaceNode(current, node.key, splitByConcerns(node, toSplit, used));
     split.push(node.key);
   }
   return { plan: current, split };
 }
 
+function isKeyChar(ch: string): boolean {
+  const code = ch.charCodeAt(0);
+  return (
+    (code >= 48 && code <= 57) ||
+    (code >= 65 && code <= 90) ||
+    (code >= 97 && code <= 122) ||
+    ch === "_" ||
+    ch === "." ||
+    ch === "-"
+  );
+}
+
 /** Subtask keys whose failure was a subtask timeout ("key (attempt n): Subtask timed out …"). */
 export function timedOutKeys(failureSummary: string): string[] {
   const keys = new Set<string>();
-  for (const match of failureSummary.matchAll(/([A-Za-z0-9_.-]+) \(attempt \d+\): Subtask timed out/g)) keys.add(match[1]);
+  const marker = "): Subtask timed out";
+  let pos = 0;
+  while (pos < failureSummary.length) {
+    const endIdx = failureSummary.indexOf(marker, pos);
+    if (endIdx === -1) break;
+    const attemptIdx = failureSummary.lastIndexOf(" (attempt ", endIdx);
+    if (attemptIdx > 0) {
+      const digits = failureSummary.slice(attemptIdx + " (attempt ".length, endIdx);
+      const allDigits = digits.length > 0 && [...digits].every((c) => c >= "0" && c <= "9");
+      if (allDigits) {
+        let start = attemptIdx - 1;
+        while (start >= 0 && isKeyChar(failureSummary[start])) start--;
+        const key = failureSummary.slice(start + 1, attemptIdx);
+        if (key.length > 0) keys.add(key);
+      }
+    }
+    pos = endIdx + marker.length;
+  }
   return Array.from(keys);
 }
 

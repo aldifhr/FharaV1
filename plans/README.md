@@ -58,6 +58,9 @@ execution order and a definition of done.
 | 076 | [Add Designer to the fixed team](076-add-designer-to-fixed-team.md) | P2 | S | 040 | DONE (focused API tests + web/worker typechecks pass; API typecheck has unrelated devFixtures error, 2026-11-23) |
 | 077 | [Add DevOps to the fixed team](077-add-devops-to-fixed-team.md) | P2 | S | 040 | DONE |
 | 078 | [Add Lead role](078-add-lead-role.md) | P2 | M | 040, 076, 077 | DONE |
+| 082 | [Route verification steps through the governed command path](082-verification-command-path.md) | P2 | M | — | TODO (worker audit: unguarded `shell: true` spawn bypasses allowlist, shell guard and bwrap) |
+| 084 | [Role mention and ownership semantics](084-role-mention-ownership-semantics.md) | P2 | M | 040, 076, 078 | TODO (@CTO feedback, one-mention contract, research response owner) |
+| 086 | [Structured owner routing](086-structured-owner-routing.md) | P2 | M | 040, 084 | DONE (unit checks green; runtimeTest suites still fail on the pre-existing bundle/mock harness) |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

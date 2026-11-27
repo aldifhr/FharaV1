@@ -4,12 +4,11 @@
  * contract, so change it here deliberately and nowhere else.
  */
 import type { IntentSubtype } from "../chat/intent";
-import { isHandoffLine } from "../chat/dispatch";
 import { isSystemLine } from "../systemLine";
 import { LOAD_SKILL_MAX_CALLS, LOAD_SKILL_TOOL } from "../skills";
 import { LOAD_SKILL_TOOL_LINE } from "../skillRuntime";
 import { PAST_WORK_MAX_CALLS, PAST_WORK_TOOL, PAST_WORK_TOOL_LINE } from "../pastWork";
-import { LEGACY_ROLE_SUCCESSORS, isRoleKey, normalizeRoleKey, roleChatSummary } from "../roles";
+import { LEGACY_ROLE_SUCCESSORS, ROLE_KEYS, isRoleKey, normalizeRoleKey, roleChatSummary, roleLabel } from "../roles";
 import { AGENT_SEED_PROMPTS, GENERIC_AGENT_PROMPT, LEGACY_UI_UX_PROMPT, PREVIOUS_SEED_PROMPTS } from "./agents";
 import { CHAT_CANNOT_WRITE_LINE, writeNeededGuidance } from "../chat/offerBrief";
 import { REPO_TOOL_CAPS, SCOPE_EXIT_LINE } from "../chat/repoTools";
@@ -32,7 +31,7 @@ export function buildIntentClassifierPrompt(
   text: string,
   activeTask?: { title: string; status: string } | null,
   routing?: {
-    domains: readonly string[];
+    roles: readonly string[];
     team: Array<{ id: string; name: string; role: string }>;
     historyLines?: string[];
     contextSummary?: string | null;
@@ -41,14 +40,15 @@ export function buildIntentClassifierPrompt(
   return [
     "You are an intent classifier and topic router for a software engineering workspace.",
     "Return ONLY JSON with this exact schema:",
-    `{"intent":"ask"|"task","subtype":"explanation"|"recommendation"|"research"|"audit"|"implementation"|"debugging"|"testing"|"other","requiresWorkspace":bool,"requiresExecution":bool,"target":"?","confidence":0..1,"reasoning":"...","route":{"domain":"<one of: ${routing?.domains.join("|") ?? "none"}>","agentId":"<id of a listed teammate>","confidence":0..1,"reasoning":"one short sentence"}}`,
+    `{"intent":"ask"|"task","subtype":"explanation"|"recommendation"|"research"|"audit"|"implementation"|"debugging"|"testing"|"other","requiresWorkspace":bool,"requiresExecution":bool,"target":"?","confidence":0..1,"reasoning":"...","owner":{"role":"<one of ${ROLE_KEYS.join("|")} or null>","kind":"<implementation|verification|research|audit|design|devops|conversation>","files":["<path>"],"confidence":0..1}}`,
     "",
     "Choose `task` when the user wants the AI team to DO work (build, fix, test, refactor, migrate). Choose `ask` for pure questions/discussion. Subtypes: explanation/recommendation/research/audit ask; implementation/debugging/testing task.",
     "",
     "The text may be Indonesian, English, mixed, or informal. Judge by meaning, not by word list.",
     "Explicit 'do not change code' / 'research only' stays a question, never a work request.",
     "A short follow-up ('lebih detail', 'kenapa?', 'continue') usually stays with the teammate who just answered.",
-    "Pick agentId only from the listed teammates; if none fits, set route.confidence below 0.6.",
+    "Pick owner.role only from the role enum; use null and a confidence below 0.7 when no role owns the request. Never default to Backend.",
+    "Questions about project status, team roster, or orchestrator state are `ask` with owner.role: null (never route them to Backend just because of words like 'orchestrator' or 'status').",
     "",
     ...(routing
       ? [
@@ -245,6 +245,18 @@ export function buildRoutedOwnerNotice(hasRepoTools: boolean): string {
 export const CTO_DELEGATION_GUIDANCE =
   "Keep your own replies short. Deep work (a code audit, a test check, research, a design or security review) belongs to the teammate whose area it is: bring them in with @Name instead of doing it at length yourself. Only @mention when the request is genuinely in that teammate's area; a question about your role, your capabilities or general advice is yours to answer alone. Never write lines as a teammate, speak for them, or invent what they found.";
 
+/** Analysis, explanation and audit are answered by the CTO itself, not as a short decision report. */
+export function isAnalysisSubtype(subtype: IntentSubtype | undefined): boolean {
+  return subtype === "explanation" || subtype === "research" || subtype === "audit";
+}
+
+export const CTO_ANALYSIS_GUIDANCE = [
+  "You are the CTO. This is an analysis, explanation or audit request, not an architecture decision report: answer it yourself from the code, in the user's language, at the depth the question asks.",
+  "Before answering, read the manifests/config (package.json, tsconfig, bundler config), the entry points, and every file in the directory being analysed. Never call a file unused, disconnected or missing unless you opened it. If you could not read something, say exactly which parts remain unread.",
+  "Cover at least: structure and data flow; dependencies and versions read from the manifests, never guessed; which files are connected and which are orphaned; visible risks or bugs; and a concrete next step. Cite only file:line values that a tool result in this reply showed.",
+  "These reply rules override the decision-report limit and any keep-it-short or hand-deep-work-to-a-teammate line above: no 2-3 sentence cap, no ban on bullets or headers, and no Create task handoff for this analysis.",
+].join("\n");
+
 /** One chat history row as getContext returns it. */
 export type ChatHistoryRow = { authorType: string; content: string; agentId?: string; voice?: string };
 export type ChatPromptMessage = { role: "user" | "assistant"; content: string };
@@ -295,7 +307,7 @@ export function buildChatMessages(
     // The CTO's fixed handoff line is routing, not content: as a transcript
     // line it got copied into the specialist's reply.
     // System lines (routing, task created, status) never reach a model (lib/systemLine.ts, O2/O3).
-    if (isSystemLine(row) || (row.authorType === "agent" && isHandoffLine(text))) continue;
+    if (isSystemLine(row)) continue;
     let msg: ChatPromptMessage;
     if (row.authorType === "agent") {
       const self = opts.selfAgentId !== undefined && String(row.agentId ?? "") === String(opts.selfAgentId);
@@ -325,8 +337,23 @@ export function buildTurnContextSection(opts: {
   summary?: string;
   quoteLine?: string;
   turnReplies?: Array<{ name: string; content: string }>;
+  team?: Array<{ name: string; role: string }>;
+  activeTask?: { title: string; status: string } | null;
 }): string {
   const lines: string[] = ["## This turn"];
+  if (opts.team?.length) {
+    lines.push(`Project team: ${opts.team.map((a) => `${a.name} (${a.role})`).join(", ")}`);
+  }
+  if (opts.activeTask !== undefined) {
+    lines.push(
+      opts.activeTask
+        ? `Active task: "${opts.activeTask.title}" [${opts.activeTask.status}]`
+        : "Active task: none (idle)"
+    );
+  }
+  if (opts.team?.length || opts.activeTask !== undefined) {
+    lines.push("Use the Project team and Active task facts above to answer questions about team members, active tasks, or orchestrator status directly — do not claim you lack access to them.");
+  }
   if (opts.summary?.trim()) lines.push(`Summary of the earlier conversation: ${opts.summary.trim()}`);
   if (opts.quoteLine?.trim()) lines.push(opts.quoteLine.trim());
   if (opts.turnReplies?.length) {
@@ -358,7 +385,7 @@ export function buildPlanningGuidance(
   opts: {
     isOrchestrator: boolean;
     hasRepoTools?: boolean;
-    taskIntent: { kind: string; frontend: boolean; backend: boolean; testing: boolean; security: boolean; runCommands?: string[] };
+    taskIntent: { kind: string; frontend: boolean; backend: boolean; testing: boolean; security: boolean; runCommands?: string[]; subtype?: IntentSubtype };
     /** Who the offered task goes to (e.g. "Frontend"), when known. */
     assigneeName?: string;
     /** The user explicitly asked to see the code in chat. */
@@ -397,6 +424,14 @@ export function buildPlanningGuidance(
       "No architecture, design or styling advice, no code, no bullets, no headers, no questions the repo answers. Never say read-only and never claim anything has run.",
       WRITE_OFFER_OVERRIDE,
     ];
+  }
+  if (opts.isOrchestrator && isAnalysisSubtype(opts.taskIntent.subtype)) {
+    return [
+      CTO_ANALYSIS_GUIDANCE,
+      opts.hasRepoTools
+        ? ""
+        : "You have no repo tools in this reply: say exactly which parts you could not read instead of guessing dependencies or calling files disconnected.",
+    ].filter(Boolean);
   }
   if (opts.isOrchestrator) {
     return [
@@ -472,16 +507,43 @@ export function noRepoAccessHandoffLine(offReason: string): string {
   ].join(" ");
 }
 
-/** Line for a teammate the CTO pulled into the chat by @mention. */
+/** Line for a teammate the CTO pulled into the chat by a structured handoff. */
 export function buildHandoffNotice(ctoName: string, request = ""): string {
   return [
-    `${ctoName} (CTO) brought you into this chat with an @mention.`,
+    `${ctoName} (CTO) brought you into this chat with a handoff.`,
     request ? `What the CTO asked you: "${request}"` : "",
     "Answer only that, briefly (2-4 sentences), in the user's language, and only about the user's LATEST message. Do not pick up earlier topics or tasks from the conversation unless the latest message is about them. Do not repeat what the CTO said, do not @mention anyone, and do not tell the user to create a task.",
   ]
     .filter(Boolean)
     .join(" ");
 }
+
+/** Structured CTO/Lead reply: one schema-validated JSON object, no free-text parsing. */
+export const STRUCTURED_REPLY_SYSTEM =
+  "You turn one chat reply into a single JSON object. Output JSON only: no prose, no code fence, no comments. " +
+  "The object has exactly two fields: `message` (a string) and `handoff` (an array of at most three objects). " +
+  "Copy `message` verbatim from the reply: do not reword, summarise, translate or rewrite it. " +
+  "Each handoff object has exactly `role` and `instruction`; `role` must be one of the supplied role keys, " +
+  "and `instruction` must be a concrete request of at most 400 characters. " +
+  "Return an empty `handoff` array when the reply hands work to nobody. " +
+  "Never put role names into `message` as @mentions; mentions are rendered from `handoff`.";
+
+export function buildStructuredReplyPrompt(input: {
+  reply: string;
+  userRequest: string;
+  roles: readonly string[];
+}): string {
+  return [
+    `Allowed role keys (enum): ${ROLE_KEYS.join(", ")}.`,
+    `Roles available on this team: ${input.roles.join(", ") || "(none)"}.`,
+    `User's request: ${clip500(input.userRequest)}`,
+    `Reply to convert: ${clip500(input.reply)}`,
+    'Return exactly: {"message":"<reply verbatim>","handoff":[{"role":"<role key>","instruction":"<request>"}]}',
+  ].join("\n");
+}
+
+/** Fallback when the structured reply is invalid twice: ask the user to pick. */
+export const ROLE_CHOICE_QUESTION = "Which teammate should handle this request?";
 
 /** System-prompt lines that let the CTO hand parts of a chat turn to teammates. */
 export function buildHandoffGuidance(
@@ -492,9 +554,9 @@ export function buildHandoffGuidance(
   const others = team.filter((a) => String(a._id) !== String(speakerId));
   if (others.length === 0) return [];
   return [
-    `Teammates on this project: ${others.map((a) => `@${a.name}`).join(", ")}.`,
-    "Answer the user first. Writing @Name in your reply DOES bring that teammate into this chat to answer the user's latest message next: @mention only the roles whose work is actually needed (at most three), and address them with a concrete request in the same sentence. When a teammate's specialty is only being described, write the role name WITHOUT @.",
-    "Do not ask the user for permission to bring a teammate in, and do not @mention yourself. A handoff is a short opinion in chat, not execution; a question about your own role or capabilities needs no handoff and no Create task instruction.",
+    `Teammates on this project: ${others.map((a) => roleLabel(a.role)).join(", ")}.`,
+    "Answer the user first, in plain text: never write @Name or @Role in the message. Each teammate you actually need is recorded separately as a handoff with a role and a concrete instruction (at most three). When a teammate's specialty is only being described, just name the role in prose.",
+    "Do not ask the user for permission to bring a teammate in. A handoff is a short opinion in chat, not execution; a question about your own role or capabilities needs no handoff and no Create task instruction.",
     repo.hasRepoTools ? SELF_VERIFY_LINE : noRepoAccessHandoffLine(repo.offReason ?? ""),
   ];
 }

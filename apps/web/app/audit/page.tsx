@@ -251,8 +251,8 @@ function AuditPage() {
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
       <Sidebar projectId={projectId} />
-      <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
-        <div className="mx-auto max-w-3xl">
+      <main className="min-w-0 flex-1 overflow-y-auto px-6 py-8 max-[979px]:px-4 max-[979px]:py-6">
+        <div className="mx-auto max-w-[1440px] min-[112.5rem]:max-w-[1640px]">
           <PageHeader
             eyebrow={projectName}
             title="Audit log"
@@ -311,7 +311,7 @@ function AuditPage() {
             }
           />
 
-          <div role="tablist" aria-label="Filter" className="mt-8 flex flex-wrap gap-1.5">
+          <div role="tablist" aria-label="Filter" className="mt-6 inline-flex flex-wrap items-center rounded-lg border border-line bg-hover p-0.5">
             {FILTERS.map((f) => (
               <button
                 key={f.key}
@@ -319,10 +319,10 @@ function AuditPage() {
                 role="tab"
                 aria-selected={filter === f.key}
                 onClick={() => setFilter(f.key)}
-                className={`rounded-field border px-3 py-1 text-[12.5px] outline-none transition focus-visible:ring-2 focus-visible:ring-ink/30 ${
+                className={`rounded-md px-3 py-1 text-[12.5px] font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-brand/40 ${
                   filter === f.key
-                    ? "border-ink bg-ink text-canvas"
-                    : "border-line bg-panel text-ink-2 hover:bg-hover hover:text-ink"
+                    ? "bg-panel text-ink shadow-card"
+                    : "text-ink-2 hover:text-ink"
                 }`}
               >
                 {f.label}
@@ -346,7 +346,7 @@ function AuditPage() {
             </div>
           ) : (
             <>
-              <ul className="mt-6 divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
+              <ul className="mt-5 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-panel shadow-card">
                 {rows.map((row) => {
                   const expanded = open === row._id;
                   return (

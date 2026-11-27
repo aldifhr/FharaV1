@@ -146,7 +146,7 @@ function WorkspaceShell({
     : allAgents;
 
   useEffect(() => {
-    if (project === null) router.replace("/chats");
+    if (project === null) router.replace("/");
   }, [project, router]);
 
   const removeTask = useMutation(api.tasks.remove);

@@ -20,14 +20,16 @@ const KIND_LABEL: Record<string, string> = {
   merge_pr: "Merge pull request",
 };
 
-function Section({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
+function Section({ title, count, toneDot, children }: { title: string; count: number; toneDot?: "warn" | "danger" | "brand"; children: React.ReactNode }) {
+  const dot = toneDot === "warn" ? "bg-warn" : toneDot === "danger" ? "bg-danger" : toneDot === "brand" ? "bg-brand" : null;
   return (
-    <section className="mt-10">
-      <h2 className="mb-3 flex items-baseline gap-2 text-[13px] font-medium text-ink-2">
-        {title}
-        <span className="tabular-nums text-ink-3">{count}</span>
-      </h2>
-      <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">{children}</ul>
+    <section className="mt-6 overflow-hidden rounded-2xl border border-line bg-panel shadow-card">
+      <div className="flex items-center gap-2 border-b border-line px-5 py-3.5">
+        {dot && <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} aria-hidden="true" />}
+        <h2 className="text-[14px] font-semibold tracking-tight text-ink">{title}</h2>
+        <span className="text-[12.5px] font-medium tabular-nums text-ink-3">{count}</span>
+      </div>
+      <ul className="divide-y divide-line">{children}</ul>
     </section>
   );
 }
@@ -129,17 +131,18 @@ export default function InboxPage() {
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
       <Sidebar />
-      <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
-        <div className="mx-auto max-w-3xl">
-          <header>
-            <h1 className="text-[26px] font-semibold tracking-tight">Inbox</h1>
-            <p className="mt-1 text-[15px] text-ink-2">
-              {inbox === undefined
-                ? "Loading…"
-                : total
-                  ? `${total} ${total === 1 ? "thing waits" : "things wait"} on you`
-                  : "Nothing waits on you"}
-            </p>
+      <main className="min-w-0 flex-1 overflow-y-auto px-6 py-8 max-[979px]:px-4 max-[979px]:py-6">
+        <div className="mx-auto max-w-[1440px] min-[112.5rem]:max-w-[1640px]">
+          <header className="flex flex-wrap items-center justify-between gap-4">
+            <h1 className="text-[24px] font-semibold tracking-tight text-ink">Inbox</h1>
+            {inbox !== undefined && (
+              <div className="inline-flex h-8 items-center gap-2 rounded-lg border border-line bg-panel px-3 text-[12.5px] font-medium text-ink-2 shadow-card">
+                <span className={`h-2 w-2 rounded-full ${total > 0 ? "bg-warn" : "bg-ok"}`} aria-hidden="true" />
+                <span className="tabular-nums">
+                  {total > 0 ? `${total} waiting` : "All clear"}
+                </span>
+              </div>
+            )}
           </header>
 
           {!loaded || !inbox ? (
@@ -159,7 +162,7 @@ export default function InboxPage() {
           ) : (
             <>
               {inbox.approvals.length > 0 && (
-                <Section title="Approvals" count={inbox.approvals.length}>
+                <Section title="Approvals" count={inbox.approvals.length} toneDot="warn">
                   {inbox.approvals.map((a) => (void shown(a), (
                     <li key={a._id} className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:gap-4">
                       <div className="min-w-0 flex-1">
@@ -211,7 +214,7 @@ export default function InboxPage() {
                             type="button"
                             disabled={busy === a._id}
                             onClick={() => void decide(a, "allow")}
-                            className="inline-flex items-center gap-1 rounded-lg bg-ink px-3 py-2 text-[13px] sm:px-2.5 sm:py-1 font-medium text-canvas transition hover:opacity-90 disabled:opacity-50"
+                            className="inline-flex items-center gap-1 rounded-lg bg-brand px-3 py-2 text-[13px] sm:px-2.5 sm:py-1 font-medium text-brand-ink transition hover:bg-brand-hover disabled:opacity-50"
                           >
                             <Check size={13} /> Allow
                           </button>
@@ -400,7 +403,7 @@ export default function InboxPage() {
               )}
 
               {inbox.failed.length > 0 && (
-                <Section title="Recent failures · not waiting on you" count={inbox.failed.length}>
+                <Section title="Recent failures" count={inbox.failed.length} toneDot="danger">
                   {inbox.failed.map((t) => (
                     <li key={t._id}>
                       <Link

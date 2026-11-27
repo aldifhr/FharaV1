@@ -20,19 +20,140 @@ export { ARCH_DECISION_KEY } from "@/api/functions/lib/architectureFlag";
 export const NO_CTO_NOTE = "No CTO in the team: architecture decision skipped";
 
 const WRITE_KINDS = new Set<PlanSubtask["kind"]>(["code_change", "shell"]);
-const MANIFEST = /(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?)$/i;
-const ADD_LIBRARY =
-  /\b(add|install|use|adopt|integrate|switch to|migrate to|pakai|pake|gunakan|pasang|install(?:kan)?|tambah(?:kan)?|integrasi(?:kan)?|ganti ke)\b[^.]{0,60}\b(librar(?:y|ies)|package|framework|sdk|dependency|dependencies|lib|pustaka|orm|[a-z0-9@][\w.-]*\/?[\w.-]*)\b/i;
-const SCHEMA_PATH = /((^|\/)schema\.ts$|(^|\/)migrations?(\/|$)|\.sql$|(^|\/)prisma\/schema\.prisma$)/i;
-const AUTH_PATH = /(^|\/)(auth|oauth|sessions?|permissions?|rbac|acl|middleware)(\/|\.|$)/i;
-const AUTH_WORDS =
-  /\b(auth(?:entication|orization)?|login|log[- ]?in|sign[- ]?(?:in|up)|oauth|sso|jwt|sessions?|permissions?|rbac|role[- ]based|hak akses|otentikasi|autentikasi)\b/i;
-/** UI-only wording: an auth word alone does not flag "fix the typo on the login page". */
-const UI_ONLY_WORDS = /\b(typo|warna|colou?r|copy|teks|text|label|font|spacing|padding|margin|ikon|icon|tooltip|placeholder)\b/i;
-const INFRA_PATH = /((^|\/)\.github\/|(^|\/)Dockerfile[^/]*$|(^|\/)docker-compose[^/]*$|(^|\/)infra(\/|$))/i;
-const ARCH_SPLIT =
-  /\b(microservices?|split\b[^.]{0,40}\bservices?|service split|pisah\w*\b[^.]{0,40}\b(?:service|layanan)|separate services?|arsitektur|architecture|monorepo)\b/i;
-const SPLIT_WORDS = /\b(microservices?|split|pisah\w*|separate)\b/i;
+const MANIFEST_NAMES = new Set(["package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"]);
+const AUTH_SEGMENTS = new Set(["auth", "oauth", "session", "sessions", "permission", "permissions", "rbac", "acl", "middleware"]);
+
+function isWordChar(ch: string): boolean {
+  const code = ch.charCodeAt(0);
+  return (
+    (code >= 48 && code <= 57) ||
+    (code >= 65 && code <= 90) ||
+    (code >= 97 && code <= 122) ||
+    ch === "_"
+  );
+}
+
+function tokenizeLower(text: string): string[] {
+  const lower = text.toLowerCase();
+  const tokens: string[] = [];
+  let start = -1;
+  for (let i = 0; i < lower.length; i++) {
+    if (isWordChar(lower[i])) {
+      if (start === -1) start = i;
+    } else if (start !== -1) {
+      tokens.push(lower.slice(start, i));
+      start = -1;
+    }
+  }
+  if (start !== -1) tokens.push(lower.slice(start));
+  return tokens;
+}
+
+function hasAnyWord(tokens: ReadonlySet<string>, words: readonly string[], prefixes: readonly string[] = []): boolean {
+  for (const w of words) {
+    if (tokens.has(w)) return true;
+  }
+  if (prefixes.length > 0) {
+    for (const token of tokens) {
+      for (const prefix of prefixes) {
+        if (token.startsWith(prefix)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function hasAnyPhrase(lower: string, phrases: readonly string[]): boolean {
+  for (const phrase of phrases) {
+    let idx = lower.indexOf(phrase);
+    while (idx !== -1) {
+      const beforeOk = idx === 0 || !isWordChar(lower[idx - 1]);
+      const afterIdx = idx + phrase.length;
+      const afterOk = afterIdx >= lower.length || !isWordChar(lower[afterIdx]);
+      if (beforeOk && afterOk) return true;
+      idx = lower.indexOf(phrase, idx + 1);
+    }
+  }
+  return false;
+}
+
+function pathSegments(raw: string): string[] {
+  return raw.trim().replaceAll("\\", "/").toLowerCase().split("/").filter(Boolean);
+}
+
+function isManifestPath(raw: string): boolean {
+  const segs = pathSegments(raw);
+  const last = segs[segs.length - 1] ?? "";
+  return MANIFEST_NAMES.has(last);
+}
+
+function isSchemaPath(raw: string): boolean {
+  const segs = pathSegments(raw);
+  const last = segs[segs.length - 1] ?? "";
+  if (last === "schema.ts" || last.endsWith(".sql")) return true;
+  if (segs.includes("migration") || segs.includes("migrations")) return true;
+  return segs.length >= 2 && segs[segs.length - 2] === "prisma" && last === "schema.prisma";
+}
+
+function isAuthPath(raw: string): boolean {
+  for (const seg of pathSegments(raw)) {
+    const stem = seg.includes(".") ? seg.slice(0, seg.indexOf(".")) : seg;
+    if (AUTH_SEGMENTS.has(seg) || AUTH_SEGMENTS.has(stem)) return true;
+  }
+  return false;
+}
+
+function isInfraPath(raw: string): boolean {
+  const segs = pathSegments(raw);
+  const last = segs[segs.length - 1] ?? "";
+  return segs.includes(".github") || segs.includes("infra") || last.startsWith("dockerfile") || last.startsWith("docker-compose");
+}
+
+function mentionsAddLibrary(text: string): boolean {
+  const lower = text.toLowerCase();
+  const tokens = new Set(tokenizeLower(lower));
+  const hasVerb =
+    hasAnyWord(tokens, ["add", "install", "use", "adopt", "integrate", "pakai", "pake", "gunakan", "pasang", "install", "installkan", "tambah", "tambahkan", "integrasi", "integrasikan"]) ||
+    hasAnyPhrase(lower, ["switch to", "migrate to", "ganti ke"]);
+  if (!hasVerb) return false;
+  return hasAnyWord(tokens, ["library", "libraries", "package", "framework", "sdk", "dependency", "dependencies", "lib", "pustaka", "orm"]);
+}
+
+function mentionsAuth(command: string): boolean {
+  const lower = command.toLowerCase();
+  const tokens = new Set(tokenizeLower(lower));
+  const hasAuth =
+    hasAnyWord(tokens, [
+      "auth",
+      "authentication",
+      "authorization",
+      "login",
+      "oauth",
+      "sso",
+      "jwt",
+      "session",
+      "sessions",
+      "permission",
+      "permissions",
+      "rbac",
+      "otentikasi",
+      "autentikasi",
+    ]) || hasAnyPhrase(lower, ["log in", "log-in", "sign in", "sign-in", "sign up", "sign-up", "role based", "role-based", "hak akses"]);
+  if (!hasAuth) return false;
+  const uiOnly = hasAnyWord(tokens, ["typo", "warna", "color", "colour", "copy", "teks", "text", "label", "font", "spacing", "padding", "margin", "ikon", "icon", "tooltip", "placeholder"]);
+  return !uiOnly;
+}
+
+function mentionsArchSplit(command: string): { arch: boolean; split: boolean } {
+  const lower = command.toLowerCase();
+  const tokens = new Set(tokenizeLower(lower));
+  const split = hasAnyWord(tokens, ["microservice", "microservices", "split", "separate"], ["pisah"]);
+  const arch =
+    hasAnyWord(tokens, ["microservice", "microservices", "arsitektur", "architecture", "monorepo"]) ||
+    hasAnyPhrase(lower, ["service split", "separate services"]) ||
+    (split && hasAnyWord(tokens, ["service", "services", "layanan"]));
+  return { arch, split };
+}
 
 /** Deterministic architecture signals in a plan (the backstop). */
 export function detectArchitectureSignals(plan: ExecutionPlan, command: string): ArchitectureReason[] {
@@ -41,14 +162,15 @@ export function detectArchitectureSignals(plan: ExecutionPlan, command: string):
   const paths = writes.flatMap((s) => s.allowedPaths ?? []);
   const reasons = new Set<ArchitectureReason>();
   const text = `${command}\n${writes.map((s) => `${s.title} ${s.description}`).join("\n")}`;
-  if (paths.some((p) => MANIFEST.test(p)) && ADD_LIBRARY.test(text)) reasons.add("new_dependency");
+  if (paths.some(isManifestPath) && mentionsAddLibrary(text)) reasons.add("new_dependency");
   // Path evidence only: "tambah kolom tanggal di tabel" (UI table) is not a schema change.
-  if (paths.some((p) => SCHEMA_PATH.test(p))) reasons.add("schema_change");
-  if (paths.some((p) => AUTH_PATH.test(p)) || (AUTH_WORDS.test(command) && !UI_ONLY_WORDS.test(command))) {
+  if (paths.some(isSchemaPath)) reasons.add("schema_change");
+  if (paths.some(isAuthPath) || mentionsAuth(command)) {
     reasons.add("auth_boundary");
   }
   // A CI/Docker fix is DevOps's own decision; only a split/architecture change is flagged.
-  if (ARCH_SPLIT.test(command) && (paths.some((p) => INFRA_PATH.test(p)) || SPLIT_WORDS.test(command))) {
+  const splitInfo = mentionsArchSplit(command);
+  if (splitInfo.arch && (paths.some(isInfraPath) || splitInfo.split)) {
     reasons.add("infra_deploy");
   }
   return [...reasons];

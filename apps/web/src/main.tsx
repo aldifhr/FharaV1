@@ -7,6 +7,7 @@ import { ToastProvider } from "@/components/Toasts";
 import { NewProjectProvider } from "@/components/NewProject";
 import { SettingsProvider } from "@/components/Settings";
 import { ShellBackground } from "@/components/ui/background-snippets";
+import NotFound from "@/app/not-found";
 import { ThemeProvider } from "@/components/ui/theme-provider";
 import { SkulletProvider } from "skullet/react";
 import "../app/globals.css";
@@ -47,7 +48,7 @@ function App() {
                       const Page = module.default;
                       return <Route key={file} path={path} element={<Page />} />;
                     })}
-                    <Route path="*" element={<div className="p-8 text-ink">Page not found</div>} />
+                    <Route path="*" element={<NotFound />} />
                   </Routes>
                 </SettingsProvider>
               </NewProjectProvider>

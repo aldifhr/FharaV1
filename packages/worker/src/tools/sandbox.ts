@@ -8,6 +8,11 @@ export class SandboxError extends Error {
   }
 }
 
+/** A child whose name merely starts with ".." is not an escape; only a parent segment is. */
+function escapesWorkspace(rel: string): boolean {
+  return rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
+}
+
 /**
  * Lexical containment check. Every tool must resolve paths through this first.
  */
@@ -20,7 +25,7 @@ export function resolveSandboxPath(workspaceRoot: string, requested: string): st
   const resolved = path.resolve(resolvedRoot, normalized);
 
   const rel = path.relative(resolvedRoot, resolved);
-  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+  if (escapesWorkspace(rel)) {
     throw new SandboxError(
       `Path escapes workspace: "${requested}" -> "${resolved}" (root: ${resolvedRoot})`
     );
@@ -35,7 +40,7 @@ export function isWithinWorkspace(workspaceRoot: string, filepath: string): bool
   const root = path.resolve(workspaceRoot);
   const file = path.resolve(filepath);
   const rel = path.relative(root, file);
-  if (rel.startsWith("..") || path.isAbsolute(rel)) return false;
+  if (escapesWorkspace(rel)) return false;
   return true;
 }
 
@@ -125,7 +130,7 @@ export async function resolveWithinRootsAsync(
     // symlink (macOS `/var` → `/private/var`).
     const lexicalRoot = path.resolve(root);
     const rel = path.relative(lexicalRoot, resolved);
-    if (rel.startsWith("..") || path.isAbsolute(rel)) continue;
+    if (escapesWorkspace(rel)) continue;
     const realRoot = await realpathOrCurrent(lexicalRoot);
     const result = await resolveRealWithinRoot(realRoot, resolved);
     if (result.ok) return result;

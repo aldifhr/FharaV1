@@ -90,16 +90,14 @@ test("a double press calls the stop once; the button is busy meanwhile", async (
 
 const read = (rel) => readFileSync(path.join(import.meta.dirname, "../..", rel), "utf8");
 
-test("chat Stop calls chatReplies.stopReply with the in-flight user message; both chats pass it to the composer", () => {
+test("chat Stop calls chatReplies.stopReply with the in-flight user message; the chat passes it to the composer", () => {
   const hook = read("components/chat/useReplyStop.ts");
   assert.match(hook, /useMutation\(api\.chatReplies\.stopReply\)/);
   assert.match(hook, /stopReply\(\{ messageId: messageId as any \}\)/);
   assert.match(hook, /inFlightReply\(/);
-  for (const panel of ["components/ChatPanel.tsx", "components/chat/PersonalChatPanel.tsx"]) {
-    const src = read(panel);
-    assert.match(src, /useReplyStop\(timeline\)/, panel);
-    assert.match(src, /stop=\{replyStop\}/, panel);
-  }
+  const panel = read("components/ChatPanel.tsx");
+  assert.match(panel, /useReplyStop\(timeline\)/);
+  assert.match(panel, /stop=\{replyStop\}/);
   const composer = read("components/chat/ChatComposer.tsx");
   assert.match(composer, /onClick=\{stop\.onStop\}/);
   assert.match(composer, /disabled=\{stop\.stopping\}/);

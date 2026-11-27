@@ -1,35 +1,68 @@
 import { Link } from "@/lib/spaRouter";
+import { ArrowRight, Compass, Inbox, Search } from "lucide-react";
 
 /**
- * Unmatched URL or an explicit `notFound()` from a segment: the route exists in
- * the app but has nothing to show. Rendered inside the root layout, so it keeps
- * the app's theme and tokens. A missing page is not an error, so this offers no
- * retry — only a way back.
+ * Shown by the SPA's catch-all route in src/main.tsx for an unmatched URL.
+ * It renders inside the app's providers, so it keeps the theme and tokens. A
+ * missing page is not an error, so there is no retry — only a way back.
  */
+const destinations = [
+  { href: "/", label: "Overview", detail: "Your workspace at a glance", icon: Compass },
+  { href: "/search", label: "Search", detail: "Find a project, task, or agent", icon: Search },
+  { href: "/inbox", label: "Inbox", detail: "Approvals and what needs you", icon: Inbox },
+];
+
 export default function NotFound() {
   return (
-    <div className="flex h-dvh items-center justify-center bg-canvas p-6">
-      <div className="w-full max-w-sm rounded-xl border border-line bg-panel p-6 text-center shadow-sm">
-        <p className="font-mono text-xs text-ink-3">404</p>
-        <h1 className="mt-2 text-base font-semibold text-ink">This page doesn&apos;t exist</h1>
-        <p className="mt-2 text-sm text-ink-2">
-          The link may be out of date, or the item was deleted.
+    <main className="flex min-h-dvh items-center justify-center bg-canvas px-5 py-12 text-ink">
+      <div className="w-full max-w-lg">
+        <section className="rounded-panel border border-line bg-panel p-7 shadow-sm max-sm:p-5">
+          <span className="flex h-11 w-11 items-center justify-center rounded-field bg-brand-soft text-brand">
+            <Compass size={21} strokeWidth={1.6} aria-hidden="true" />
+          </span>
+
+          <div className="mt-6 flex items-end gap-3">
+            <p aria-hidden="true" className="font-mono text-[56px] font-semibold leading-none tracking-tight text-ink max-sm:text-[44px]">
+              404
+            </p>
+            <span className="mb-1.5 font-mono text-[11px] uppercase tracking-[0.16em] text-ink-3">Route not found</span>
+          </div>
+
+          <h1 className="mt-4 text-[22px] font-semibold tracking-tight">This page isn&apos;t here</h1>
+          <p className="mt-2 max-w-md text-[14px] leading-relaxed text-ink-2">
+            The link may be out of date, or the page may have moved. Nothing was lost — choose where to go next.
+          </p>
+
+          <nav aria-label="Suggested destinations" className="mt-7 border-t border-line pt-2">
+            <ul className="divide-y divide-line">
+              {destinations.map(({ href, label, detail, icon: Icon }) => (
+                <li key={href}>
+                  <Link
+                    href={href}
+                    className="group -mx-2 flex items-center gap-3 rounded-field px-2 py-2.5 outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-brand/40"
+                  >
+                    <Icon size={17} strokeWidth={1.6} className="shrink-0 text-ink-3 transition group-hover:text-brand" aria-hidden="true" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[14px] font-medium text-ink">{label}</span>
+                      <span className="block text-[12.5px] text-ink-3">{detail}</span>
+                    </span>
+                    <ArrowRight
+                      size={15}
+                      strokeWidth={1.6}
+                      className="shrink-0 text-ink-3 opacity-0 transition group-hover:translate-x-0.5 group-hover:text-brand group-hover:opacity-100 group-focus-visible:opacity-100"
+                      aria-hidden="true"
+                    />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        </section>
+
+        <p className="mt-5 text-center text-[12px] text-ink-3">
+          If this link came from somewhere else, let whoever shared it know it no longer works.
         </p>
-        <div className="mt-5 flex justify-center gap-2">
-          <Link
-            href="/chats"
-            className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-canvas outline-none hover:bg-ink/85 focus-visible:ring-2 focus-visible:ring-ink/50"
-          >
-            Back to chats
-          </Link>
-          <Link
-            href="/"
-            className="rounded-lg border border-line px-4 py-2 text-sm font-medium text-ink-2 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/40"
-          >
-            Home
-          </Link>
-        </div>
       </div>
-    </div>
+    </main>
   );
 }

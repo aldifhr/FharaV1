@@ -15,6 +15,7 @@ import { useMutation, useQuery } from "@fhara/runtime/react";
 import { useRouter } from "@/lib/spaRouter";
 import { api } from "@fhara/runtime/api";
 import { roleLabel } from "@/lib/agentRoles";
+import { resolveRoleKey } from "@/api/functions/lib/roles";
 import { skillInvocation, skillsUsedBy, slashMenuEntries } from "@/lib/slashMenu";
 import type { PermissionMode } from "@/api/functions/lib/permissionModes";
 import { useToast } from "../Toasts";
@@ -54,7 +55,7 @@ export function useProjectSlash({
     [allSkills, agents],
   );
 
-  const agentByRole = (...roles: string[]) => roles.map((r) => agents.find((a) => a.role === r)).find(Boolean);
+  const agentByRole = (...roles: string[]) => roles.map((key) => agents.find((a) => resolveRoleKey(a.role) === key)).find(Boolean);
 
   /** Slash commands. Returns true when the draft was handled. */
   const runSlash = async (text: string): Promise<boolean> => {

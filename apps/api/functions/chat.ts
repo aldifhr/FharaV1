@@ -52,6 +52,7 @@ import {
   MAX_HANDOFFS,
   parseStructuredReply,
   resolveHandoffTargets,
+  unmatchedHandoffRoles,
   type StructuredReply,
 } from "./lib/chat/handoff";
 import { actionableRouting, type RoutingClassification } from "./lib/chat/routingClassification";
@@ -1482,14 +1483,23 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
           });
           if (!structured) {
             await postRoleChoiceCard(ctx, { ...msgScope, agentId: agent._id as any, conversationId: args.conversationId, userMessageId: args.userMessageId });
-          } else {
-            if (result.messageId) {
-              await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
-                messageId: result.messageId,
-                handoff: structured.handoff,
-              });
-            }
-            for (const { agent: mentioned, instruction } of resolveHandoffTargets(structured.handoff, team, String(agent._id))) {
+            } else {
+              if (result.messageId) {
+                await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
+                  messageId: result.messageId,
+                  handoff: structured.handoff,
+                });
+              }
+              const unmatched = unmatchedHandoffRoles(structured.handoff, team);
+              if (unmatched.length) {
+                await ctx.runMutation(internal.chatContext.insertSystemLine, {
+                  projectId,
+                  conversationId: args.conversationId,
+                  replyToMessageId: args.userMessageId,
+                  content: `No teammate for ${unmatched.map((role) => roleLabel(role)).join(", ")} on this project's team.`,
+                });
+              }
+              for (const { agent: mentioned, instruction } of resolveHandoffTargets(structured.handoff, team, String(agent._id))) {
               if (handoffs >= MAX_HANDOFFS) break;
               if (answered.has(String(mentioned._id))) continue;
               if (queue.some((queued, index) => index > turn && String(queued._id) === String(mentioned._id))) continue;

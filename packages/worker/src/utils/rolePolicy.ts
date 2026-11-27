@@ -7,7 +7,7 @@
  * refuses a write, a command or a web call the role may not make, whatever
  * the row's `supportedTools` or prompt say.
  *
- * A custom role (not one of the nine, no alias) keeps what its declared
+ * A custom role (not one of the seven, no alias) keeps what its declared
  * tools allowed before plan 040 (`permissionsFromTools`).
  */
 import {

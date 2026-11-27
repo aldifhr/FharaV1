@@ -193,6 +193,9 @@ describe("O1: planning works without a CTO agent", () => {
     expect(conversationReplyCapability("kenapa query database lambat", team)).toBe("documentation-support");
     expect(conversationReplyCapability("hello", [cto, frontend])).toBe("frontend-development");
     expect(conversationReplyCapability("anything", team, "frontend")).toBe("frontend-development");
+    const custom = { _id: "cx", name: "Custom", role: "custom-role", capabilities: ["general"], isEnabled: true, priority: 10 } as AgentDefinition;
+    const docs = { _id: "dx", name: "Docs", role: "backend", capabilities: ["documentation-support"], isEnabled: true, priority: 1 } as AgentDefinition;
+    expect(conversationReplyCapability("anything", [custom, docs], "other-unknown")).toBe("documentation-support");
   });
 });
 

@@ -5,14 +5,14 @@
  * 1. The agent who answered the previous turn keeps the conversation.
  * 2. A validated classifier role picks the owner; an explicit named file picks
  *    the role that owns that file path.
- * 3. A question with no owner goes to the CTO, the conversational owner. The
- *    General/Researcher fallback chain only applies on a team without a CTO.
+ * 3. A question with no owner goes to the CTO, the conversational owner. On a
+ *    team without a CTO, any other teammate handles it.
  *
  * Pure; unit-tested in owner.test.ts.
  */
 import { previousResponder, type DispatchDomain } from "./dispatch";
 import { codeRoleForRequest } from "./intent";
-import { isCtoRole, normalizeRoleKey, resolveRoleKey } from "../roles";
+import { isCtoRole, resolveRoleKey } from "../roles";
 import type { RoutingClassification } from "./routingClassification";
 
 type Member = { _id: string; name: string; role: string };
@@ -29,12 +29,10 @@ export type ChatOwner<T extends Member> =
       via: "route" | "previous" | "files" | "fallback" | "llm";
     };
 
-/** The deterministic fallback owner: General, Researcher, then anyone but the CTO. */
+/** The deterministic fallback owner on a team without a CTO: any teammate. */
 export function fallbackOwner<T extends Member>(team: T[]): T | null {
   const notCto = team.filter((a) => !isCtoRole(a.role));
-  if (notCto.length === 0) return team[0] ?? null;
-  const named = (role: string) => notCto.find((a) => normalizeRoleKey(a.role) === role);
-  return named("general") ?? named("assistant") ?? named("researcher") ?? notCto[0];
+  return notCto[0] ?? team[0] ?? null;
 }
 
 export function resolveChatOwner<T extends Member>(input: {

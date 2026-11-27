@@ -43,15 +43,15 @@ export function pickPlannerModelSource(
 
 /**
  * The capability of the reply node of a conversation-only task: the routing
- * hint's role (chat already routed it, P1a), else the topic owner by the
- * chat domain rules, else the documentation owner (Backend: greetings and
- * how-to), else any enabled non-CTO role, else the CTO.
+ * hint's role (chat already routed it), else the documentation owner
+ * (Backend: greetings and how-to), else any enabled non-CTO role, else the CTO.
  */
 export function conversationReplyCapability(command: string, agents: AgentDefinition[], hintRole?: string): string {
   const enabled = agents.filter(isAgentEnabled);
   const firstCapability = (agent: AgentDefinition | undefined) => (agent ? capabilitiesOf(agent)[0] : undefined);
-  const hinted = hintRole
-    ? firstCapability(enabled.find((agent) => resolveRoleKey(agent.role ?? "") === resolveRoleKey(hintRole)))
+  const hintedKey = hintRole ? resolveRoleKey(hintRole) : null;
+  const hinted = hintedKey
+    ? firstCapability(enabled.find((agent) => resolveRoleKey(agent.role ?? "") === hintedKey))
     : undefined;
   if (hinted) return hinted;
   const docsOwner = enabled.find((agent) => capabilitiesOf(agent).includes(CAPABILITY.DOCUMENTATION));

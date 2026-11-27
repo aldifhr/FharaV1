@@ -31,6 +31,7 @@ import { recordAudit } from "./lib/recordAudit";
 import { FINISHED_TASK_STATUSES, worktreeCleanupBlocker } from "./lib/worktreeRetention";
 import { onTaskSettled } from "./prFeedback";
 import { onIssueTaskChanged } from "./issueIntake";
+import { isCtoRole } from "./lib/roles";
 import {
   autoApprovalDecision,
   normalizePermissionMode,
@@ -333,8 +334,6 @@ export const getRunContext = internalQuery({
     };
   },
 });
-
-const isCtoRole = (role: string | undefined) => /^cto$/i.test((role ?? "").trim());
 
 /**
  * Pick the global CTO as planner when the run's own agents have no

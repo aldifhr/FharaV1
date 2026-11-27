@@ -46,7 +46,7 @@ const ROLE_CAPABILITIES: Array<{ pattern: RegExp; capabilities: string[] }> = [
   },
   {
     pattern: /\b(support|documentation|docs|technical-writer|writer)\b/i,
-    capabilities: [...ROLES.cto.registryCapabilities],
+    capabilities: [...ROLES.backend.registryCapabilities],
   },
   {
     pattern: /\b(security|audit|pentest|appsec)\b/i,

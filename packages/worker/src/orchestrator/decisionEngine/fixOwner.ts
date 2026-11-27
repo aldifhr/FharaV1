@@ -100,7 +100,10 @@ export function decideFixOwner(
     : {};
   let node: PlanSubtask;
   if (facts.stage === "review") {
-    node = buildReviewFixSubtask({ iteration: n, findings: facts.findings, capability, order });
+    node = {
+      ...buildReviewFixSubtask({ iteration: n, findings: facts.findings, capability, order }),
+      ...scope,
+    };
   } else if (facts.stage === "qa") {
     node = {
       ...buildFixSubtask({

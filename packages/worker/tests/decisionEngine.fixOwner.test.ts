@@ -137,13 +137,13 @@ describe("decideFixOwner: who fixes", () => {
 });
 
 describe("decideFixOwner: the fix node", () => {
-  it("review: review_fix_<n>, no path scope, ordered after every node", () => {
+  it("review: review_fix_<n>, scoped to the owner's paths, ordered after every node", () => {
     const out = decide({ round: 0, maxRounds: 2 });
     if (out.kind !== "spawn_fix") throw new Error("expected spawn_fix");
     expect(out.nodes).toHaveLength(1);
     const [fix] = out.nodes;
     expect(fix).toMatchObject({ key: "review_fix_1", title: "Address review findings (iteration 1)", kind: "code_change", capability: "backend-development", order: 5, dependencies: [] });
-    expect(fix.allowedPaths).toBeUndefined();
+    expect(fix.allowedPaths).toEqual(["api/"]);
     expect(fix.description).toContain("bad api/server.ts");
   });
 

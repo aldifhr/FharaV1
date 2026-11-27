@@ -12,6 +12,10 @@ execution order and a definition of done.
 
 | Plan | Title | Priority | Size | Dependencies | State |
 | --- | --- | --- | --- | --- | --- |
+| 001 | [Chat role-assignment contract](001-chat-role-assignment-contract.md) | P1 | L | — | TODO (audit 2026-11-27: read-only role assigned to write work, keyword offer fallback, low-confidence double action) |
+| 002 | [Worker capability resolution contract](002-worker-capability-resolution-contract.md) | P2 | M | 001 | TODO (audit 2026-11-27: regex role table vs shared registry, three resolvers disagree) |
+| 003 | [Structured handoff and mention contract](003-structured-handoff-and-mention-contract.md) | P1 | L | 001 | TODO (audit 2026-11-27: CTO/Lead prompts contradict structured handoff; 17/19 handoff tests fail at HEAD) |
+| 004 | [Unowned-finding decision outcome](004-unowned-finding-decision-outcome.md) | P2 | M | — | TODO (audit 2026-11-27: non-budget BLOCKED reported as budget halt) |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

@@ -54,6 +54,7 @@ describe("capability routing", () => {
   it("infers capabilities from roles", () => {
     expect(capabilityForRole("QA Engineer")).toContain("browser-testing");
     expect(capabilityForRole("Security Auditor")).toContain("security-audit");
+    expect(capabilityForRole("Support")).toContain("documentation-support");
   });
 
   it("uses declared capabilities over role inference", () => {

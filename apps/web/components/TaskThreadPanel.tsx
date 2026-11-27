@@ -19,7 +19,7 @@ import TaskHoldNotice from "./TaskHoldNotice";
 import TaskQuestionCard from "./TaskQuestionCard";
 import SystemLineRow from "./chat/SystemLineRow";
 import CtoTurnLine from "./chat/CtoTurnLine";
-import { canReplyTo, systemLineText, threadBlockOf } from "@/lib/systemLine";
+import { canReplyTo, roleLabelForName, systemLineText, threadBlockOf } from "@/lib/systemLine";
 import { canRetryTask } from "@/lib/taskStatus";
 import { useToast } from "./Toasts";
 import { useSequencedEvents } from "@/lib/useSequencedEvents";
@@ -561,7 +561,7 @@ export default function TaskThreadPanel({
                 />
               ) : null;
             if (!open) return summaryRow;
-            const systemText = systemLineText(m);
+            const systemText = systemLineText(m, (name) => roleLabelForName(agents as any[], name));
             const row = systemText !== null ? (
               <SystemLineRow key={m._id} id={`thread-message-${m._id}`} text={systemText} time={timeOf(m._creationTime)} />
             ) : (

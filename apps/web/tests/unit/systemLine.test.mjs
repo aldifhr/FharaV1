@@ -5,6 +5,7 @@ import {
   heldStopReason,
   isSystemLine,
   legacyHandoffText,
+  roleLabelForName,
   systemLineText,
   threadBlockOf,
 } from "../../lib/systemLine.ts";
@@ -20,6 +21,19 @@ test("a legacy handoff line shows as Sent to X, in English and Indonesian", () =
   assert.equal(legacyHandoffText({ authorType: "agent", content: "Handing this to @Frontend for the frontend side." }), "Sent to Frontend");
   assert.equal(systemLineText({ authorType: "agent", content: "Saya serahkan ke @QA untuk pengecekan tes ini." }), "Sent to QA");
   assert.equal(canReplyTo({ authorType: "agent", content: "Handing this to @Frontend for the frontend side." }), false);
+});
+
+test("routing names resolve to role labels, never agent names", () => {
+  const agents = [{ _id: "a1", name: "Carmen", role: "qa" }];
+  const label = (name) => roleLabelForName(agents, name);
+  assert.equal(
+    systemLineText({ authorType: "agent", content: "Handing this to @Carmen for the check." }, label),
+    "Sent to QA"
+  );
+  assert.equal(
+    systemLineText({ authorType: "agent", voice: "system", content: "Sent to Carmen" }, label),
+    "Sent to QA"
+  );
 });
 
 test("ordinary replies stay ordinary and replyable", () => {

@@ -8,6 +8,7 @@
  * Pure, so tests/unit/systemLine.test.mjs can run it under node:test.
  */
 import { isSystemLine } from "@/api/functions/lib/systemLine";
+import { roleKeyForMention, roleLabel } from "@/api/functions/lib/roles";
 
 export { isSystemLine };
 
@@ -15,6 +16,14 @@ export { isSystemLine };
 const LEGACY_HANDOFF = /^(?:Handing this to @([\w.-]+) for [^\n]{1,160}\.|Saya serahkan ke @([\w.-]+) untuk [^\n]{1,160}\.)$/;
 
 type Row = { voice?: string | null; authorType?: string; content?: string | null };
+
+/** Resolve a name captured from a legacy handoff line to a role label, never an agent name. */
+export function roleLabelForName(agents: readonly { _id?: string; name?: string; role?: string }[] | undefined, name: string): string {
+  const key = roleKeyForMention(name);
+  if (key) return roleLabel(key);
+  const agent = agents?.find((entry) => entry.name === name || entry._id === name);
+  return agent?.role ? roleLabel(agent.role) : name;
+}
 
 /** "Sent to Backend" for a legacy handoff line, else null. */
 export function legacyHandoffText(row: Row, label: (name: string) => string = (name) => name): string | null {
@@ -29,7 +38,11 @@ export function legacyHandoffText(row: Row, label: (name: string) => string = (n
  * System lines show their own text; legacy handoff lines show "Sent to X".
  */
 export function systemLineText(row: Row, label?: (name: string) => string): string | null {
-  if (isSystemLine(row)) return (row.content ?? "").trim() || null;
+  if (isSystemLine(row)) {
+    const text = (row.content ?? "").trim();
+    const routed = /^Sent to ([^.]+)$/.exec(text);
+    return routed && label ? `Sent to ${label(routed[1]!.trim())}` : text || null;
+  }
   return legacyHandoffText(row, label);
 }
 

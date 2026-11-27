@@ -21,7 +21,7 @@ import { SectionLoading } from "@/app/WorkspaceContext";
 import { groupActivity, groupByIndex } from "@/lib/activityGroups";
 import ActivityGroupRow from "./ActivityGroupRow";
 import { useToast } from "../Toasts";
-import { NEUTRAL_MENTION_COLOR, ROLE_COLORS, roleKeyForMention } from "@/lib/agentRoles";
+import { normalizeRoleMentions } from "@/api/functions/lib/chat/roleMentions";
 import { QuotedSnippet, quoteOf } from "./QuoteBlock";
 import { ChatOpinionLine, useChatOpinions, useRequestMessageOpinion } from "../review/Reviewer";
 import ContextDrawer from "../context/ContextDrawer";
@@ -32,27 +32,6 @@ import { roleLabelForName, systemLineText } from "@/lib/systemLine";
 import HistoryBar from "./HistoryBar";
 import { CreateTaskButton, MessageActions, TaskCreatedLink } from "./MessageActions";
 import type { MessageHistory } from "@/lib/useMessageHistory";
-
-/** @Role chips for a reply's structured handoffs. Never parsed from `content`. */
-function HandoffLine({ handoff }: { handoff: Array<{ role: string; instruction: string }> }) {
-  if (!Array.isArray(handoff) || handoff.length === 0) return null;
-  return (
-    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-      {handoff.map((entry, index) => {
-        const key = roleKeyForMention(entry.role);
-        return (
-          <span
-            key={`${entry.role}-${index}`}
-            title={entry.instruction}
-            className={`rounded px-1 text-[12px] font-medium ${key ? ROLE_COLORS[key] : NEUTRAL_MENTION_COLOR}`}
-          >
-            @{roleLabel(entry.role)}
-          </span>
-        );
-      })}
-    </div>
-  );
-}
 
 /** References the reply cites that no repo check in it showed: one quiet line, never hidden. */
 const UNVERIFIED_SHOWN = 6;
@@ -116,7 +95,6 @@ type Props = {
   onCreateTaskFrom?: (messageId: string) => Promise<unknown>;
   /** "Reply": quote this message in the composer. */
   onReply?: (message: any) => void;
-  onChooseRole?: (agentId: string) => void;
   formatTime: (createdAt: number) => string;
   taskTitle: (taskId: string) => string;
   blockKey: (m: any) => string;
@@ -129,8 +107,8 @@ export default function MessageList(props: Props) {
     timeline, firstNewIndex, agents, tasks = [], subtasksOf, pendingItems, projectEvents = [],
     projectApprovalMode, loading = false, showActivityGroups = true, chatSending,
     conversationTyping, typingAgent, scrollRef, scrollToMessageRef,
-  onSelectTask, approve, reject, hold, respond, togglePin, onPickProposal, onCreateTaskFrom, onReply, onChooseRole, formatTime, taskTitle, blockKey, history,
-} = props;
+    onSelectTask, approve, reject, hold, respond, togglePin, onPickProposal, onCreateTaskFrom, onReply, formatTime, taskTitle, blockKey, history,
+  } = props;
 
   const listRef = useRef<HTMLDivElement>(null);
   // Reviewer second opinions on chat replies (one subscription per chat).
@@ -187,10 +165,9 @@ export default function MessageList(props: Props) {
       pendingApprovals: pendingItems,
       approvalMode: projectApprovalMode,
       onOpenTask: onSelectTask,
-      onChooseRole,
       surface: "project-chat" as const,
     }),
-    [agents, tasks, subtasksOf, pendingItems, projectApprovalMode, onSelectTask, onChooseRole]
+    [agents, tasks, subtasksOf, pendingItems, projectApprovalMode, onSelectTask]
   );
   // Tasks whose QA reports as a card: the older event-derived QA panel
   // would show the same checks twice.
@@ -534,8 +511,7 @@ export default function MessageList(props: Props) {
               </div>
               {hasText && (
                 <div className="mt-1 w-fit min-w-0 max-w-[min(100%,48rem)] rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-2.5 text-ink">
-                  <MessageText content={parseOptions(m.content).text} isAnimating={live || (conversationTyping && index === timeline.length - 1)} />
-                  <HandoffLine handoff={m.handoff} />
+                  <MessageText content={normalizeRoleMentions(parseOptions(m.content).text, routeRole || undefined)} isAnimating={live || (conversationTyping && index === timeline.length - 1)} />
                 </div>
               )}
               {!live && hasText && (
@@ -588,13 +564,10 @@ export default function MessageList(props: Props) {
               )}
               <div className="mt-1 w-fit min-w-0 max-w-[min(100%,48rem)] rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-2.5 text-ink">
                 {hasText ? (
-                  <>
-                    <MessageText
-                      content={parseOptions(m.content).text}
-                      isAnimating={isLive(m) || (conversationTyping && index === timeline.length - 1)}
-                    />
-                    <HandoffLine handoff={m.handoff} />
-                  </>
+                  <MessageText
+                    content={normalizeRoleMentions(parseOptions(m.content).text, routeRole || undefined)}
+                    isAnimating={isLive(m) || (conversationTyping && index === timeline.length - 1)}
+                  />
                 ) : (
                   <ReasoningLine text={m.reasoning} running={isLive(m)} seconds={m.reasoningDurationMs} />
                 )}

@@ -18,7 +18,17 @@
         "decidedBy": "deterministic",
         "planVersion": 1,
         "step": 0,
-        "expectedOutcome": "objective:met"
+        "expectedOutcome": "objective:met",
+        "trace": {
+          "at": 0,
+          "stage": "decide",
+          "choice": "complete",
+          "source": "fast-path",
+          "reasonCode": "DECISION_COMPLETE",
+          "decisionId": "dec_task-1_0",
+          "promptVersion": "v1",
+          "schemaVersion": "1"
+        }
       }
     },
     "subtask.routed",
@@ -36,7 +46,17 @@
         "decidedBy": "deterministic",
         "planVersion": 1,
         "step": 1,
-        "expectedOutcome": "objective:met"
+        "expectedOutcome": "objective:met",
+        "trace": {
+          "at": 0,
+          "stage": "decide",
+          "choice": "complete",
+          "source": "fast-path",
+          "reasonCode": "DECISION_COMPLETE",
+          "decisionId": "dec_task-1_1",
+          "promptVersion": "v1",
+          "schemaVersion": "1"
+        }
       }
     },
     {
@@ -77,7 +97,17 @@
         "decidedBy": "deterministic",
         "planVersion": 1,
         "step": 2,
-        "expectedOutcome": "objective:met"
+        "expectedOutcome": "objective:met",
+        "trace": {
+          "at": 0,
+          "stage": "decide",
+          "choice": "complete",
+          "source": "fast-path",
+          "reasonCode": "DECISION_COMPLETE",
+          "decisionId": "dec_task-1_2",
+          "promptVersion": "v1",
+          "schemaVersion": "1"
+        }
       }
     },
     "fileChanges.applied",

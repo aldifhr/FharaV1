@@ -12,7 +12,7 @@ const GREETING = /^(hi|hello|hey|halo|hai|yo|good (morning|afternoon|evening))[!
 // "buatkan", "bikinin", "ubahlah" must match like their bare stems.
 const ID_SUFFIX = "(?:kan|lah|in|nya|kanlah)?";
 const CHANGE_VERB = new RegExp(
-  "\\b(add|create|build|implement|make|update|edit|fix|change|refactor|refaktor|remove|delete|rename|move|style|redesign|" +
+  "\\b(add|create|build|implement|make|write|update|edit|fix|change|refactor|refaktor|remove|delete|rename|move|style|redesign|" +
     `(?:tambah|buat|bikin|ubah|perbaiki|perbaik|hapus|pasang|sesuaikan|ganti|pindah|pisah|rapi|perbarui)${ID_SUFFIX}|` +
     "migrate|convert|scaffold|porting|port|setup|install|konversi|switch|ganti ke|pindah ke|too slow|should switch|switch to|postgres)\\b",
   "i"

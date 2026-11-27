@@ -1091,6 +1091,16 @@
       "max": 20
     },
     {
+      "name": "ORCHESTRATOR_SEMANTIC_CLASSIFIER",
+      "type": "bool",
+      "group": "policy",
+      "runtimes": [
+        "worker"
+      ],
+      "doc": "Use the LLM semantic classifier with regex fast path and read-only fallback (plan 085).",
+      "default": "false"
+    },
+    {
       "name": "ORCHESTRATOR_REVIEW_MODE",
       "type": "enum",
       "group": "policy",

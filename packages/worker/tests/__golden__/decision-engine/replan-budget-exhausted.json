@@ -16,7 +16,17 @@
         "decidedBy": "deterministic",
         "planVersion": 1,
         "step": 0,
-        "expectedOutcome": "recovery"
+        "expectedOutcome": "recovery",
+        "trace": {
+          "at": 0,
+          "stage": "decide",
+          "choice": "replan",
+          "source": "fast-path",
+          "reasonCode": "DECISION_REPLAN",
+          "decisionId": "dec_task-1_0",
+          "promptVersion": "v1",
+          "schemaVersion": "1"
+        }
       }
     },
     "budget.exhausted"

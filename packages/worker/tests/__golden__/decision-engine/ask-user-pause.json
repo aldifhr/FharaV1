@@ -18,7 +18,17 @@
         "decidedBy": "llm",
         "planVersion": 1,
         "step": 0,
-        "expectedOutcome": null
+        "expectedOutcome": null,
+        "trace": {
+          "at": 0,
+          "stage": "decide",
+          "choice": "ask_user",
+          "source": "llm",
+          "reasonCode": "DECISION_ASK_USER",
+          "decisionId": "d-ask",
+          "promptVersion": "v1",
+          "schemaVersion": "1"
+        }
       }
     }
   ],

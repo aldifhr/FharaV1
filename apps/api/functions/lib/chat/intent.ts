@@ -6,11 +6,11 @@
 
 import { isSystemLine } from "../systemLine";
 import { backendWordPattern } from "../backendDomain";
-import type { DispatchDomain } from "./dispatch";
 import { detectChatRunCommands, explicitRunCommand } from "./runRequest";
 import { findBuiltinSlash } from "../slashCommands";
 import { isPoliteWriteRequest } from "./offerBrief";
 import type { RoutingHint } from "../routingHint";
+import { parseRoutingClassification, type RoutingClassification } from "./routingClassification";
 
 // Platform rule for chat dispatch: questions, advice and analysis never
 // become tasks.
@@ -155,15 +155,8 @@ export type IntentSubtype =
   | "other";
 
 /** Suggested teammate for an ASK message. Advisory: validated against the live team before use. */
-export interface IntentRoute {
-  domain: DispatchDomain;
-  agentId: string;
-  confidence: number;
-  reasoning: string;
-}
-
 export interface IntentRoutingContext {
-  domains: readonly DispatchDomain[];
+  roles: readonly string[];
   team: Array<{ _id: string; name: string; role: string }>;
 }
 
@@ -175,26 +168,8 @@ export interface IntentResult {
   target?: string;
   confidence: number;
   reasoning: string;
-  route?: IntentRoute;
-}
-
-const ROUTE_MIN_CONFIDENCE = 0.6;
-
-function parseIntentRoute(value: unknown, routing?: IntentRoutingContext): IntentRoute | undefined {
-  if (!routing || typeof value !== "object" || value === null) return undefined;
-  const candidate = value as Partial<IntentRoute>;
-  if (typeof candidate.domain !== "string" || !routing.domains.includes(candidate.domain as DispatchDomain)) return undefined;
-  if (typeof candidate.agentId !== "string") return undefined;
-  if (!routing.team.some((member) => String(member._id) === candidate.agentId)) return undefined;
-  if (typeof candidate.confidence !== "number" || !Number.isFinite(candidate.confidence)) return undefined;
-  const confidence = Math.max(0, Math.min(1, candidate.confidence));
-  if (confidence < ROUTE_MIN_CONFIDENCE) return undefined;
-  return {
-    domain: candidate.domain as DispatchDomain,
-    agentId: candidate.agentId,
-    confidence,
-    reasoning: typeof candidate.reasoning === "string" ? candidate.reasoning.slice(0, 300) : "",
-  };
+  /** Structured owner decision from the same classifier call, never parsed from text. */
+  owner?: RoutingClassification;
 }
 
 const INTENT_SUBTYPES: IntentSubtype[] = [
@@ -208,6 +183,7 @@ export function parseIntentResult(raw: string, routing?: IntentRoutingContext): 
   if (!json) return null;
   try {
     const o = JSON.parse(json[0]) as Partial<IntentResult>;
+    const owner = parseRoutingClassification((o as Record<string, unknown>).owner);
     if (o.intent !== "ask" && o.intent !== "task") return null;
     const subtype: IntentSubtype = INTENT_SUBTYPES.includes(o.subtype as IntentSubtype)
       ? (o.subtype as IntentSubtype)
@@ -222,7 +198,7 @@ export function parseIntentResult(raw: string, routing?: IntentRoutingContext): 
       target: typeof o.target === "string" ? o.target : undefined,
       confidence: o.confidence,
       reasoning: typeof o.reasoning === "string" ? o.reasoning : "",
-      route: parseIntentRoute(o.route, routing),
+      ...(owner ? { owner } : {}),
     };
   } catch {
     return null;

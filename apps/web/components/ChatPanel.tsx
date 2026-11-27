@@ -298,9 +298,9 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   const targetAgent = agents.find((a) => a._id === targetId);
 
   const mentions = useDraftMentions(draft, setDraft, project, projectFiles, agents);
-  const recipientsFor = (content: string): string[] | undefined => {
-    const mentioned = mentions.mentionedAgentIds(content);
-    if (mentioned.length) return mentioned;
+  const recipientsFor = (_content?: string): string[] | undefined => {
+    // Only ids picked from the mention list; never parsed out of the text.
+    if (mentions.mentionedIds.length) return mentions.mentionedIds;
     return targetId ? [targetId] : undefined;
   };
   const queue = useChatQueue(
@@ -315,12 +315,29 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
     (message) => setChatError(message),
   );
 
-  const clearDraft = () => { setDraft(""); mentions.setMention(null); return true; };
+  const clearDraft = () => { setDraft(""); mentions.clearMentions(); return true; };
   const addToQueue = async (composed?: string) => {
     const text = (composed ?? draft).trim();
     if (!text) return false;
     queue.add(await mentions.attachMentionedFiles(text));
     return clearDraft();
+  };
+
+  // Role-choice cards send the picked agent id as structured recipient data.
+  const chooseRoleAgent = async (agentId: string) => {
+    const agent = agents.find((a: any) => String(a._id) === String(agentId));
+    if (!agent) return;
+    try {
+      await sendMessage({
+        projectId: projectId as any,
+        content: `Yes, ${roleLabel(agent.role)} should handle this request.`,
+        preferredAgentIds: [agent._id as any],
+        permissionMode,
+        ...(modelChoice ? { preferredModelRowId: modelChoice as never } : {}),
+      });
+    } catch (err) {
+      setChatError(err instanceof Error ? err.message : "Failed to send the role choice");
+    }
   };
 
   const handleChooseProposal = async (choice: string) => {
@@ -365,8 +382,8 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
       })),
       at,
     );
-    // The server adds the offer's assignee, its hint and CTO/Reviewer/QA (lib/taskPool.ts).
-    const assignees = mentions.mentionedAgentIds(reply.content);
+    // The server already resolved the offer's assignee; no text parsing.
+    const assignees = reply.taskOffer?.assigneeAgentId ? [reply.taskOffer.assigneeAgentId] : [];
     try {
       const taskId = await createTask({
         projectId: projectId as never,
@@ -449,7 +466,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
   // Show a teammate as drafting only when the recipient is identifiable.
   // An unaddressed team message is routed by the backend, so don't mark every
   // agent as thinking while that route is still unknown to the client.
-  const mentionedDraftIds = conversationTyping ? mentions.mentionedAgentIds(lastMessage?.content ?? "") : [];
+  const mentionedDraftIds = conversationTyping ? (lastMessage?.replyOptions?.preferredAgentIds ?? []) : [];
   const mentionedDraftAgent = mentionedDraftIds.length
     ? agents.find((agent: any) => agent._id === mentionedDraftIds[0])
     : undefined;
@@ -654,6 +671,7 @@ export default function ChatPanel({ projectId, tab, setTab, onSelectTask, onOpen
             respond={(approvalId, decision) => respondCommand({ approvalId: approvalId as any, decision, ...boundTo(approvalId) })}
             togglePin={(messageId, pinned) => void togglePin({ messageId: messageId as never, pinned })}
             onPickProposal={(choice) => void handleChooseProposal(choice)}
+            onChooseRole={(agentId) => void chooseRoleAgent(agentId)}
             onCreateTaskFrom={createTaskFromMessage}
             onReply={(m) => setQuote(quoteOf(m, agents))}
             formatTime={formatMessageTime}

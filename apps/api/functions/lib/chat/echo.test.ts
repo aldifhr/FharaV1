@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import { streamEchoSafe, stripLeadingEcho, type EchoContext } from "./echo";
-import { isHandoffLine } from "./dispatch";
 
 const EN_LINE = "Handing this to @Frontend for the frontend side.";
 const ID_LINE = "Saya serahkan ke @QA untuk pengecekan tes ini.";
@@ -105,35 +104,5 @@ describe("streamEchoSafe", () => {
   test("a speaker label followed by new text streams without the label", () => {
     expect(streamEchoSafe("CTO: I think", frontend)).toBe("I think");
     expect(streamEchoSafe("**CTO:** I think", frontend)).toBe("I think");
-  });
-});
-
-describe("isHandoffLine", () => {
-  test("matches only the fixed handoff copy", () => {
-    expect(isHandoffLine(EN_LINE)).toBe(true);
-    expect(isHandoffLine(ID_LINE)).toBe(true);
-    expect(isHandoffLine("Handing this to @Reviewer for a code audit of `parseConfig`.")).toBe(true);
-    expect(isHandoffLine(`${EN_LINE}\nAlso, HTML is markup.`)).toBe(false);
-    expect(isHandoffLine("HTML is markup.")).toBe(false);
-  });
-});
-
-describe("buildChatMessages drops the CTO's handoff line", () => {
-  test("a routed turn's handoff line is not a transcript line for the specialist", async () => {
-    const { buildChatMessages } = await import("../prompts/chat");
-    const msgs = buildChatMessages(
-      [
-        { authorType: "user", content: "can you ask frontend, what is html" },
-        { authorType: "agent", agentId: "cto", content: EN_LINE },
-        { authorType: "agent", agentId: "fe", content: "HTML is markup." },
-        { authorType: "user", content: "and css?" },
-      ],
-      { selfAgentId: "fe", nameOf: (id) => (id === "cto" ? "CTO" : id === "fe" ? "Frontend" : undefined) }
-    );
-    expect(msgs).toEqual([
-      { role: "user", content: "can you ask frontend, what is html" },
-      { role: "assistant", content: "HTML is markup." },
-      { role: "user", content: "and css?" },
-    ]);
   });
 });

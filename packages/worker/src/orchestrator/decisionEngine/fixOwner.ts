@@ -133,7 +133,7 @@ export function decideFixOwner(
 /**
  * Fix owner candidate for QA findings: the UI owner (a frontend/design
  * code_change) is preferred; otherwise the shared pickFixOwner (longest
- * allowedPaths prefix, last code_change). Same rule `decideFixOwner`
+ * allowedPaths prefix). No path match means no owner, never a guess. Same rule `decideFixOwner`
  * applies for stage "qa" through `ownerForFix({ prefer })`.
  */
 export function pickQaFixOwner(

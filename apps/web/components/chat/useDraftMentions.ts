@@ -15,6 +15,8 @@ export function useDraftMentions(
   agents: Array<{ _id: string; name: string; role: string }> = []
 ) {
   const [mention, setMention] = useState<string | null>(null);
+  /** Agent ids picked from the mention list, sent as structured recipients. */
+  const [mentionedIds, setMentionedIds] = useState<string[]>([]);
   const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
 
   useEffect(() => {
@@ -92,11 +94,10 @@ export function useDraftMentions(
     return full.length > 8000 ? `${full.slice(0, 8000)}\n…[truncated]` : full;
   };
 
-  /** Agent ids mentioned in the text (`@CTO`, `@Frontend`, …). */
-  const mentionedAgentIds = (text: string): string[] =>
-    agents
-      .filter((a) => new RegExp(`@${escapeRegExp(roleLabel(a.role))}\\b`, "i").test(text))
-      .map((a) => a._id);
+  const clearMentions = () => {
+    setMention(null);
+    setMentionedIds([]);
+  };
 
   const insert = (path: string) => {
     const at = draft.lastIndexOf("@");
@@ -109,6 +110,7 @@ export function useDraftMentions(
     const at = draft.lastIndexOf("@");
     const before = draft.slice(0, at);
     setDraft(`${before}@${roleLabel(agent.role)} `);
+    setMentionedIds((ids) => (ids.includes(agent._id) ? ids : [...ids, agent._id]));
     setMention(null);
   };
 
@@ -127,12 +129,9 @@ export function useDraftMentions(
     agentResults,
     insert,
     insertAgent,
-    mentionedAgentIds,
+    mentionedIds,
+    clearMentions,
     handleInput,
     attachMentionedFiles,
   };
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

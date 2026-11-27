@@ -163,11 +163,11 @@ describe("routed Reviewer audits with its own prompt and the repo tools", () => 
     expect(callsBy("Reviewer").some((c) => toolResults(c) > 0)).toBe(true);
   });
 
-  test("routedAnswerSubtype: review/security → audit; implementation → explanation; others kept", () => {
-    expect(routedAnswerSubtype("reviewer", "implementation")).toBe("audit");
-    expect(routedAnswerSubtype("security", "research")).toBe("audit");
-    expect(routedAnswerSubtype("qa", "implementation")).toBe("explanation");
-    expect(routedAnswerSubtype("qa", "testing")).toBe("testing");
+  test("routedAnswerSubtype: audit → audit; implementation → explanation; others kept", () => {
+    expect(routedAnswerSubtype("audit", "implementation")).toBe("audit");
+    expect(routedAnswerSubtype("research", "implementation")).toBe("explanation");
+    expect(routedAnswerSubtype("verification", "implementation")).toBe("explanation");
+    expect(routedAnswerSubtype("verification", "testing")).toBe("testing");
   });
 
   test("a specialist with repo tools is never told an audit needs a task", () => {

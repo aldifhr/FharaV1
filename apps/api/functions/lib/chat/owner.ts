@@ -2,20 +2,18 @@
  * Who answers a project chat message nobody was @mentioned in. System
  * routes, deterministically (no LLM chooser):
  *
- * 1. routeQuestion (dispatch.ts): a short status question → a System status
- *    line (no LLM); else the agent who answered the previous turn (a CTO
- *    deflection reply is skipped, plan 062); else a greeting / short how-to →
- *    Support, planning → CTO, or the role that owns the topic.
- * 2. The request names files of one code role ("ultimate.html" → Frontend).
- * 3. A question no topic domain owns → the CTO, the conversational owner: it
- *    answers or hands off (plan 062). The Support/General fallback chain only
- *    applies on a team without a CTO.
+ * 1. The agent who answered the previous turn keeps the conversation.
+ * 2. A validated classifier role picks the owner; an explicit named file picks
+ *    the role that owns that file path.
+ * 3. A question with no owner goes to the CTO, the conversational owner. The
+ *    General/Researcher fallback chain only applies on a team without a CTO.
  *
  * Pure; unit-tested in owner.test.ts.
  */
-import { routeQuestion, type DispatchDomain } from "./dispatch";
+import { previousResponder, type DispatchDomain } from "./dispatch";
 import { codeRoleForRequest } from "./intent";
-import { normalizeRoleKey } from "../roles";
+import { isCtoRole, normalizeRoleKey, resolveRoleKey } from "../roles";
+import type { RoutingClassification } from "./routingClassification";
 
 type Member = { _id: string; name: string; role: string };
 type Row = { authorType: string; content: string; agentId?: string; voice?: string };
@@ -25,46 +23,49 @@ export type ChatOwner<T extends Member> =
   | {
       kind: "agent";
       agent: T;
-      /** The topic domain when routeQuestion matched one. */
-      domain: DispatchDomain | null;
+      /** The validated classifier kind, when one owns the message. */
+      domain: DispatchDomain;
       topic?: string;
       via: "route" | "previous" | "files" | "fallback" | "llm";
     };
 
-const CTO_ROLE = /^(?:cto|architect)$/i;
-
-/** The deterministic fallback owner: Support, General, Researcher, then anyone but the CTO. */
+/** The deterministic fallback owner: General, Researcher, then anyone but the CTO. */
 export function fallbackOwner<T extends Member>(team: T[]): T | null {
-  const notCto = team.filter((a) => !CTO_ROLE.test(a.role.trim()));
+  const notCto = team.filter((a) => !isCtoRole(a.role));
   if (notCto.length === 0) return team[0] ?? null;
-  return (
-    notCto.find((a) => /^support/i.test(a.role)) ??
-    notCto.find((a) => /^(general|assistant)/i.test(a.role)) ??
-    notCto.find((a) => /^researcher/i.test(a.role)) ??
-    notCto[0]
-  );
+  const named = (role: string) => notCto.find((a) => normalizeRoleKey(a.role) === role);
+  return named("general") ?? named("assistant") ?? named("researcher") ?? notCto[0];
 }
 
 export function resolveChatOwner<T extends Member>(input: {
   text: string;
   team: T[];
   history: Row[];
-  repoToolsAvailable: boolean;
+  repoToolsAvailable?: boolean;
+  routing?: RoutingClassification | null;
 }): ChatOwner<T> | null {
   const { team } = input;
   if (team.length === 0) return null;
-  const route = routeQuestion({ text: input.text, team, history: input.history, repoToolsAvailable: input.repoToolsAvailable });
-  if (route.kind === "status") return { kind: "status" };
-  if (route.kind === "specialist") {
-    return { kind: "agent", agent: route.agent, domain: route.domain, topic: route.topic, via: route.followUp ? "previous" : "route" };
+  const prev = previousResponder(input.history, team);
+  if (prev) return { kind: "agent", agent: prev, domain: null, via: "previous" };
+  if (input.routing?.role) {
+    const owner = team.find((a) => resolveRoleKey(a.role) === input.routing!.role && !isCtoRole(a.role));
+    if (owner) {
+      return {
+        kind: "agent",
+        agent: owner,
+        domain: input.routing.kind,
+        ...(input.routing.files[0] ? { topic: input.routing.files[0] } : {}),
+        via: "route",
+      };
+    }
   }
   const byFiles = codeRoleForRequest(input.text);
-  const fileOwner = byFiles ? team.find((a) => normalizeRoleKey(a.role) === byFiles) : undefined;
+  const fileOwner = byFiles ? team.find((a) => resolveRoleKey(a.role) === byFiles) : undefined;
   if (fileOwner) return { kind: "agent", agent: fileOwner, domain: null, via: "files" };
-  // Plan 062: a question no topic domain owns is the CTO's — it answers or
-  // hands off. Without a CTO on the team, the old conversational fallback.
-  const cto = team.find((a) => CTO_ROLE.test(a.role.trim()));
-  if (cto) return { kind: "agent", agent: cto, domain: "architecture", via: "route" };
+  // A question with no owner goes to the CTO, which answers or hands off.
+  const cto = team.find((a) => isCtoRole(a.role));
+  if (cto) return { kind: "agent", agent: cto, domain: null, via: "route" };
   const fallback = fallbackOwner(team);
   return fallback ? { kind: "agent", agent: fallback, domain: null, via: "fallback" } : null;
 }

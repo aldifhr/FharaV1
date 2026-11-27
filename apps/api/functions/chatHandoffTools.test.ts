@@ -8,8 +8,7 @@ import {
   TOOL_BUDGET_EXHAUSTED,
   createRepoToolBudget,
 } from "./lib/chat/repoTools";
-import { isVerificationRequest } from "./lib/chat/team";
-import { SELF_VERIFY_LINE, buildHandoffGuidance } from "./lib/prompts/chat";
+import { SELF_VERIFY_LINE, STRUCTURED_REPLY_SYSTEM, buildHandoffGuidance } from "./lib/prompts/chat";
 
 /**
  * Teammates the CTO hands off to (and agents the user @mentions) get the
@@ -35,6 +34,17 @@ vi.mock("./lib/chat/llm", () => ({
   ) => {
     const call = { system, msgs: msgs.map((m) => ({ ...m, content: m.content.replace(/\n\nCurrent time: [^\n]*$/, "") })) /* D4: drop the time tail */ };
     calls.push(call);
+    if (system.includes(STRUCTURED_REPLY_SYSTEM.slice(0, 40))) {
+      const previous = [...calls].reverse().find((c) => !c.system.includes(STRUCTURED_REPLY_SYSTEM.slice(0, 40)));
+      const prose = previous ? reply(previous) : "";
+      const roles = ["frontend", "backend", "qa", "designer", "devops", "lead"];
+      const handoff = roles
+        .filter((role) => prose.toLowerCase().includes(`@${role}`))
+        .map((role) => ({ role, instruction: prose.slice(0, 120) }));
+      const content = JSON.stringify({ message: prose, handoff });
+      onChunk?.({ content, reasoning: "" });
+      return { content, reasoning: "", reasoningDurationMs: 0 };
+    }
     const content = reply(call);
     onChunk?.({ content, reasoning: "" });
     return { content, reasoning: "", reasoningDurationMs: 0 };
@@ -157,13 +167,13 @@ describe("handoff teammates get repo tools", () => {
       if (who === "CTO") return results === 0 ? GREP : "Tabel ada di schema.ts. @Backend tolong cek index users. @QA tolong cek cakupan tesnya.";
       return `${who} sudah meninjau bagiannya.`;
     };
-    const replies = await ask(t, projectId, "@CTO tabel apa saja di schema dan apakah index users sudah benar?");
+    const replies = await ask(t, projectId, "@CTO tabel apa saja di schema dan apakah index users sudah benar?", [ctoId]);
     expect(replies.map((r) => r.agentId)).toEqual([ctoId, backendId, qaId]);
-    expect(callsBy("Backend")[0].system).toContain("brought you into this chat with an @mention");
+    expect(callsBy("Backend")[0].system).toContain("brought you into this chat with a handoff");
     expect(callsBy("QA")[0].system).toContain("What the CTO asked you");
     expect(replies[0].toolSteps?.some((s: any) => s.tool === "handoff")).toBe(true);
     expect(callsBy("CTO")[0].system).toContain(SELF_VERIFY_LINE);
-    expect(callsBy("CTO")[0].system).toContain("DOES bring that teammate into this chat");
+    expect(callsBy("CTO")[0].system).toContain("recorded separately as a handoff");
     expect(queued.count).toBe(1);
   });
 
@@ -173,7 +183,7 @@ describe("handoff teammates get repo tools", () => {
       speaker(call) === "CTO"
         ? 'Mau yang mana?\n[options]\nA|Sheet|3 tiers|sheet\nB|Cards|Big|bold\n[/options]\n@Backend tolong cek'
         : "should not run";
-    const replies = await ask(t, projectId, "@CTO kasih 2 opsi layout pricing");
+    const replies = await ask(t, projectId, "@CTO kasih 2 opsi layout pricing", [ctoId]);
     expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
   });
 
@@ -223,37 +233,20 @@ describe("shared repo tool budget", () => {
   });
 });
 
-describe("tools off: no verification handoff", () => {
-  test("the CTO is told teammates have no access either, and a check/verify handoff is dropped", async () => {
-    const { t, projectId, ctoId } = await setup({ worker: "none" });
-    reply = () =>
-      "Daftar tabel belum saya cek. @QA tolong verifikasi daftar tabel secara literal. @Backend tolong cek nama fungsinya.";
-    const replies = await ask(t, projectId, "@CTO sebutkan tabel dan nama fungsi di schema");
-    expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
-    expect(calls).toHaveLength(1);
-    expect(calls[0].system).toContain("do not @mention teammates to check, verify, or grep code");
-    expect(calls[0].system).toContain("suggest restarting the worker or setting the project folder (reason: no online worker)");
-    expect(calls[0].system).not.toContain(SELF_VERIFY_LINE);
-    // A verify/check handoff is dropped when teammates have no repo access.
-    expect(replies[0].reasoning ?? "").toContain("Handoff skipped (@QA, @Backend)");
-    expect(queued.count).toBe(0);
-  });
-
-  test("a specialty-opinion @mention in the CTO's reply is a handoff even with repo tools off", async () => {
+describe("tools off: structured handoff still reaches the teammate", () => {
+  test("a specialty-opinion handoff arrives even with repo tools off", async () => {
     const { t, projectId, ctoId, backendId } = await setup({ worker: "none" });
     reply = (call) => (speaker(call) === "CTO" ? "Belum saya cek. @Backend beri pendapat soal desain tabel log." : "Pendapat Backend: pakai tabel append-only.");
-    const replies = await ask(t, projectId, "@CTO desain tabel log bagusnya gimana?");
+    const replies = await ask(t, projectId, "@CTO desain tabel log bagusnya gimana?", [ctoId]);
     expect(replies.map((r) => r.agentId)).toEqual([ctoId, backendId]);
-    expect(calls).toHaveLength(2);
+    expect(callsBy("CTO")).toHaveLength(1);
+    expect(callsBy("Backend")).toHaveLength(1);
+    expect(callsBy("CTO")[0].system).toContain("do not @mention teammates to check, verify, or grep code");
+    expect(callsBy("CTO")[0].system).toContain("suggest restarting the worker or setting the project folder (reason: no online worker)");
+    expect(callsBy("CTO")[0].system).not.toContain(SELF_VERIFY_LINE);
   });
 
-  test("verification wording and guidance lines", () => {
-    for (const text of ["@QA tolong cek tabelnya", "@QA verifikasi nama fungsi", "@Backend periksa schema", "@QA grep defineTable", "@QA please check it", "@QA verify the names"]) {
-      expect(isVerificationRequest(text)).toBe(true);
-    }
-    for (const text of ["@Backend beri pendapat soal desain", "@QA what tests would you add?", "@Frontend checkout page design"]) {
-      expect(isVerificationRequest(text)).toBe(false);
-    }
+  test("handoff guidance lines", () => {
     const team = [
       { _id: "cto", name: "CTO", role: "cto" },
       { _id: "qa", name: "QA", role: "qa" },
@@ -400,7 +393,7 @@ describe("pre-route ignores the LLM's audit/review label", () => {
     llmIntent.subtype = "audit";
     reply = (call) =>
       speaker(call) === "CTO" ? "Saya cek sendiri. @QA tolong nilai cakupan tesnya." : "Cakupan tes main.js belum ada.";
-    const replies = await ask(t, projectId, "@CTO cek kode tes src");
+    const replies = await ask(t, projectId, "@CTO cek kode tes src", [ctoId]);
     expect(replies.map((r) => r.agentId)).toEqual([ctoId, qaId]);
     expect(replies[0].content).toBe("Saya cek sendiri. @QA tolong nilai cakupan tesnya.");
     // One read-before-claim nudge (an audit answered with no read), then the same answer is kept.
@@ -411,7 +404,7 @@ describe("pre-route ignores the LLM's audit/review label", () => {
   test("a CTO reply that only ever announces a check still leaves an agent message", async () => {
     const { t, projectId, ctoId } = await setup({ worker: "new" });
     reply = () => "Saya cek dulu filenya.";
-    const replies = await ask(t, projectId, "@CTO cek kode tes src");
+    const replies = await ask(t, projectId, "@CTO cek kode tes src", [ctoId]);
     expect(replies.map((r) => r.agentId)).toEqual([ctoId]);
     expect(replies[0].content).toMatch(/^Belum saya cek — saya belum sempat membaca repo/);
   });
@@ -422,7 +415,7 @@ describe("pre-route ignores the LLM's audit/review label", () => {
     llmIntent.subtype = "audit";
     reply = (call) =>
       speaker(call) === "CTO" ? "Kode tes di src sudah saya baca. @QA tolong nilai cakupannya." : "Belum ada tes untuk main.js.";
-    const replies = await ask(t, projectId, "@CTO cek kode tes src");
+    const replies = await ask(t, projectId, "@CTO cek kode tes src", [ctoId]);
     expect(replies.map((r) => r.agentId)).toEqual([ctoId, qaId]);
   });
 });

@@ -20,8 +20,7 @@ import {
 } from "./lib/estimate";
 import { normalizePlanReview } from "./lib/planReviewPolicy";
 import { parseContract, type AcceptanceGate } from "./lib/subtaskContract";
-import { ROLE_KEYS } from "./lib/roles";
-import { ORCHESTRATOR_ROLE } from "./lib/chat/team";
+import { ROLE_KEYS, isCtoRole } from "./lib/roles";
 import { appendTaskEvent } from "./lib/taskEvents";
 
 /**
@@ -297,7 +296,7 @@ export const requestReview = internalMutation({
       // it to that teammate when it is in the task pool, so the UI shows CTO
       // instead of the generic "Agent" label for an agent row without an id.
       const assigned = await Promise.all((task.assignedAgentIds ?? []).map((id) => ctx.db.get(id)));
-      const plannerAgentId = assigned.find((agent) => agent && ORCHESTRATOR_ROLE.test(agent.role.trim()))?._id;
+      const plannerAgentId = assigned.find((agent) => agent && isCtoRole(agent.role))?._id;
       await ctx.db.insert("messages", {
         projectId: args.projectId,
         taskId: args.taskId,

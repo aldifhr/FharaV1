@@ -106,10 +106,10 @@ describe("pickFixOwner", () => {
     expect(owner?.key).toBe("ui");
   });
 
-  it("never treats a bare src scope as a match and falls back to the last code_change", () => {
+  it("never treats a bare src scope as a match, and never guesses an owner", () => {
     const generic = { ...backend, key: "generic", allowedPaths: ["src/**"] };
-    const owner = pickFixOwner([generic, frontend], [{ filePath: "README.md" }]);
-    expect(owner?.key).toBe("ui");
+    expect(pickFixOwner([generic, frontend], [{ filePath: "README.md" }])).toBeUndefined();
+    expect(pickFixOwner([generic, frontend], [])).toBeUndefined();
   });
 
   it("returns undefined when there is no code_change", () => {

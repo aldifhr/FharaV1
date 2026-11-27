@@ -74,7 +74,7 @@ hardcoded model in an agent path.
 
 | Platform | State |
 | --- | --- |
-| Windows | The environment this tree is developed in; run from source. The full worker suite has pre-existing Windows-only failures (see `plans/README.md`, plan 046). |
+| Windows | The environment this tree is developed in; run from source. The full worker suite has pre-existing Windows-only failures. |
 | Linux | CI (`.github/workflows/ci.yml`, `ubuntu-latest`) runs guards, typecheck and the api/worker suites. |
 | macOS | CI runs the same guards, typecheck and suites on `macos-latest` (arm64). There is no packaged `.app`/`.dmg` and no Intel runner, so a macOS build still means running from source. |
 

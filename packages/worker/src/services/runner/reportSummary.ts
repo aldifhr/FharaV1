@@ -159,6 +159,29 @@ export function buildQaLine(state: ReportSummaryInput["state"]): { line: string;
   return { line: `QA: structural browser checks passed.${what}`, blocked: false };
 }
 
+/**
+ * Honest verification line: it names the checks that actually ran and says
+ * when QA was not requested, instead of implying a QA pass with a generic
+ * "Verification: passed".
+ */
+export function buildVerificationLine(input: {
+  verdict: string;
+  checks: readonly { name: string; status: string }[];
+  qaRequested: boolean;
+  declined?: boolean;
+  ranNothing?: boolean;
+}): string {
+  if (input.ranNothing) return "Verification: skipped (the command was declined).";
+  const names = input.checks.map((check) => check.name).slice(0, 4);
+  const scope = names.length
+    ? ` (${names.join(", ")}${input.qaRequested ? "" : "; QA not requested"})`
+    : " (no checks ran)";
+  const prefix = input.declined ? `Verification: ${input.verdict} for the work that ran` : `Checks: ${input.verdict}${scope}`;
+  return input.declined
+    ? `${prefix}; the declined command was not checked.`
+    : `${prefix}.`;
+}
+
 /** Failed, blocked, or skipped nodes with their reason (declined commands are reported apart). */
 export function buildUnfinishedLine(subtasks: readonly SummaryRow[]): string {
   const open = subtasks.filter(

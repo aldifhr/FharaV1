@@ -9,6 +9,7 @@ import {
   buildReviewLine,
   buildRoleLines,
   buildUnfinishedLine,
+  buildVerificationLine,
   MAX_ROLE_LINES,
   type ReportSummaryInput,
 } from "@/services/runner/reportSummary";
@@ -54,6 +55,27 @@ const state = (over: Partial<ReportSummaryInput["state"]> = {}): ReportSummaryIn
   fileChanges: new Map(),
   appliedFilesBySubtask: new Map(),
   ...over,
+});
+
+describe("verification line is honest about what ran", () => {
+  it("names static checks and says QA was not requested", () => {
+    expect(
+      buildVerificationLine({
+        verdict: "passed",
+        checks: [
+          { name: "typecheck", status: "passed" },
+          { name: "lint", status: "passed" },
+        ],
+        qaRequested: false,
+      })
+    ).toBe("Checks: passed (typecheck, lint; QA not requested).");
+  });
+
+  it("keeps the declined-command wording", () => {
+    expect(buildVerificationLine({ verdict: "passed", checks: [], qaRequested: false, declined: true })).toBe(
+      "Verification: passed for the work that ran; the declined command was not checked."
+    );
+  });
 });
 
 describe("reportSummary: one line per role", () => {
@@ -243,7 +265,7 @@ describe("finalize: the report carries the cross-role summary", () => {
         "Done.",
         "Frontend: 1 subtask done, 1 file changed (index.html).\nBackend: 1 subtask done.",
         "QA: structural browser checks passed. Tested 1 check: page-loads.",
-        "Verification: passed.",
+        "Checks: passed (subtasks, qa).",
       ].join("\n\n")
     );
     expect(messages[0].content).not.toContain("@");

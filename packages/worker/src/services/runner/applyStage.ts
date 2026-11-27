@@ -12,6 +12,7 @@ import { generateCommitMessage } from "./commitMessage";
 import { captureRunCheckpoint } from "./checkpoints";
 import { scanStagedChanges, secretFlag, secretWarning } from "@/utils/secretScan";
 import { checkDependencyChanges, dependencyWarning, type DepCheckResult } from "@/execution/depHardening";
+import { verificationMetrics } from "./verificationMetrics";
 
 /** What the apply stage hands the approval request. */
 export interface PreparedApply {
@@ -81,9 +82,7 @@ export async function requestApplyApproval(
   // Metrics reflect what actually ran: verification and QA run AFTER the
   // apply, so before approval they are "not run" unless a previous
   // invocation recorded a real result.
-  const verificationMetric = state.verification
-    ? state.verification.status
-    : "not run";
+  const { build: buildMetric, tests: testMetric } = verificationMetrics(state.verification?.checks);
   await deps.api.requestApproval({
     taskId,
     projectId: project._id,
@@ -103,8 +102,8 @@ export async function requestApplyApproval(
       metrics: {
         files: preparedChanges.length,
         review: approvedVerdicts.length > 0 ? "approved" : reviewNodes.length > 0 ? "not approved" : "not run",
-        build: verificationMetric,
-        tests: verificationMetric,
+        build: buildMetric,
+        tests: testMetric,
         qa:
           qaNodes.length > 0
             ? (plan.visualQa ?? wantsVisualQa(input.task.command))
@@ -178,6 +177,7 @@ async function requestVerifiedApproval(
   const files = preparedChanges.map((change) => change.filePath);
   const summary = `Merge ${preparedChanges.length} reviewed, verified file(s): ${files.join(", ")}${noTarget ? `\n\n${noTarget}` : ""}${secretNote ? `\n\n${secretNote}` : ""}`;
   const verification = state.verification?.status ?? "not run";
+  const { build: buildMetric, tests: testMetric } = verificationMetrics(state.verification?.checks);
   await deps.api.requestApproval({
     taskId,
     projectId: project._id,
@@ -198,8 +198,8 @@ async function requestVerifiedApproval(
       metrics: {
         files: preparedChanges.length,
         review: reviewNodes.length > 0 ? (approvedVerdicts.length > 0 ? "approved" : "not approved") : "not run",
-        build: verification,
-        tests: verification,
+        build: buildMetric,
+        tests: testMetric,
         qa: qaMetric(ctx),
       },
     },

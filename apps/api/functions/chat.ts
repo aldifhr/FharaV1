@@ -96,7 +96,7 @@ import {
   toolBudgetFallback,
   noAnswerFallback,
 } from "./lib/chat/toolCallText";
-import { EMPTY_EVIDENCE, collectRepoEvidence, findUnverifiedRefs, type RepoEvidence } from "./lib/chat/refCheck";
+import { EMPTY_EVIDENCE, collectRepoEvidence, findUnquotedRefs, findUnverifiedOrphanClaims, findUnverifiedRefs, type RepoEvidence } from "./lib/chat/refCheck";
 import {
   OPTIONS_GUIDANCE,
   buildAnswerGuidance,
@@ -1040,7 +1040,12 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         const personalOffer = scopeProjectId ? offerForReply(personalWrite, result.content) : null;
         if (result.messageId && personalOffer) await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, { messageId: result.messageId, taskOffer: personalOffer }).catch(() => undefined);
         if (scopeProjectId && result.messageId && result.content.trim() && !personalOffer) {
-          const unverified = findUnverifiedRefs(result.content, result.evidence ?? EMPTY_EVIDENCE, repoSnapshot, 8, lastText);
+          const evidence = result.evidence ?? EMPTY_EVIDENCE;
+          const unverified = [
+            ...findUnverifiedRefs(result.content, evidence, repoSnapshot, 8, lastText),
+            ...findUnquotedRefs(result.content, evidence),
+            ...findUnverifiedOrphanClaims(result.content, evidence),
+          ].slice(0, 8);
           if (unverified.length > 0) {
             await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
               messageId: result.messageId,
@@ -1447,7 +1452,12 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         // answer cites but no tool result (or the snapshot) showed. A file the
         // reply only plans to create (write offer, or named by the user) is no claim.
         if (result.messageId && content.trim() && !replyOffer) {
-          const unverified = findUnverifiedRefs(content, result.evidence ?? EMPTY_EVIDENCE, repoSnapshot, 8, lastUserContent);
+          const evidence = result.evidence ?? EMPTY_EVIDENCE;
+          const unverified = [
+            ...findUnverifiedRefs(content, evidence, repoSnapshot, 8, lastUserContent),
+            ...findUnquotedRefs(content, evidence),
+            ...findUnverifiedOrphanClaims(content, evidence),
+          ].slice(0, 8);
           if (unverified.length > 0) {
             await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
               messageId: result.messageId,

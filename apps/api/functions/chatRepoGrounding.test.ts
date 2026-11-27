@@ -251,13 +251,14 @@ describe("grounding prompt assembly", () => {
     expect(lines).not.toMatch(/Read with the repo tools/);
   });
 
-  test("with tools → check first, re-check on pushback, still say 'belum saya cek' when unchecked", () => {
+  test("with tools → check first, re-check on pushback, report unverified once when the budget is spent", () => {
     const lines = buildGroundingGuidance(true).join("\n");
     expect(lines).toMatch(/Read with the repo tools/);
     expect(lines).toMatch(/Never write what you will read or do next/);
     expect(lines).toMatch(/re-check with the tools/);
     expect(lines).toMatch(/Never agree just because the user said so/);
-    expect(lines).toContain("belum saya cek");
+    expect(lines).toMatch(/never narrate which files you read or could not read/);
+    expect(lines).toMatch(/say 'unverified' once and do not guess/);
   });
 
   test("tool protocol lists only read-only tools and the call cap", () => {

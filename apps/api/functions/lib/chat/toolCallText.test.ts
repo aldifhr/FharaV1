@@ -13,7 +13,7 @@ import {
   runRepoToolLoop,
   type RepoToolCall,
 } from "./repoTools";
-import { collectRepoEvidence, extractFileRefs, findUnverifiedRefs } from "./refCheck";
+import { collectRepoEvidence, extractFileRefs, findUnquotedRefs, findUnverifiedOrphanClaims, findUnverifiedRefs } from "./refCheck";
 import { buildGroundingGuidance, buildRepoToolProtocol } from "../prompts/chat";
 
 const LEAKED = '{"tool":"read_file","arguments":{"path":"apps/api/functions/schema.ts","maxLines":1000}}';
@@ -195,6 +195,33 @@ describe("post-answer reference check", () => {
     expect(findUnverifiedRefs("Lihat chat.ts:12.", collectRepoEvidence([]), snapshot)).toEqual(["chat.ts:12"]);
     expect(findUnverifiedRefs("Belum saya cek.", collectRepoEvidence([]))).toEqual([]);
   });
+
+  const demoEvidence = collectRepoEvidence([
+    {
+      label: "read_file src/App.tsx",
+      text: [
+        "src/App.tsx: 300 bytes, 20 lines total",
+        "1: import Status from './status'",
+        '4: <div className="app-shell">',
+        "14:         <Status />",
+      ].join("\n"),
+      files: ["src/App.tsx"],
+    },
+  ]);
+
+  test("a cited line whose shown text is not quoted is flagged even when the line was seen", () => {
+    expect(findUnquotedRefs("src/App.tsx:1 imports Status from './status'.", demoEvidence)).toEqual([]);
+    expect(findUnquotedRefs("src/App.tsx:4 imports Status from './status'.", demoEvidence)).toEqual(["src/App.tsx:4"]);
+  });
+
+  test("an unused claim needs a repo-wide 0-match grep", () => {
+    const answer = "src/hello.tsx is unused.";
+    expect(findUnverifiedOrphanClaims(answer, demoEvidence)).toEqual([
+      "unused/orphan claim without a repo-wide 0-match grep",
+    ]);
+    const withGrep = collectRepoEvidence([{ label: 'grep "hello"', text: '0 matches for "hello" in . (whole repository).' }]);
+    expect(findUnverifiedOrphanClaims(answer, withGrep)).toEqual([]);
+  });
 });
 
 describe("grounding prompt", () => {
@@ -207,6 +234,9 @@ describe("grounding prompt", () => {
     expect(protocol).toMatch(/Omit "path" to search the whole repository/);
     expect(protocol).toMatch(/0 matches" means not found/);
     expect(protocol).toMatch(/Cite a file:line only exactly as a tool result in this reply shows it/);
+    expect(protocol).toMatch(/Quote the exact source line right next to each file:line citation/);
+    expect(protocol).toMatch(/grep with no "path" over the whole repository/);
+    expect(buildGroundingGuidance(true).join("\n")).toMatch(/never narrate which files you read or could not read/);
     expect(buildGroundingGuidance(true).join("\n")).toMatch(/never cite a file:line that is not in a tool result in this reply/);
   });
 

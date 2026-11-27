@@ -14,6 +14,8 @@ export interface RepoEvidence {
   corpus: string;
   /** Repo-relative file → line numbers shown (grep matches, read_file lines). */
   lines: Map<string, Set<number>>;
+  /** Repo-relative file → line number → exact source text shown, when available. */
+  lineTexts?: Map<string, Map<number, string>>;
 }
 
 const CODE_EXT = "ts|tsx|js|jsx|mjs|cjs|json|md|mdx|py|go|rs|css|scss|html|yml|yaml|toml|sql|sh|prisma|graphql";
@@ -38,11 +40,15 @@ const NOT_FILES = new Set([
 /** Build the evidence set from the tool results of one reply. */
 export function collectRepoEvidence(results: Array<{ label?: string; text: string; files?: string[] }>): RepoEvidence {
   const lines = new Map<string, Set<number>>();
-  const add = (file: string, line: number) => {
+  const lineTexts = new Map<string, Map<number, string>>();
+  const add = (file: string, line: number, text = "") => {
     if (!file || !Number.isFinite(line)) return;
     const set = lines.get(file) ?? new Set<number>();
     set.add(line);
     lines.set(file, set);
+    const byLine = lineTexts.get(file) ?? new Map<number, string>();
+    if (text) byLine.set(line, text.replace(/\s+/g, " ").trim());
+    lineTexts.set(file, byLine);
   };
   const corpus: string[] = [];
   for (const r of results) {
@@ -50,15 +56,15 @@ export function collectRepoEvidence(results: Array<{ label?: string; text: strin
     corpus.push(r.text);
     for (const f of r.files ?? []) corpus.push(f);
     // grep: "path:12: text"
-    for (const m of r.text.matchAll(/^([^\s:]+):(\d+): /gm)) add(m[1], Number(m[2]));
+    for (const m of r.text.matchAll(/^([^\s:]+):(\d+): (.*)$/gm)) add(m[1], Number(m[2]), m[3]);
     // read_file: header "path: N bytes, …" then numbered lines "12: text"
     const header = /^([^\s:]+): \d+ bytes/m.exec(r.text);
     const readFile = r.files?.[0] ?? header?.[1];
     if (readFile) {
-      for (const m of r.text.matchAll(/^(\d+): /gm)) add(readFile, Number(m[1]));
+      for (const m of r.text.matchAll(/^(\d+): (.*)$/gm)) add(readFile, Number(m[1]), m[2]);
     }
   }
-  return { corpus: corpus.join("\n"), lines };
+  return { corpus: corpus.join("\n"), lines, lineTexts };
 }
 
 export interface FileRef {
@@ -144,4 +150,41 @@ export function findUnverifiedRefs(
   return out;
 }
 
-export const EMPTY_EVIDENCE: RepoEvidence = { corpus: "", lines: new Map() };
+export const EMPTY_EVIDENCE: RepoEvidence = { corpus: "", lines: new Map(), lineTexts: new Map() };
+
+const ORPHAN_CLAIM =
+  /\b(?:unused|orphan(?:ed)?|never imported|not imported|tidak dipakai|tak terpakai|belum terpakai)\b/i;
+
+const SOURCE_STOPWORDS = new Set([
+  "import", "from", "export", "default", "function", "return", "const", "async", "await", "type", "interface",
+]);
+
+/**
+ * A cited line whose shown text is not quoted in the answer. A wrong line
+ * number passes the "line was seen" check when the whole file was read; this
+ * catches the miscite by comparing a distinctive token of the line's content.
+ */
+export function findUnquotedRefs(answer: string, evidence: RepoEvidence, max = 8): string[] {
+  const out: string[] = [];
+  const normalized = answer.replace(/\s+/g, " ").trim().toLowerCase();
+  for (const ref of extractFileRefs(answer)) {
+    if (ref.line === undefined) continue;
+    const source = sameFileKeys(evidence, ref.path)
+      .map((key) => evidence.lineTexts?.get(key)?.get(ref.line!))
+      .find((text): text is string => Boolean(text));
+    if (!source) continue; // no source text shown; findUnverifiedRefs covers it
+    const tokens = source
+      .split(/[^\w./-]+/)
+      .filter((token) => token.length >= 4 && !SOURCE_STOPWORDS.has(token.toLowerCase()));
+    const probe = tokens.length > 0 ? tokens : [source.slice(0, 24).toLowerCase()];
+    if (!probe.some((token) => normalized.includes(token.toLowerCase()))) out.push(ref.ref);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/** An "unused/orphan" claim needs a repo-wide grep with a 0-match result. */
+export function findUnverifiedOrphanClaims(answer: string, evidence: RepoEvidence): string[] {
+  if (!ORPHAN_CLAIM.test(answer)) return [];
+  return /0 match(?:es)?/.test(evidence.corpus) ? [] : ["unused/orphan claim without a repo-wide 0-match grep"];
+}

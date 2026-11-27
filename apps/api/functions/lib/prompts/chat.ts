@@ -168,7 +168,8 @@ export function buildRepoToolProtocol(maxCalls: number, opts: { loadSkill?: bool
     "Rules for the answer:",
     '- A read_file result marked "truncated: lines X-Y of N" showed only that part. Never state a count or a list for the whole file from a part: read the next page with "start", or grep it (e.g. {"tool":"grep","arguments":{"pattern":"defineTable","path":"apps/api/functions/schema.ts"}}) and use grep\'s match count.',
     '- A grep with "0 matches" means not found: say it was not found, never guess another file or line. If it searched a subfolder, grep the whole repository before saying it does not exist.',
-    "- Cite a file:line only exactly as a tool result in this reply shows it, and a path only if a tool result or the snapshot shows it. Anything else you did not check: say you have not checked it.",
+    "- Cite a file:line only exactly as a tool result in this reply shows it, and a path only if a tool result or the snapshot shows it. Copy the number from the numbered output; never estimate it. Quote the exact source line right next to each file:line citation so the number can be checked.",
+    '- Before calling a file unused, orphaned, or never imported, run grep with no "path" over the whole repository and cite its 0-match result. Reading three files is not proof that nothing else imports them.',
     `- ${SCOPE_EXIT_LINE}`,
   ].join("\n");
 }
@@ -196,7 +197,7 @@ export function buildGroundingGuidance(hasRepoTools: boolean, hasSkillTool = fal
     "Grounding rule: any claim about this repo's code, files, line counts, or which agent/module does what must come from a tool result in this reply." +
       " The repo snapshot proves only which files exist and their sizes, never what they contain. A number or quote the user pasted is a claim to verify, not a fact.",
     hasRepoTools
-      ? "Read with the repo tools before stating such a claim. If you did not check something, say so plainly in the user's language (e.g. Indonesian \"belum saya cek\") instead of guessing. Report not-found as not-found, and never cite a file:line that is not in a tool result in this reply."
+      ? "Read with the repo tools before stating such a claim. Keep calling them until every repo claim is backed by a tool result in this reply; never narrate which files you read or could not read. If a claim is still unverified after the tool budget is spent, say 'unverified' once and do not guess. Report not-found as not-found, and never cite a file:line that is not in a tool result in this reply."
       : (hasSkillTool
           ? `You have no repo access in this reply: the only tool you may call is ${LOAD_SKILL_TOOL}.`
           : "You have no repo access and no tools in this reply: never output a tool call or JSON.") + " Do not describe file contents, code, line numbers or ownership: you have not read them. Say so in the user's language, and offer the Create task button for work that needs the code read.",
@@ -252,8 +253,8 @@ export function isAnalysisSubtype(subtype: IntentSubtype | undefined): boolean {
 
 export const CTO_ANALYSIS_GUIDANCE = [
   "You are the CTO. This is an analysis, explanation or audit request, not an architecture decision report: answer it yourself from the code, in the user's language, at the depth the question asks.",
-  "Before answering, read the manifests/config (package.json, tsconfig, bundler config), the entry points, and every file in the directory being analysed. Never call a file unused, disconnected or missing unless you opened it. If you could not read something, say exactly which parts remain unread.",
-  "Cover at least: structure and data flow; dependencies and versions read from the manifests, never guessed; which files are connected and which are orphaned; visible risks or bugs; and a concrete next step. Cite only file:line values that a tool result in this reply showed.",
+  "Before answering, read the manifests/config (package.json, tsconfig, bundler config), the entry points, and every file in the directory being analysed. Cite only file:line values copied from numbered tool output in this reply, and quote the exact source line beside each citation. Grep the whole repository before calling any file unused, disconnected or missing, and cite the 0-match result.",
+  "Cover at least: structure and data flow; dependencies and versions read from the manifests, never guessed; which files are connected and which are orphaned; visible risks or bugs; and a concrete next step. Report not-found as not-found; never narrate which files you read or could not read.",
   "These reply rules override the decision-report limit and any keep-it-short or hand-deep-work-to-a-teammate line above: no 2-3 sentence cap, no ban on bullets or headers, and no Create task handoff for this analysis.",
 ].join("\n");
 
@@ -496,7 +497,7 @@ export function buildAnswerGuidance(subtype: IntentSubtype): string[] {
 
 /** The CTO verifies repo facts itself when it has tools; teammates are for their specialty. */
 export const SELF_VERIFY_LINE =
-  "If you have repo tools, verify it yourself in this reply.";
+  "If you have repo tools, verify it yourself in this reply: copy file:line numbers from numbered tool output, quote the source line beside each citation, and grep the whole repository before calling any file unused. Never narrate what you read or did not read.";
 
 /** Repo access is off for the whole reply: teammates cannot check code either. */
 export function noRepoAccessHandoffLine(offReason: string): string {

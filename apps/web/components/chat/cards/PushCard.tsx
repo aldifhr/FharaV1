@@ -296,8 +296,8 @@ export default function PushCard({ data }: { data: PushCardData }) {
             {typeof deletions === "number" && <span className="ml-1.5 text-[#d83a3a] dark:text-rose-400">−{deletions}</span>}
           </span>
         )}
-        {cell("Build", <StatusWord status={build.status} label={build.label} />)}
-        {cell("Tests", <StatusWord status={tests.status} label={tests.label} />)}
+        {cell("Build (push)", <StatusWord status={build.status} label={build.label} />)}
+        {cell("Tests (push)", <StatusWord status={tests.status} label={tests.label} />)}
         {cell("QA on phones", <StatusWord status={phones.status} label={phones.label} />)}
       </div>
       {view.prNumber !== undefined && view.checks && (

@@ -2,7 +2,7 @@
 import { Link } from "@/lib/spaRouter";
 import { useRouter } from "@/lib/spaRouter";
 import { useQuery } from "@fhara/runtime/react";
-import { ArrowUp, FileDiff, GitMerge, GitPullRequest, HelpCircle, ShieldCheck, Terminal, type LucideIcon } from "lucide-react";
+import { ArrowUp, FileDiff, GitMerge, GitPullRequest, HelpCircle, ListChecks, ShieldCheck, Terminal, type LucideIcon } from "lucide-react";
 import { api } from "@fhara/runtime/api";
 import { roleLabel } from "@/lib/agentRoles";
 import { useOptionalWorkspace } from "@/app/WorkspaceContext";
@@ -19,6 +19,7 @@ const KIND_ICON: Record<string, { icon: LucideIcon; tone: string }> = {
   question: { icon: HelpCircle, tone: "bg-hover text-ink" },
   review: { icon: ShieldCheck, tone: "bg-warn-soft text-warn" },
   pr: { icon: GitPullRequest, tone: "bg-hover text-ink-2" },
+  options: { icon: ListChecks, tone: "bg-warn-soft text-warn" },
 };
 
 const MAX_SHOWN = 3;

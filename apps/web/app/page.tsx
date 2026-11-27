@@ -21,6 +21,7 @@ const NEEDS_KIND_LABEL: Record<string, string> = {
   question: "Question",
   review: "Review",
   pr: "Pull request",
+  options: "Choose an option",
 };
 
 const TASK_STATUS_LABEL: Record<string, string> = {

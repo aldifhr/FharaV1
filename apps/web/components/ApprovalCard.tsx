@@ -266,8 +266,8 @@ function GenericApprovalCard({
         // grey, never a green "passed".
         <div className={`grid grid-cols-2 border-t sm:grid-cols-4 ${CARD_DIVIDER} [&>*]:border-line dark:[&>*]:border-white/[0.07] [&>*:nth-child(2n)]:border-l sm:[&>*:not(:first-child)]:border-l [&>*:nth-child(n+3)]:border-t sm:[&>*:nth-child(n+3)]:border-t-0`}>
           {metricCell("Files", metrics.files ?? null, true)}
-          {metricCell("Build", metrics.build)}
-          {metricCell("Tests", metrics.tests)}
+          {metricCell("Build (apply)", metrics.build)}
+          {metricCell("Tests (apply)", metrics.tests)}
           {metricCell("QA", metrics.qa)}
         </div>
       )}

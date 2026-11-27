@@ -88,8 +88,9 @@ export default function ChangesPane({ taskId }: { taskId: string }) {
   }, [commitSha, taskId, loadPatch]);
 
   const okPatch = patch && typeof patch === "object" && patch.status === "ok" ? patch : null;
-  // After commit the exact list comes with the branch patch, not the proposed rows.
-  const files = okPatch ? okPatch.files : view?.source === "branch" ? [] : (view?.files ?? []);
+  // Prefer the exact branch patch; fall back to the recorded file list when the
+  // diff cannot be read (worktree removed) instead of claiming no changes.
+  const files = okPatch ? okPatch.files : (view?.files ?? []);
   const diffs = useMemo(() => {
     if (okPatch) return splitPatchByFile(okPatch.patch, okPatch.files);
     const map = new Map<string, string>();

@@ -17,6 +17,7 @@ const KIND_LABEL: Record<string, string> = {
   run_command: "Run command",
   run_unconfined: "Run without the sandbox",
   plan: "Review plan",
+  merge_pr: "Merge pull request",
 };
 
 function Section({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {

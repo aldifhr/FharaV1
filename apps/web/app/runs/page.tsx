@@ -24,13 +24,14 @@ function RunsPage() {
   const [confirm, setConfirm] = useState<(ConfirmRequest & { run: () => Promise<void> }) | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const runs = data?.runs;
-  const active = runs?.filter((r) => r.status === "running" || r.status === "queued").length ?? 0;
+  const active = runs?.filter((r) => r.status === "running").length ?? 0;
+  const queued = runs?.filter((r) => r.status === "queued").length ?? 0;
   const failed = runs?.filter((r) => r.status === "failed").length ?? 0;
 
   const deleteRun = (taskId: string, title: string) => {
     setConfirm({
       title: `Delete run "${title}"?`,
-      message: "This run and all of its history will be deleted permanently.",
+      message: "This run and its task data will be deleted. Audit history is kept.",
       confirmLabel: "Delete run",
       run: async () => {
         setDeleting(taskId);
@@ -60,7 +61,7 @@ function RunsPage() {
                 ? "Loading…"
                 : runs.length === 0
                   ? "No runs yet"
-                  : `${runs.length} recent ${runs.length === 1 ? "run" : "runs"}${active ? ` · ${active} running` : ""}${failed ? ` · ${failed} failed` : ""}`}
+                  : `${runs.length} recent ${runs.length === 1 ? "run" : "runs"}${active ? ` · ${active} running` : ""}${queued ? ` · ${queued} queued` : ""}${failed ? ` · ${failed} failed` : ""}`}
             </p>
             {projectId && (
               <Link href="/runs" className="mt-1 inline-block text-[13px] text-ink-3 hover:text-ink">

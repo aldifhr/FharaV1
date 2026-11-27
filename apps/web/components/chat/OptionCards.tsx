@@ -130,23 +130,25 @@ export default function OptionCards({
   onPick: (option: ChatOption) => void;
   onOpenTask?: (taskId: string) => void;
 }) {
+  const selectedOption = pickedId !== undefined ? options.find((option) => option.id === pickedId) : undefined;
   return (
     <div className={`mt-3 ${options.length >= 3 ? "max-w-4xl" : "max-w-2xl"}`}>
       <div className={`grid gap-2 sm:grid-cols-2 ${options.length >= 3 ? "lg:grid-cols-3" : ""}`}>
         {options.map((option) => {
           const selected = pickedId !== undefined && pickedId === option.id;
+          const pickIsFinal = pickedId !== undefined && taskId !== undefined;
           // Layout mockups only for visual choices; "plain" is a text option.
           const showPreview = !compact && (Boolean(option.layout) || (option.preview !== "plain" && Boolean(option.preview)));
           return (
             <button
               key={option.id}
               type="button"
-              disabled={disabled || pickedId !== undefined}
+              disabled={disabled || pickIsFinal}
               onClick={() => onPick(option)}
               aria-pressed={selected}
               className={`group/option flex w-full flex-col overflow-hidden rounded-xl border bg-panel text-left outline-none transition ${
                 selected ? "border-ink ring-1 ring-ink" : "border-line hover:border-line-strong focus-visible:ring-2 focus-visible:ring-ink/30"
-              } disabled:cursor-default ${pickedId !== undefined && !selected ? "opacity-50" : ""}`}
+              } disabled:cursor-default ${pickIsFinal && !selected ? "opacity-50" : ""}`}
             >
               {showPreview && (
                 <div className="border-b border-line bg-hover/60">
@@ -172,9 +174,15 @@ export default function OptionCards({
       </div>
       {pickedId !== undefined && (
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-          <span className="inline-flex items-center gap-1 rounded-lg border border-brand/30 bg-brand-soft px-2.5 py-1 text-[12px] font-medium text-brand">
-            <Check size={11} aria-hidden="true" />
-            You picked {pickedId}
+          <span
+            className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[12px] font-medium ${
+              taskId ? "border-brand/30 bg-brand-soft text-brand" : "border-line bg-panel text-ink-2 dark:bg-transparent"
+            }`}
+          >
+            {taskId ? <Check size={11} aria-hidden="true" /> : <Clock size={11} aria-hidden="true" />}
+            {taskId
+              ? `You picked ${pickedId}${selectedOption?.title ? ` · ${selectedOption.title}` : ""}`
+              : `Sent ${pickedId}${selectedOption?.title ? ` · ${selectedOption.title}` : ""} — waiting for the team`}
           </span>
           {ctoAgrees && (
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1 text-[12px] font-medium text-ink-2 dark:bg-transparent">

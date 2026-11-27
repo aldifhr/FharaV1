@@ -86,8 +86,15 @@ export default function ActivityTimeline({
   const steps: ChatToolStep[] = Array.isArray(message.toolSteps) ? message.toolSteps : [];
   // Handoffs are steps, not tool calls: they never count toward "N tools used".
   const toolSteps = steps.filter((s) => !isHandoffStep(s));
-  const handoffSteps = steps.filter(isHandoffStep);
   const content: string = message.content ?? "";
+  // One message must not name two assignees: suppress a handoff tool step when
+  // the rendered text explicitly @mentions a different role.
+  const mentionedRoles = new Set(
+    [...content.matchAll(/@([A-Za-z][\w-]*)/g)].map((match) => match[1]!.toLowerCase())
+  );
+  const handoffSteps = steps
+    .filter(isHandoffStep)
+    .filter((step) => mentionedRoles.size === 0 || mentionedRoles.has(String(step.target ?? "").toLowerCase()));
   const copy = COPY.en;
   const hasContent = Boolean(content.trim());
   const phase: "thinking" | "working" | "composing" | "done" = !live

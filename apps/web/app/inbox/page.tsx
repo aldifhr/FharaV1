@@ -48,7 +48,7 @@ export default function InboxPage() {
   const startDraft = useMutation(api.issueIntake.start);
   const dismissDraft = useMutation(api.issueIntake.dismiss);
   // ui-g13: task drafts saved through the Fhara MCP task.create tool (G12b).
-  const mcpDrafts = useQuery(api.taskDrafts.listVisible, {}) ?? [];
+  const mcpDrafts = useQuery(api.taskDrafts.listVisible, {});
   const toast = useToast();
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -120,9 +120,10 @@ export default function InboxPage() {
 
   const total = inbox?.waitingCount ?? 0;
   const drafts = issueDrafts ?? [];
+  const loaded = inbox !== undefined && issueDrafts !== undefined && mcpDrafts !== undefined;
   const anything =
-    inbox !== undefined &&
-    (total > 0 || inbox.approvals.length + inbox.notifications.length + inbox.tasks.length + inbox.failed.length + inbox.questions.length + inbox.pushes.length + drafts.length + mcpDrafts.length > 0);
+    loaded &&
+    (total > 0 || inbox!.approvals.length + inbox!.notifications.length + inbox!.tasks.length + inbox!.failed.length + inbox!.questions.length + inbox!.options.length + inbox!.pushes.length + drafts.length + mcpDrafts!.length > 0);
 
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
@@ -140,7 +141,7 @@ export default function InboxPage() {
             </p>
           </header>
 
-          {inbox === undefined ? (
+          {!loaded || !inbox ? (
             <div className="mt-10 space-y-3" aria-label="Loading inbox">
               {[0, 1, 2].map((i) => (
                 <div key={i} className="h-16 rounded-xl bg-hover" />
@@ -277,6 +278,26 @@ export default function InboxPage() {
                             {`${q.agentRole ? roleLabel(q.agentRole) : "System"} · `}
                             {q.projectName}
                           </p>
+                        </div>
+                        <ArrowUpRight size={14} className="shrink-0 text-ink-3" />
+                      </Link>
+                    </li>
+                  ))}
+                </Section>
+              )}
+
+              {inbox.options.length > 0 && (
+                <Section title="Options to review" count={inbox.options.length}>
+                  {inbox.options.map((o) => (
+                    <li key={o.key}>
+                      <Link
+                        href={projectHref(o.projectId)}
+                        onClick={() => o.taskId && requestThread(o.projectId, o.taskId)}
+                        className="flex items-center gap-3 px-4 py-3 transition hover:bg-hover"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[14px]">{o.title}</p>
+                          <p className="truncate text-[12.5px] text-ink-3">{o.projectName}{o.note ? ` · ${o.note}` : ""}</p>
                         </div>
                         <ArrowUpRight size={14} className="shrink-0 text-ink-3" />
                       </Link>

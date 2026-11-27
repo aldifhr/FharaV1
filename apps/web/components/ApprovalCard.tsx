@@ -108,7 +108,7 @@ function CommandApprovalCard({
       <p className="text-[13px] font-semibold text-ink">{item.title}</p>
       {item.meta && <p className="mt-0.5 text-[12px] text-ink-3">{item.meta}</p>}
       <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-[12.5px] text-ink">{item.code}</pre>
-      {item.warning && <p className="mt-1.5 text-[12px] text-ink-2">Selalu ditanyakan: {item.warning.toLowerCase()}</p>}
+      {item.warning && <p className="mt-1.5 text-[12px] text-ink-2">Always asked: {item.warning}</p>}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {item.actions.map((action) => (
           <button

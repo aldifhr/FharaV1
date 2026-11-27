@@ -119,7 +119,7 @@ export default function DecisionsTray({
                 {current.code}
               </pre>
             )}
-            {current.warning && <p className="mt-1.5 text-[12px] text-ink-2">Selalu ditanyakan: {current.warning.toLowerCase()}.</p>}
+            {current.warning && <p className="mt-1.5 text-[12px] text-ink-2">Always asked: {current.warning}.</p>}
             <div className="mt-2.5 flex flex-wrap items-center gap-2">
               {current.actions.map((action) => (
                 <button

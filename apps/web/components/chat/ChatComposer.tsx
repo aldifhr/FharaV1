@@ -30,6 +30,7 @@ import { useToast } from "../Toasts";
 import { useAutoGrowRef, type QueuedMessage } from "./useChatQueue";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { useUiPref } from "@/lib/uiPrefs";
+import { matchesChord, useKeybindings } from "@/lib/keybindings";
 import {
   PERMISSION_MODES,
   PERMISSION_MODE_HINTS,
@@ -166,6 +167,12 @@ export default function ChatComposer({
   const textareaRef = useAutoGrowRef([draft], 200);
   // Plan 067: the hint beside Send names the key that actually sends.
   const [enterToSend] = useUiPref("enterToSend");
+  const bindings = useKeybindings();
+  const sendHint = enterToSend
+    ? "Enter to send"
+    : typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform)
+      ? "⌘+Enter to send"
+      : "Ctrl+Enter to send";
   const fileRef = useRef<HTMLInputElement>(null);
   const [formatOpen, setFormatOpen] = useState(false);
   const [targetOpen, setTargetOpen] = useState(false);
@@ -400,26 +407,34 @@ export default function ChatComposer({
       onCancelQuote();
       return;
     }
-    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
-      const key = e.key.toLowerCase();
-      if (key === "b" || key === "i" || key === "e") {
-        e.preventDefault();
-        if (key === "b") insertAtCursor("**", "**");
-        else if (key === "i") insertAtCursor("_", "_");
-        else insertAtCursor("`", "`");
-        return;
-      }
+    if (matchesChord(e, bindings.composerBold)) {
+      e.preventDefault();
+      insertAtCursor("**", "**");
+      return;
     }
-    if (e.key !== "Enter") return;
-    if (e.altKey) {
+    if (matchesChord(e, bindings.composerItalic)) {
+      e.preventDefault();
+      insertAtCursor("_", "_");
+      return;
+    }
+    if (matchesChord(e, bindings.composerCode)) {
+      e.preventDefault();
+      insertAtCursor("`", "`");
+      return;
+    }
+    if (matchesChord(e, bindings.composerQueue)) {
       e.preventDefault();
       void submit(true);
       return;
     }
+    if (e.key !== "Enter") return;
     if (e.shiftKey) return;
     // On touch keyboards Return inserts a new line; the send button sends.
     const touch = typeof window !== "undefined" && window.matchMedia?.("(hover: none) and (pointer: coarse)").matches;
     if (touch) return;
+    const modifier = e.metaKey || e.ctrlKey;
+    // When Enter-to-send is off, only the explicit modifier chord sends.
+    if (!enterToSend && !modifier) return;
     e.preventDefault();
     send();
   };
@@ -747,7 +762,7 @@ export default function ChatComposer({
                 </button>
               )}
               <span aria-hidden="true" className="mr-2 hidden shrink-0 text-[11px] text-ink-3 sm:inline">
-                {enterToSend ? "Enter to send" : "Ctrl+Enter to send"}
+                {sendHint}
               </span>
               <button
                 type="button"

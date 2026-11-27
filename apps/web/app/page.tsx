@@ -108,8 +108,9 @@ export default function Home() {
             </button>
           </header>
 
-          {data === undefined ? (
+          {data === undefined || active === undefined ? (
             <div className="mt-10 space-y-3" aria-label="Loading overview">
+              <p className="text-[13px] text-ink-3">Loading agents and projects…</p>
               {[0, 1, 2].map((i) => (
                 <div key={i} className="h-16 animate-pulse rounded-xl bg-hover" />
               ))}

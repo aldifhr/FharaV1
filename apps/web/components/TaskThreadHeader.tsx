@@ -16,8 +16,7 @@ const HEADER_BUTTON =
   "flex h-8 w-8 shrink-0 items-center justify-center rounded-field text-ink-3 outline-none hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30";
 
 /** The thread's status label (the tone comes from taskStatusTone). */
-function statusLabel(status: string, needsYou: boolean): string {
-  if (needsYou && !["done", "failed", "rejected", "cancelled"].includes(status)) return "Needs you";
+function statusLabel(status: string): string {
   if (status === "running") return "In progress";
   if (status === "paused") return "Paused";
   if (status === "done") return "Done";
@@ -111,7 +110,7 @@ export default function TaskThreadHeader({
           </Link>
         </>
       }
-      status={<StatusTag tone={taskStatusTone(status, needsYou)}>{statusLabel(status, needsYou)}</StatusTag>}
+      status={<StatusTag tone={taskStatusTone(status, needsYou)}>{statusLabel(status)}{needsYou ? " · Needs you" : ""}</StatusTag>}
       actions={
         <>
           {/* Plan 022: Pause / Resume beside Stop. Only Stop confirms. */}

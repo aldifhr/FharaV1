@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildTaskStatusLine, fallbackOwner, resolveChatOwner } from "./owner";
 import { buildChatMessages } from "../prompts/chat";
-import type { RoutingClassification } from "./routingClassification";
 
 type M = { _id: string; name: string; role: string };
 const team: M[] = [
@@ -11,42 +10,58 @@ const team: M[] = [
   { _id: "be", name: "Backend", role: "backend" },
   { _id: "qa", name: "QA", role: "qa" },
   { _id: "ops", name: "DevOps", role: "devops" },
+  { _id: "res", name: "Researcher", role: "researcher" },
+  { _id: "sup", name: "Support", role: "support" },
 ];
 
-const routing = (role: RoutingClassification["role"], files: string[] = []): RoutingClassification => ({
-  role,
-  kind: "implementation",
-  files,
-  confidence: 0.9,
-});
-const owner = (text: string, opts: { team?: M[]; history?: any[]; routing?: RoutingClassification | null } = {}) =>
+const owner = (text: string, opts: { team?: M[]; history?: any[] } = {}) =>
   resolveChatOwner<M>({
     text,
     team: opts.team ?? team,
     history: [...(opts.history ?? []), { authorType: "user", content: text }],
-    routing: opts.routing,
+    repoToolsAvailable: true,
   });
 const who = (r: ReturnType<typeof owner>) => (r?.kind === "agent" ? r.agent.name : r?.kind ?? null);
 
-describe("chat owner: structured routing only", () => {
-  it("uses the validated classifier role, never the CTO as executor", () => {
-    expect(who(owner("any language", { routing: routing("frontend") }))).toBe("Frontend");
-    expect(who(owner("any language", { routing: routing("devops") }))).toBe("DevOps");
-    expect(who(owner("any language", { routing: routing("cto") }))).toBe("CTO");
+describe("chat owner: deterministic, no LLM chooser", () => {
+  it.each([
+    ["kenapa query lambat?", "Backend"],
+    ["warna ini cocok?", "Designer"],
+    ["monorepo atau polyrepo?", "CTO"],
+    ["CI gagal terus", "DevOps"],
+    ["bandingkan prisma vs drizzle", "Researcher"],
+    ["halo", "Support"],
+    ["cara pakai Fhara?", "Support"],
+    ["user tidak bisa login", "Support"],
+    ["buatkan file ultimate.html dengan teks 'Ultimate is a new vision' dengan background yang menarik", "Frontend"],
+  ])("%s → %s", (text, name) => {
+    expect(who(owner(text))).toBe(name);
   });
 
-  it("no classifier role falls back to a named file, then the CTO conversationally", () => {
-    expect(who(owner("ubah ultimate.html", { routing: routing(null, ["ultimate.html"]) }))).toBe("Frontend");
+  it("status → a System status line (no agent)", () => {
+    expect(who(owner("sampai mana?"))).toBe("status");
+  });
+
+  it("no domain and no previous responder → the CTO, the conversational owner (plan 062)", () => {
     expect(who(owner("menurutmu nama produk ini bagus?"))).toBe("CTO");
-    expect(who(owner("menurutmu nama produk ini bagus?", { team: team.filter((a) => a.role !== "cto") }))).toBe("Designer");
+    // A team without a CTO keeps the old conversational fallback.
+    const noCto = team.filter((a) => a.role !== "cto");
+    expect(who(owner("menurutmu nama produk ini bagus?", { team: noCto }))).toBe("Support");
   });
 
-  it("previous responder wins over a new classification", () => {
+  it("priority: previous responder > domain > Support", () => {
     const afterQa = [
       { authorType: "user", content: "tes apa yang kurang?" },
+      { authorType: "agent", voice: "system", content: "Sent to QA" },
       { authorType: "agent", agentId: "qa", content: "main.js belum dites." },
     ];
-    expect(owner("kenapa query lambat?", { history: afterQa, routing: routing("backend") })).toMatchObject({ agent: { name: "QA" }, via: "previous" });
+    // The previous responder wins over a domain match, a greeting and the Support fallback.
+    expect(owner("kenapa query lambat?", { history: afterQa })).toMatchObject({ agent: { name: "QA" }, via: "previous" });
+    expect(owner("baca semua", { history: afterQa })).toMatchObject({ agent: { name: "QA" }, via: "previous" });
+    expect(owner("halo", { history: afterQa })).toMatchObject({ agent: { name: "QA" }, via: "previous" });
+    // No previous responder: the domain, then the CTO (plan 062).
+    expect(owner("kenapa query lambat?")).toMatchObject({ agent: { name: "Backend" }, via: "route" });
+    expect(owner("baca semua")).toMatchObject({ agent: { name: "CTO" }, via: "route" });
   });
 
   it("a previous responder no longer on the team is skipped", () => {
@@ -54,12 +69,13 @@ describe("chat owner: structured routing only", () => {
       { authorType: "user", content: "audit semua file" },
       { authorType: "agent", agentId: "gone", content: "..." },
     ];
-    expect(who(owner("baca semua", { history }))).toBe("CTO");
+    expect(owner("baca semua", { history })).toMatchObject({ agent: { name: "CTO" }, via: "route" });
   });
 
   it("an option pick goes back to the agent that offered the options", () => {
     const history = [
       { authorType: "user", content: "kasih 3 opsi layout dashboard" },
+      { authorType: "agent", voice: "system", content: "Sent to Designer" },
       { authorType: "agent", agentId: "des", content: "[options]..." },
     ];
     expect(who(owner("I choose B: Split view", { history }))).toBe("Designer");
@@ -69,11 +85,18 @@ describe("chat owner: structured routing only", () => {
     expect(who(owner("menurutmu nama produk ini bagus?", { team: [team[0]] }))).toBe("CTO");
   });
 
-  it("fallback order: General, Researcher, then anyone but the CTO", () => {
-    expect(fallbackOwner([{ _id: "g", name: "General", role: "general" }, team[0]])?.name).toBe("General");
-    expect(fallbackOwner([{ _id: "r", name: "Researcher", role: "researcher" }, team[0]])?.name).toBe("Researcher");
+  it("fallback order: Support, General, Researcher, then anyone but the CTO", () => {
+    expect(fallbackOwner(team)?.name).toBe("Support");
     expect(fallbackOwner([team[0], team[3]])?.name).toBe("Backend");
     expect(fallbackOwner([])).toBeNull();
+  });
+
+  it("a CTO deflection does not keep the thread; the CTO takes the next question (plan 062)", () => {
+    const history = [
+      { authorType: "user", content: "sebutkan 3 file penting di project ini" },
+      { authorType: "agent", agentId: "qa", content: "Pertanyaan itu ditujukan kepada CTO, dan saya bukan CTO — saya QA engineer di tim." },
+    ];
+    expect(owner("sebutkan juga strukturnya", { history })).toMatchObject({ agent: { name: "CTO" }, via: "route" });
   });
 });
 

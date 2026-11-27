@@ -188,11 +188,10 @@ describe("O1: planning works without a CTO agent", () => {
     expect(pickPlannerModelSource([], null)).toBeNull();
   });
 
-  it("a conversation reply follows the hint, then the docs owner, never a guessed topic", () => {
+  it("a conversation reply goes to the topic owner, Support by default, never the CTO", () => {
     expect(conversationReplyCapability("hello", team)).toBe("documentation-support");
-    expect(conversationReplyCapability("kenapa query database lambat", team)).toBe("documentation-support");
+    expect(conversationReplyCapability("kenapa query database lambat", team)).toBe("backend-development");
     expect(conversationReplyCapability("hello", [cto, frontend])).toBe("frontend-development");
-    expect(conversationReplyCapability("anything", team, "frontend")).toBe("frontend-development");
   });
 });
 

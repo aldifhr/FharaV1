@@ -117,12 +117,15 @@ describe("decideFixOwner: who fixes", () => {
     expect(out.kind === "spawn_fix" && out.ownerAgentId).toBe(byRole("backend")._id);
   });
 
-  it("no finding path: no owner, so the caller blocks with a reason", () => {
-    expect(decide({ findings: [finding("")] })).toEqual({ kind: "block", reason: "unowned" });
+  it("no finding path: the last code_change owns it", () => {
+    const out = decide({ findings: [finding("")] });
+    expect(out.kind === "spawn_fix" && out.ownerNodeKey).toBe("api");
   });
 
-  it("qa: a UI implementer without a matching path leaves the finding unowned", () => {
-    expect(decide({ stage: "qa", findings: [finding("api/server.ts")] })).toEqual({ kind: "block", reason: "unowned" });
+  it("qa: a UI implementer owns the fix even when the path points elsewhere", () => {
+    const out = decide({ stage: "qa", findings: [finding("api/server.ts")] });
+    expect(out.kind === "spawn_fix" && out.ownerNodeKey).toBe("ui");
+    expect(out.kind === "spawn_fix" && out.agent.role).toBe("frontend");
   });
 
   it("qa without a UI node falls back to the shared rule", () => {
@@ -148,16 +151,16 @@ describe("decideFixOwner: the fix node", () => {
   });
 
   it("qa: fix_qa_<n>, unique key, scoped to the owner's paths (a copy)", () => {
-    const out = decide({ stage: "qa", round: 1, maxRounds: 2, findings: [finding("web/x.tsx")] }, ["fix_qa_2"]);
+    const out = decide({ stage: "qa", round: 1, maxRounds: 2 }, ["fix_qa_2"]);
     if (out.kind !== "spawn_fix") throw new Error("expected spawn_fix");
     const [fix] = out.nodes;
     expect(fix).toMatchObject({ key: "fix_qa_2_2", title: "Address QA failures (iteration 2)", capability: "frontend-development", allowedPaths: ["web/"] });
     expect(fix.allowedPaths).not.toBe(UI.allowedPaths);
   });
 
-  it("qa: an owner without a matching path gives no fix", () => {
+  it("qa: an owner without paths gives an unscoped fix", () => {
     const out = decide({ stage: "qa", nodes: [sub("ui2", "frontend-development", 0)] });
-    expect(out).toEqual({ kind: "block", reason: "unowned" });
+    expect(out.kind === "spawn_fix" && out.nodes[0].allowedPaths).toBeUndefined();
   });
 
   it("verify phase 0: the legacy fix_verify_<n> key and title", () => {
@@ -184,9 +187,8 @@ describe("moved helpers keep their behaviour", () => {
     expect(attributeFinding({}, [])).toBe("");
   });
 
-  it("pickQaFixOwner matches a path scope before preferring UI, and never guesses", () => {
-    expect(pickQaFixOwner([UI, API], [{ filePath: "api/x.ts" }])).toBeUndefined();
-    expect(pickQaFixOwner([UI, API], [{ filePath: "web/x.tsx" }])?.key).toBe("ui");
+  it("pickQaFixOwner prefers UI nodes, else the shared rule", () => {
+    expect(pickQaFixOwner([UI, API], [{ filePath: "api/x.ts" }])?.key).toBe("ui");
     expect(pickQaFixOwner([API], [{ filePath: "api/x.ts" }])?.key).toBe("api");
     expect(pickQaFixOwner([REVIEW], [])).toBeUndefined();
   });

@@ -38,7 +38,7 @@ export function useProjectSlash({
   permissionMode: PermissionMode;
   conversationId?: string;
   pendingItems: any[];
-  mentions: { attachMentionedFiles: (text: string) => Promise<string>; mentionedIds: string[] };
+  mentions: { attachMentionedFiles: (text: string) => Promise<string>; mentionedAgentIds: (text: string) => string[] };
   createTask: (args: any) => Promise<unknown>;
   sendMessage: (args: any) => Promise<unknown>;
   setChatError: (error: string) => void;
@@ -68,7 +68,7 @@ export function useProjectSlash({
         return true;
       }
       const content = await mentions.attachMentionedFiles(rest);
-      const assignees = mentions.mentionedIds;
+      const assignees = mentions.mentionedAgentIds(content);
       const taskId = await createTask({
         projectId: projectId as never,
         permissionMode,

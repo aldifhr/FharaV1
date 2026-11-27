@@ -86,8 +86,8 @@ function splitByConcerns(node: PlanSubtask, concerns: Concern[], used: Set<strin
         .join(", ")}) are separate subtasks. Context: ${node.description}`,
       kind: "code_change",
       // The docs part of a code-affecting multi-concern request stays with the
-      // implementer (user decision 2026-11-11): pure-docs requests are not
-      // split. Its paths are still docs-only.
+      // implementer (user decision 2026-11-11): Support only owns pure-docs
+      // requests, where nothing is split. Its paths are still docs-only.
       capability: node.capability,
       dependencies: previous,
       order: node.order,

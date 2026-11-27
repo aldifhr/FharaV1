@@ -12,14 +12,57 @@
  */
 import {
   canWritePath,
+  LEGACY_ROLE_SUCCESSORS,
   permissionsFromTools,
   ROLES,
+  ROLE_KEYS,
+  type RoleKey,
   type RolePermissions,
 } from "@/api/functions/lib/roles";
 
-export type { RolePermissions, RoleKey } from "@/api/functions/lib/roles";
-export { canWritePath, resolveRoleKey } from "@/api/functions/lib/roles";
-import { resolveRoleKey } from "@/api/functions/lib/roles";
+type AgentRole = RoleKey;
+
+
+export type { RolePermissions } from "@/api/functions/lib/roles";
+export { canWritePath } from "@/api/functions/lib/roles";
+
+/** Free-text role names (legacy rows, LLM output) that are not a key or title. */
+/**
+ * Aliases collapse retired roles onto their canonical successor. The map is
+ * kept here for the worker's free-text routing; the shared module owns the
+ * authority for the live `RoleKey`s. Designer aliases point at the live
+ * designer role (not frontend), so a stored "UI/UX Designer" row keeps its
+ * read-only design permissions.
+ */
+const ROLE_ALIASES: Readonly<Record<string, AgentRole>> = {
+  ...LEGACY_ROLE_SUCCESSORS,
+  "ui/ux": "designer",
+  "ui/ux designer": "designer",
+  "frontend-developer": "frontend",
+  developer: "frontend",
+  "backend-developer": "backend",
+  tester: "qa",
+  security: "backend",
+  "security auditor": "backend",
+  "security engineer": "backend",
+  database: "backend",
+  "database engineer": "backend",
+  db: "backend",
+};
+
+const ROLE_BY_NAME: ReadonlyMap<string, AgentRole> = new Map<string, AgentRole>([
+  ...ROLE_KEYS.flatMap((key): Array<[string, AgentRole]> => [
+    [key, key],
+    [ROLES[key].title.toLowerCase(), key],
+  ]),
+  ...Object.entries(ROLE_ALIASES),
+]);
+
+/** Free-text role → fixed role (key, title or alias), or null when unknown. */
+export function resolveRoleKey(role: string): AgentRole | null {
+  const raw = role.trim().toLowerCase();
+  return ROLE_BY_NAME.get(raw) ?? ROLE_BY_NAME.get(raw.replace(/[\s_\/]+/g, "-")) ?? null;
+}
 
 export function permissionsForAgent(agent: { role?: string; supportedTools?: readonly string[] }): RolePermissions {
   const key = resolveRoleKey(agent.role ?? "");

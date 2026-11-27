@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { hintRole } from "../routingHint";
 import { hintForCommand, resolveTaskAssignees, routedOwners, teamCto } from "./taskAssignees";
-import type { RoutingClassification } from "./routingClassification";
 
 const team = [
   { _id: "cto", name: "CTO", role: "cto" },
@@ -10,44 +9,36 @@ const team = [
   { _id: "qa", name: "QA", role: "qa" },
 ];
 const ids = (agents: { _id: string }[]) => agents.map((a) => a._id);
-const routing = (role: string | null, kind: RoutingClassification["kind"] = "implementation", confidence = 0.9): RoutingClassification => ({
-  role: role as RoutingClassification["role"],
-  kind,
-  files: [],
-  confidence,
-});
 
 describe("teamCto", () => {
-  test("registry CTO aliases, else null", () => {
+  test("the CTO (or an architect), else null", () => {
     expect(teamCto(team)?._id).toBe("cto");
     expect(teamCto([{ _id: "a", name: "Arch", role: "Architect" }])?._id).toBe("a");
-    expect(teamCto([{ _id: "o", name: "Orchestrator", role: "orchestrator" }])?._id).toBe("o");
     expect(teamCto(team.filter((a) => a.role !== "cto"))).toBeNull();
   });
 });
 
-describe("routedOwners (structured only)", () => {
-  test("a validated role owns the task; the CTO never does", () => {
-    expect(ids(routedOwners(routing("frontend"), team).owners)).toEqual(["fe"]);
-    expect(ids(routedOwners(routing("cto"), team).owners)).toEqual([]);
+describe("routedOwners", () => {
+  test("a frontend request is owned by Frontend; never the CTO", () => {
+    const { owners } = routedOwners("buatkan halaman login dengan tombol dan form", team);
+    expect(ids(owners)).toContain("fe");
+    expect(ids(owners)).not.toContain("cto");
   });
 
-  test("designer and qa roles resolve to their teams", () => {
-    const designTeam = [...team, { _id: "des", name: "Designer", role: "designer" }];
-    expect(ids(routedOwners(routing("designer", "design"), designTeam).owners)).toEqual(["des"]);
-    expect(ids(routedOwners(routing("qa", "verification"), team).owners)).toEqual(["qa"]);
+  test("a two-domain request keeps both owners", () => {
+    // Docs are Backend's now that Support is gone.
+    const { owners } = routedOwners("ubah tombol di halaman login dan update README docs", team);
+    expect(ids(owners)).toEqual(expect.arrayContaining(["fe", "be"]));
   });
 
-  test("files and kind ride on the hint", () => {
-    expect(routedOwners({ ...routing("frontend"), files: ["src/status.tsx"] }, team)).toMatchObject({
-      domain: "implementation",
-      topic: "src/status.tsx",
-    });
+  test("design words route to Frontend, which carries the design role", () => {
+    expect(ids(routedOwners("pilih palet warna dan tipografi", team).owners)).toEqual(["fe"]);
   });
 
-  test("no role: no owner, no Backend default, even when the text names Backend", () => {
-    expect(routedOwners(routing(null), team).owners).toEqual([]);
-    expect(routedOwners(undefined, team).owners).toEqual([]);
+  test("nothing matches: no owners, no Backend default", () => {
+    // "halo" is Backend's now (it carries the old Support topics), so use a
+    // question no role owns.
+    expect(routedOwners("menurutmu nama produk ini bagus?", team).owners).toEqual([]);
   });
 });
 
@@ -56,7 +47,7 @@ describe("resolveTaskAssignees", () => {
     expect(ids(resolveTaskAssignees({ team, offerAssigneeId: "fe" }))).toEqual(["cto", "fe", "qa"]);
   });
 
-  test("mentions, offer assignee, hint role and routed owners are all owners, in order, once each", () => {
+  test("mentions, the offer assignee, the hint role and routed owners are all owners, in that order, once each", () => {
     const pool = resolveTaskAssignees({
       team,
       mentionedIds: ["be"],
@@ -67,11 +58,16 @@ describe("resolveTaskAssignees", () => {
     expect(ids(pool)).toEqual(["cto", "be", "fe", "qa"]);
   });
 
-  test("a retired hint role resolves to its successor", () => {
+  test("a retired hint role resolves to its successor instead of being dropped", () => {
+    // A task created before the roster shrank still carries role "reviewer".
     expect(ids(resolveTaskAssignees({ team, hint: { source: "command", role: "reviewer" } }))).toEqual(["cto", "qa"]);
   });
 
-  test("no owner, or the CTO as the only owner: no narrowing", () => {
+  test("a hint role alone narrows the pool", () => {
+    expect(ids(resolveTaskAssignees({ team, hint: { source: "command", role: "frontend" } }))).toEqual(["cto", "fe", "qa"]);
+  });
+
+  test("no owner, or the CTO as the only owner: no narrowing (whole team)", () => {
     expect(resolveTaskAssignees({ team })).toEqual([]);
     expect(resolveTaskAssignees({ team, mentionedIds: ["cto"] })).toEqual([]);
     expect(resolveTaskAssignees({ team, offerAssigneeId: "ghost" })).toEqual([]);
@@ -88,16 +84,39 @@ describe("resolveTaskAssignees", () => {
   });
 });
 
-describe("hintForCommand", () => {
-  test("files come from the user's text; role only from explicit routed data", () => {
-    expect(hintForCommand("buatkan halaman login.tsx dengan form", team)).toMatchObject({
-      source: "command",
-      files: ["login.tsx"],
-    });
-    expect(hintForCommand("buatkan halaman login.tsx dengan form", team).role).toBeUndefined();
+describe("verification-only commands", () => {
+  test("a browser/console check routes to QA, ignoring page keywords and 'do not change files'", () => {
+    const hint = hintForCommand(
+      "Create a task: check whether the app at the local preview URL loads without console errors and report the result. Do not change files.",
+      team
+    );
+    expect(hint).toMatchObject({ source: "command", role: "qa", domain: "qa", topic: "verification" });
   });
 
-  test("an @mention is binding; a mentioned CTO is not an owner", () => {
+  test("a page change still routes to Frontend", () => {
+    const hint = hintForCommand("add a button to the status page and change only that file", team);
+    expect(hint).toMatchObject({ source: "command", role: "frontend" });
+  });
+});
+
+describe("file-change routing", () => {
+  test("a file change mentioning QA routes to the code owner, not QA", () => {
+    const hint = hintForCommand(
+      "Create a task: add a third one-line comment in src/status.tsx saying QA checks are structural only. Change only that file.",
+      team
+    );
+    expect(hint).toMatchObject({ source: "command", role: "frontend", domain: "frontend", files: ["src/status.tsx"] });
+  });
+});
+
+describe("hintForCommand", () => {
+  test("a typed command: source command, the routed owner's role, files from the text, not hard", () => {
+    const hint = hintForCommand("buatkan halaman login.tsx dengan form", team);
+    expect(hint).toMatchObject({ source: "command", role: "frontend", files: ["login.tsx"] });
+    expect(hint.hard).toBeUndefined();
+  });
+
+  test("an @mention is binding and wins over the routed owner; a mentioned CTO is not an owner", () => {
     expect(hintForCommand("buatkan halaman login", team, { mentioned: [team[2]] })).toMatchObject({ source: "mention", role: "backend", hard: true });
     expect(hintForCommand("menurutmu nama produk ini bagus?", team, { mentioned: [team[0]] })).toEqual({ source: "command" });
   });
@@ -107,7 +126,7 @@ describe("hintForCommand", () => {
     expect(hint).toMatchObject({ source: "command", role: "backend", domain: "backend", topic: "README.md" });
   });
 
-  test("legacy role names resolve to successors, unknown names drop", () => {
+  test("a legacy role name resolves to its successor, an unknown one is dropped", () => {
     expect(hintRole("designer")).toBe("designer");
     expect(hintRole("support")).toBe("backend");
     expect(hintRole("reviewer")).toBe("qa");

@@ -10,7 +10,7 @@ import type { Doc, Id } from "@fhara/runtime/data";
 import type { QueryCtx } from "@fhara/runtime/functions";
 import { projectTeamIds } from "./projectTeam";
 import { readRoutingHint, type RoutingHint } from "./routingHint";
-import { resolveTaskAssignees } from "./chat/taskAssignees";
+import { hintForCommand, resolveTaskAssignees, routedOwners } from "./chat/taskAssignees";
 
 export async function resolveNewTaskRouting(
   ctx: Pick<QueryCtx, "db">,
@@ -27,14 +27,17 @@ export async function resolveNewTaskRouting(
     .filter((a): a is Doc<"agents"> => Boolean(a) && a!.isEnabled !== false)
     .map((a) => ({ _id: String(a._id), name: a.name, role: a.role }));
   const given = input.hint ?? readRoutingHint(input.offer?.hint) ?? undefined;
-  // No word-based inference here: a task without a chat classification keeps
-  // the whole team as its pool and carries no guessed role/domain hint.
-  const routingHint = given ?? undefined;
+  // A typed command (chat "/task", the web /task, the TaskBoard box) with nothing else to go on is routed like
+  // chat routes it; "/research …" and other slash markers keep their own routing.
+  const derive = !given && !input.offer && !input.requested?.length && !input.command.trim().startsWith("/");
+  const routed = derive ? routedOwners(input.command, team) : undefined;
+  const routingHint = given ?? (derive ? hintForCommand(input.command, team, { routed }) : undefined);
   const pool = resolveTaskAssignees({
     team,
     mentionedIds: (input.requested ?? []).map(String),
     offerAssigneeId: input.offer?.assigneeAgentId,
     hint: routingHint,
+    routed: routed?.owners,
   });
   // Requested ids outside the enabled team were validated by the caller; keep them (a disabled assignee stays visible).
   const extra = (input.requested ?? []).filter((id) => !pool.some((a) => a._id === String(id)));

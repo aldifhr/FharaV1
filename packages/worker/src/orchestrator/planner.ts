@@ -637,7 +637,7 @@ export function heuristicPlan(input: PlannerInput): ExecutionPlan {
           description:
             PLAN_NODE_INSTRUCTIONS.reply,
           kind: "analysis",
-          // O1: the chat-routed owner answers conversation, not the CTO.
+          // O1: the topic owner answers conversation (Support by default), not the CTO.
           capability: conversationReplyCapability(command, agents, input.routingHint?.role),
           dependencies: [],
           order: 0,

@@ -12,7 +12,7 @@ import { roleKeyForMention, roleLabel } from "@/api/functions/lib/roles";
 
 export { isSystemLine };
 
-// Legacy handoff rows stored before structured handoffs; display only.
+// Same shape as `isHandoffLine` in apps/api/functions/lib/chat/dispatch.ts, with the name captured.
 const LEGACY_HANDOFF = /^(?:Handing this to @([\w.-]+) for [^\n]{1,160}\.|Saya serahkan ke @([\w.-]+) untuk [^\n]{1,160}\.)$/;
 
 type Row = { voice?: string | null; authorType?: string; content?: string | null };

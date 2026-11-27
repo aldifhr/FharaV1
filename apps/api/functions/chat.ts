@@ -39,28 +39,24 @@ import {
 } from "./lib/chat/intent";
 import { classifyIntent } from "./lib/chat/classify";
 import { type EchoContext, streamEchoSafe, stripLeadingEcho } from "./lib/chat/echo";
-import { ROLE_KEYS, ROLES, isCtoRole, resolveRoleKey, roleLabel } from "./lib/roles";
-import { chatPreRouteAllowed, mentionsCode, routedAnswerSubtype, systemRoutingLine } from "./lib/chat/dispatch";
+import { ROLE_KEYS, ROLES, roleLabel } from "./lib/roles";
+import { DOMAIN_ROLES, chatPreRouteAllowed, mentionsCode, routedAnswerSubtype, systemRoutingLine } from "./lib/chat/dispatch";
 import { buildTaskStatusLine, resolveChatOwner, type ChatOwner } from "./lib/chat/owner";
 import { detectChatRunCommands } from "./lib/chat/runRequest";
 import {
+  MAX_CTO_HANDOFFS,
+  ORCHESTRATOR_ROLE,
+  extractAgentMentions,
+  handoffRequestFor,
+  isVerificationRequest,
   pickConversationalAgent,
   pickGreetingResponders,
+  selectHandoffs,
   type ChatAgent,
 } from "./lib/chat/team";
-import {
-  MAX_HANDOFFS,
-  parseStructuredReply,
-  resolveHandoffTargets,
-  type StructuredReply,
-} from "./lib/chat/handoff";
-import { actionableRouting, type RoutingClassification } from "./lib/chat/routingClassification";
-import { postRoleChoiceCard } from "./lib/chat/roleChoiceCard";
 import { TERMINAL_TASK_STATUSES, dispatchTaskFromChat, outsideRepoReply, startOfferedTask } from "./lib/chat/startTask";
-import { routedOwners } from "./lib/chat/taskAssignees";
 import { shouldAutoCreateTask } from "./lib/chat/autoTask";
 import {
-  cheapestChatConfig,
   completeWithAgent,
   resolveConfigFromProviders,
   type ChatLlmConfig,
@@ -112,9 +108,6 @@ import {
   buildRepoToolProtocol,
   buildSkillToolProtocol,
   buildSelfReviewGuidance,
-  buildStructuredReplyPrompt,
-  ROLE_CHOICE_QUESTION,
-  STRUCTURED_REPLY_SYSTEM,
 } from "./lib/prompts/chat";
 import {
   callChatLlmViaWorker,
@@ -279,7 +272,7 @@ async function resolveIntent(
     };
   }
   const routingCtx = {
-    roles: ROLE_KEYS as unknown as IntentRoutingContext["roles"],
+    domains: Object.keys(DOMAIN_ROLES) as IntentRoutingContext["domains"],
     team: routing.team,
     historyLines: routing.history.slice(-6).map((row) => `${row.authorType === "user" ? "User" : "Agent"}: ${row.content.slice(0, 300)}`),
     contextSummary: routing.contextSummary,
@@ -294,7 +287,7 @@ async function resolveIntent(
       confidence: 1,
       reasoning: "deterministic question shape",
     };
-    return classified?.owner ? { ...classified, ...ask, owner: classified.owner } : ask;
+    return classified?.route ? { ...classified, ...ask, route: classified.route } : ask;
   }
   return (
     classified ??
@@ -407,32 +400,6 @@ type StreamReply = (
     intentLine?: string;
   },
 ) => Promise<StreamReplyResult>;
-
-/**
- * One schema-validated JSON call for a CTO/Lead reply. Invalid output gets
- * exactly one retry, then null: the caller asks the user to pick a role.
- * There is no text-parsing fallback.
- */
-async function requestStructuredReply(input: {
-  reply: string;
-  userRequest: string;
-  roles: readonly string[];
-  config: ChatLlmConfig;
-}): Promise<StructuredReply | null> {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const correction = attempt === 0 ? "" : "\nThe previous output was not a valid JSON object. Output only the JSON object.";
-    const raw = await completeWithAgent(
-      STRUCTURED_REPLY_SYSTEM,
-      [{ role: "user", content: buildStructuredReplyPrompt(input) + correction }],
-      input.config
-    )
-      .then((result) => result.content)
-      .catch(() => "");
-    const parsed = parseStructuredReply(raw);
-    if (parsed) return parsed;
-  }
-  return null;
-}
 
 /**
  * Explicit task from an ATTACHED personal chat (plan 039 D5): the task is
@@ -644,8 +611,10 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     // chat default. Read from the team (not the conversation's participants)
     // so routing can reach it.
     const team = teamAgents ?? agents;
-    const isCtoAgent = (a: ChatAgent) => isCtoRole(a.role);
-    const orchestrator = team.find(isCtoAgent) ?? agents.find(isCtoAgent) ?? null;
+    const orchestrator =
+      team.find((a) => ORCHESTRATOR_ROLE.test(a.role.trim())) ??
+      agents.find((a) => ORCHESTRATOR_ROLE.test(a.role.trim())) ??
+      null;
 
     // The user's message this run answers (fixed fallback copy follows its language).
     const userText = history[history.length - 1]?.content ?? "";
@@ -984,7 +953,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         return;
       }
 
-      const personalWrite = planWriteOffer({ speaker: agent, isCto: resolveRoleKey(agent.role) === "cto", addressed: true, team: [agent], text: lastText, taskIntent: { kind: !hasAskShape(lastText) ? classifyChatIntent(lastText).kind : "chat", runCommands: detectChatRunCommands(lastText) ?? undefined }, optionPick, repoSnapshot });
+      const personalWrite = planWriteOffer({ speaker: agent, isCto: ORCHESTRATOR_ROLE.test(agent.role.trim()), addressed: true, team: [agent], text: lastText, taskIntent: { kind: !hasAskShape(lastText) ? classifyChatIntent(lastText).kind : "chat", runCommands: detectChatRunCommands(lastText) ?? undefined }, optionPick, repoSnapshot });
       const repoTools = scopeProjectId ? await repoToolsAvailability(ctx, scopeProjectId) : null;
       const useRepoTools = repoTools?.available === true;
       const skillLoader = chatSkillLoader(ctx, agent);
@@ -1062,21 +1031,33 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     // agent answers, not the whole team: fanning out to every agent made 12 sequential LLM calls and blew the action
     // timeout, leaving the first bubble stuck on "Thinking" forever.
     const lastContent = history[history.length - 1]?.content ?? "";
-    // Who the user addressed: only the structured ids from the mention
-    // picker / To pick. Free text is never parsed for @Role tokens.
+    // Who the user addressed: the @mentioned agents (or the To pick). The
+    // web's old default receiver, the CTO without "@CTO" typed, counts as
+    // To: Team (O3: no CTO default), so System routes the message.
+    const pickedAgents = (args.preferredAgentIds ?? [])
+      .map((id) => agents.find((a) => a._id === String(id)))
+      .filter((a): a is ChatAgent => Boolean(a));
+    // A typed @Role is binding even when the composer did not attach a chip.
+    // The run context holds the project's execution team. Role mentions like
+    // @Lead may name an enabled agent outside that team, so resolve against
+    // the full enabled roster while keeping responders type-compatible.
     const enabledAgents = (await ctx.db.query("agents").collect())
       .filter((a) => a.isEnabled !== false)
       .map((a) => ({ ...a, _id: String(a._id) })) as unknown as ChatAgent[];
-    const addressedPool = [
+    const mentionable = [
       ...new Map([...team, ...agents, ...enabledAgents].map((a) => [String(a._id), a])).values(),
     ];
-    const pickedAgents = (args.preferredAgentIds ?? [])
-      .map((id) => addressedPool.find((a) => String(a._id) === String(id)))
-      .filter((a): a is ChatAgent => Boolean(a));
-    const ctoPicked = orchestrator !== null && pickedAgents.some((a) => String(a._id) === String(orchestrator._id));
-    // An explicit CTO pick still gets the CTO's answer; implementation work
-    // is explained separately below and routed to a teammate.
-    const mentionedAgents = pickedAgents;
+    const addressedAgents = pickedAgents.length ? pickedAgents : extractAgentMentions(lastContent, mentionable);
+    const ctoTyped =
+      orchestrator !== null &&
+      new RegExp(`@(?:cto|${orchestrator.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})(?![\\w-])`, "i").test(lastContent);
+    // "@CTO" typed always addresses the CTO, picked or not.
+    const mentionedAgents =
+      orchestrator !== null && !ctoTyped && !quotedResponder && addressedAgents.length === 1 && String(addressedAgents[0]._id) === String(orchestrator._id)
+        ? []
+        : orchestrator !== null && ctoTyped && addressedAgents.length === 0
+          ? [orchestrator]
+          : addressedAgents;
     if (GREETING.test(lastContent.trim())) {
       const greetingHistory = [{ role: "user", content: lastContent.trim() }];
       // An @mention wins, else Support (the guidance role), else the
@@ -1134,13 +1115,11 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     }
     // The intent below is a suggestion that shapes the reply (answer vs a
     // plan proposal with the Create task button); it never dispatches.
-    const classifierConfig = await cheapestChatConfig(llmProviders, resolveOpts);
-    let intent = await resolveIntent(ctx, projectId, lastUserContent, isOptionPick, classifierConfig, {
+    let intent = await resolveIntent(ctx, projectId, lastUserContent, isOptionPick, globalConfig, {
       team,
       history,
       contextSummary: data.contextSummary,
     });
-    const routing = actionableRouting(intent.owner);
     // `taskIntent.kind === "task"` makes the CTO propose a short plan and
     // end with the Create task sentence the web button keys on.
     let taskIntent = {
@@ -1180,28 +1159,6 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     const readOnlyWork = ["audit", "review"].includes(taskIntent.subtype ?? "");
     const workShaped = !isOptionPick && !readOnlyWork && (taskIntent.kind === "task" || writeRequest || runRequest);
 
-    // The CTO plans and reviews; it does not write code. When a user picks it
-    // for implementation work, say so and name the teammate who will receive
-    // the request instead of silently ignoring the pick.
-    if (workShaped && ctoPicked) {
-      const owner = routedOwners(routing, team).owners.find((a) => !isCtoAgent(a));
-      await ctx.runMutation(internal.chatContext.insertSystemLine, {
-        projectId,
-        conversationId: args.conversationId,
-        replyToMessageId: args.userMessageId,
-        content: owner
-          ? `The CTO does not write code. ${roleLabel(owner.role)} will handle this request.`
-          : ROLE_CHOICE_QUESTION,
-      });
-      if (!owner) await postRoleChoiceCard(ctx, { ...msgScope, conversationId: args.conversationId, userMessageId: args.userMessageId, agentId: orchestrator?._id as any });
-    }
-
-    // No live role at sufficient confidence: ask the user instead of guessing
-    // an owner (never a silent Backend default).
-    if (workShaped && !ctoPicked && mentionedAgents.length === 0 && !routing) {
-      await postRoleChoiceCard(ctx, { ...msgScope, conversationId: args.conversationId, userMessageId: args.userMessageId, agentId: orchestrator?._id as any });
-    }
-
     // Plan 061: a work-shaped message gets its task in this same turn. The CTO
     // still answers, but reports the task instead of asking for confirmation.
     // dispatchTaskFromChat owns path safety, assignee/hint resolution and the
@@ -1219,7 +1176,6 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         text: lastUserContent,
         team,
         orchestrator,
-        routing,
         title: lastUserContent.split("\n")[0].slice(0, 80),
         conversationContext: false,
       });
@@ -1246,18 +1202,12 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
           }).catch(() => undefined);
         }
       } else {
-        const classifiedAgent = routing?.role
-          ? team.find((agent) => resolveRoleKey(agent.role) === routing.role && !isCtoAgent(agent))
+        const routedByLlm = intent.route
+          ? team.find((agent) => String(agent._id) === intent.route!.agentId)
           : undefined;
-        const owner: ChatOwner<ChatAgent> | null = classifiedAgent
-          ? { kind: "agent", agent: classifiedAgent, domain: routing?.kind ?? null, via: "llm" }
-          : resolveChatOwner<ChatAgent>({
-              text: lastUserContent,
-              team,
-              history,
-              repoToolsAvailable: repoTools?.available === true,
-              routing,
-            });
+        const owner: ChatOwner<ChatAgent> | null = routedByLlm
+          ? { kind: "agent", agent: routedByLlm, domain: intent.route!.domain, via: "llm" }
+          : resolveChatOwner<ChatAgent>({ text: lastUserContent, team, history, repoToolsAvailable: repoTools?.available === true });
         if (owner?.kind === "status") {
           await ctx.runMutation(internal.chatContext.insertSystemLine, {
             projectId,
@@ -1337,7 +1287,6 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       if (answered.has(String(agent._id))) continue;
       answered.add(String(agent._id));
       const isCto = orchestrator !== null && agent._id === orchestrator._id;
-      const isLead = resolveRoleKey(agent.role) === "lead";
       const handoffBy = handoffFrom.get(String(agent._id));
       // Write request: a short reply plus the Create task offer (lib/chat/writeOffer.ts).
       // O3: routed = addressed, so the owner System routed to can offer Create task.
@@ -1462,40 +1411,37 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
         // Later speakers in this turn see this reply in their system
         // section; the user's message stays the last chat message.
         turnReplies.push({ name: agent.name, content: content.trim() });
-        // CTO/Lead handoffs come from one schema-validated JSON object, never
-        // from @tokens in the prose. A plain capability question stays with
-        // the speaker; an invalid structured reply asks the user to pick a role.
-        if ((isCto || isLead) && !isOptionPick && !CAPABILITY_QUESTION.test(lastUserContent) && !OPTIONS_BLOCK.test(content)) {
-          const availableRoles = [...new Set(team.map((a) => resolveRoleKey(a.role)).filter((r): r is NonNullable<typeof r> => r !== null))];
-          const structured = await requestStructuredReply({
-            reply: content,
-            userRequest: lastUserContent,
-            roles: availableRoles,
-            config: globalConfig,
-          });
-          if (!structured) {
-            await postRoleChoiceCard(ctx, { ...msgScope, agentId: agent._id as any, conversationId: args.conversationId, userMessageId: args.userMessageId });
-          } else {
+        // CTO handoff: the roles it @mentioned answer next, in order.
+        // Only for work turns. A plain question (even one addressed to @CTO)
+        // must be answered by the CTO alone — the model tends to @mention the
+        // whole team out of habit, so the prompt alone is not a reliable gate.
+        if (isCto && !isOptionPick && !CAPABILITY_QUESTION.test(lastUserContent) && !OPTIONS_BLOCK.test(content)) {
+          const toolsOffForTeam = repoTools?.available !== true || workerGone;
+          const dropped: string[] = [];
+          for (const mentioned of selectHandoffs(content, team, String(agent._id))) {
+            if (handoffs >= MAX_CTO_HANDOFFS) break;
+            if (answered.has(String(mentioned._id))) continue;
+            if (queue.some((queued, index) => index > turn && String(queued._id) === String(mentioned._id))) continue;
+            const request = handoffRequestFor(content, mentioned);
+            if (toolsOffForTeam && isVerificationRequest(request)) {
+              dropped.push(mentioned.name);
+              continue;
+            }
+            queue.push(mentioned);
+            handoffFrom.set(String(mentioned._id), { by: agent.name, request });
+            handoffs += 1;
             if (result.messageId) {
-              await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
+              await ctx.runMutation(internal.chatContext.appendToolStep, {
                 messageId: result.messageId,
-                handoff: structured.handoff,
-              });
+                step: { tool: "handoff", target: mentioned.role, ok: true, at: Date.now() },
+              }).catch(() => undefined);
             }
-            for (const { agent: mentioned, instruction } of resolveHandoffTargets(structured.handoff, team, String(agent._id))) {
-              if (handoffs >= MAX_HANDOFFS) break;
-              if (answered.has(String(mentioned._id))) continue;
-              if (queue.some((queued, index) => index > turn && String(queued._id) === String(mentioned._id))) continue;
-              queue.push(mentioned);
-              handoffFrom.set(String(mentioned._id), { by: agent.name, request: instruction });
-              handoffs += 1;
-              if (result.messageId) {
-                await ctx.runMutation(internal.chatContext.appendToolStep, {
-                  messageId: result.messageId,
-                  step: { tool: "handoff", target: mentioned.role, ok: true, at: Date.now() },
-                }).catch(() => undefined);
-              }
-            }
+          }
+          if (dropped.length > 0 && result.messageId) {
+            await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
+              messageId: result.messageId,
+              reasoning: joinTrace(result.reasoning ?? "", `Handoff skipped (${dropped.map((n) => `@${n}`).join(", ")}): a verification request, and teammates have no repo access in this reply either`),
+            }).catch(() => undefined);
           }
         }
       }

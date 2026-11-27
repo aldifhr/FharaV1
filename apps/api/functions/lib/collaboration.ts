@@ -3,16 +3,18 @@
  * Every edge is a count of stored rows, never a guess by a model:
  *
  *  - delegation: `delegations` rows (fromAgentId → toAgentId).
- *  - chat: CTO/Lead handoffs in chat. A teammate reply that carries
- *    `messages.handoffFromAgentId` is a recorded handoff; newer replies carry
- *    a structured `messages.handoff` list with role keys.
+ *  - chat: CTO @mention handoffs in chat. A teammate reply that carries
+ *    `messages.handoffFromAgentId` is a recorded handoff; older replies are
+ *    inferred from the stored text (the CTO reply in the same turn
+ *    @mentioned that teammate, using the chat's own selectHandoffs rule).
  *  - review_loop: a review or QA pass that sent work back: review/QA
  *    subtask role → the role that ran the fix subtask it spawned
  *    (`review_fix_N` ← review nodes, `fix_qa_N` ← QA nodes, same task).
  *  - dependency: DAG edges between subtasks of different roles
  *    (dependency's role → dependent's role, same task).
  */
-import { ROLE_KEYS, resolveRoleKey } from "./roles";
+import { selectHandoffs } from "./chat/team";
+import { ROLE_KEYS } from "./roles";
 import { DAY_MS, roleBucket } from "./workload";
 
 export const EDGE_TYPES = ["delegation", "chat", "review_loop", "dependency"] as const;
@@ -40,7 +42,6 @@ export interface CollabMessageInput {
   authorType: "user" | "agent";
   agentId: string | null;
   content: string;
-  handoff?: Array<{ role: string; instruction: string }>;
   handoffFromAgentId?: string | null;
   at: number;
 }
@@ -110,10 +111,7 @@ export function chatHandoffs(
         continue;
       }
       if (ctoIds.has(m.agentId)) {
-        for (const entry of m.handoff ?? []) {
-          const target = team.find((a) => resolveRoleKey(a.role) === entry.role && a._id !== m.agentId);
-          if (target) addressed.add(String(target._id));
-        }
+        for (const a of selectHandoffs(m.content, team, m.agentId)) addressed.add(String(a._id));
         if (addressed.size > 0) addressedBy = m.agentId;
         continue;
       }

@@ -660,18 +660,6 @@ export async function resolveConfigChain(
   return [primary, ...(fallbacks ?? [])];
 }
 
-/** Cheapest configured pair by registered price; the existing pool is the only source. */
-export async function cheapestChatConfig(
-  providers: PoolConnectionPayload[] | undefined,
-  opts?: ResolveConfigOptions
-): Promise<ChatLlmConfig> {
-  const configs = await resolveConfigChain(providers, undefined, opts);
-  if (configs.length === 0) return resolveConfigFromProviders(providers, undefined, opts);
-  const price = (config: ChatLlmConfig) =>
-    (config.inputPricePer1k ?? Number.POSITIVE_INFINITY) + (config.outputPricePer1k ?? Number.POSITIVE_INFINITY);
-  return configs.slice().sort((a, b) => price(a) - price(b))[0];
-}
-
 /**
  * completeWithAgent over a config chain: the first config that answers
  * wins. When every config fails, the error names each attempt (kind @ host,

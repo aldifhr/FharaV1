@@ -31,7 +31,7 @@ under `lib/`, so moving logic there never changes a function path.
 
 | Path | Holds |
 | --- | --- |
-| `lib/roles.ts` | Single source for the seven team roles (cto, lead, frontend, backend, devops, qa, designer — labels, registry fields, capabilities, tools, chip colours, prompt keys, retired/legacy aliases). Pure TS: imported by the web app (`@/api/functions/lib/roles`) and meant for the worker too. |
+| `lib/roles.ts` | Single source for the nine team roles (labels, registry fields, capabilities, tools, chip colours, prompt keys, retired/legacy keys). Pure TS: imported by the web app (`@/api/functions/lib/roles`) and meant for the worker too. |
 | `lib/prompts/` | All backend LLM prompt text: `chat.ts` (chat loop, CTO assignment, classifier, responder chooser), `agents.ts` (seed personas), `enhance.ts` (prompt enhancer). Change wording only here. |
 | `lib/chat/` | `chat.ts` internals: intent shapes/parser, team selection, LLM client, tool-call stripping, repo snapshot (`"use node"`), and `repoTools.ts` (read-only repo tool contract, bounded tool loop and shared per-turn budget for grounded chat replies). |
 | `lib/authz.ts` | Conditional ownership checks (`assertProjectAccess`, `canViewProject`, …). |

@@ -42,7 +42,7 @@ import {
   visibleProjectIds,
   assertConversationAccess,
 } from "./lib/authz";
-import { taskStatus, subtaskKind, subtaskStatus, executionStatus, handoffValidator } from "./schema";
+import { taskStatus, subtaskKind, subtaskStatus, executionStatus } from "./schema";
 import { taskBranchPrefixes } from "./lib/taskBranch";
 import { consumeTaskSignals, RESUMABLE_APPROVAL_KINDS, supersedePendingCommandApprovals } from "./taskSignals";
 import { appendAgentEvent as appendAgentEventRow, appendTaskEvent } from "./lib/taskEvents";
@@ -2301,7 +2301,6 @@ export const appendAgentMessage = internalMutation({
     taskId: v.id("tasks"),
     agentId: v.optional(v.id("agents")),
     content: v.string(),
-    handoff: v.optional(handoffValidator),
     subtaskKey: v.optional(v.string()),
     executionId: v.optional(v.id("executions")),
   },
@@ -2313,7 +2312,6 @@ export const appendAgentMessage = internalMutation({
       agentId: args.agentId,
       authorType: "agent",
       content: args.content,
-      ...(args.handoff && args.handoff.length ? { handoff: args.handoff } : {}),
       subtaskKey: args.subtaskKey,
       executionId: args.executionId,
     });

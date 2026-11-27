@@ -29,7 +29,13 @@ import { threadIndexTable, titleSetByValidator } from "./lib/threadIndexSchema";
 import { projectScriptsValidator } from "./lib/projectScriptsSchema";
 import { routingHintValidator, taskOfferValidator } from "./lib/routingHint";
 import { workflowEdgeValidator, workflowNodeValidator } from "./lib/workflowSchema";
+import { ROLE_KEYS } from "./lib/roles";
 export { edgeCondition, workflowEdgeValidator, workflowNodeType, workflowNodeValidator } from "./lib/workflowSchema";
+
+/** Single validator for structured CTO/Lead handoffs; roles are the live enum. */
+export const handoffValidator = v.array(
+  v.object({ role: v.union(...ROLE_KEYS.map((key) => v.literal(key))), instruction: v.string() })
+);
 
 export const taskStatus = v.union(
   v.literal("queued"),
@@ -756,6 +762,10 @@ export default defineSchema({
     intentLine: v.optional(v.string()),
     // Create task offer (additive, lib/routingHint.ts): set on a chat reply the server read as work; the web button keys on it.
     taskOffer: v.optional(taskOfferValidator),
+    // Structured handoffs for this reply. Optional so old rows (and plain
+    // replies without a handoff) validate unchanged; @Role chips are rendered
+    // from this field, never parsed out of `content`.
+    handoff: v.optional(handoffValidator),
     // Collaboration graph (additive): this agent reply was a CTO @mention
     // handoff; the CTO agent that handed the turn over.
     handoffFromAgentId: v.optional(v.id("agents")),
@@ -775,7 +785,9 @@ export default defineSchema({
           // L6: a side effect Fhara could not confirm (Check / Mark done / Retry).
           v.literal("side_effect"),
           // Options review (show_options): reads the review row live.
-          v.literal("options")
+          v.literal("options"),
+          // Fallback when a structured role reply is invalid twice: the user picks a role.
+          v.literal("role_choice")
         ),
         data: v.any(),
       })

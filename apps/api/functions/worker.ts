@@ -21,6 +21,7 @@ import {
   subtaskStatus,
   executionStatus,
   sideEffectKind,
+  handoffValidator,
 } from "./schema";
 import { mcpEditableArgs, workerSubtaskValidator } from "./lib/workerArgs";
 
@@ -791,6 +792,7 @@ export const appendAgentMessage = action({
     taskId: v.id("tasks"),
     agentId: v.optional(v.id("agents")),
     content: v.string(),
+    handoff: v.optional(handoffValidator),
     subtaskKey: v.optional(v.string()),
     executionId: v.optional(v.id("executions")),
   },

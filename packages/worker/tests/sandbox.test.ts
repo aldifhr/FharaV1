@@ -34,11 +34,17 @@ describe("sandbox path", () => {
     // leading slash is also rejected as absolute
     expect(() => resolveSandboxPath(ROOT, "/app/page.tsx")).toThrow(SandboxError);
   });
+
+  it("allows in-workspace names that begin with two dots", () => {
+    expect(resolveSandboxPath(ROOT, "..config")).toBe(path.join(ROOT, "..config"));
+    expect(resolveSandboxPath(ROOT, "..config/app.json")).toBe(path.join(ROOT, "..config", "app.json"));
+  });
 });
 
 describe("sandbox containment", () => {
   it("detects containment correctly", () => {
     expect(isWithinWorkspace(ROOT, path.join(ROOT, "a/b"))).toBe(true);
+    expect(isWithinWorkspace(ROOT, path.join(ROOT, "..config"))).toBe(true);
     expect(isWithinWorkspace(ROOT, path.resolve(ROOT, "..", "outside"))).toBe(false);
     expect(isWithinWorkspace(ROOT, ROOT)).toBe(true);
   });
@@ -64,6 +70,13 @@ describe("symlink-aware async resolution", () => {
     const resolved = await resolveSandboxPathAsync(root, "src/index.ts");
     expect(resolved.toLowerCase()).toBe(
       path.join(await fs.realpath(root), "src", "index.ts").toLowerCase()
+    );
+  });
+
+  it("resolves in-workspace names that begin with two dots", async () => {
+    const resolved = await resolveSandboxPathAsync(root, "..config/app.json");
+    expect(resolved.toLowerCase()).toBe(
+      path.join(await fs.realpath(root), "..config", "app.json").toLowerCase()
     );
   });
 

@@ -25,12 +25,20 @@ import { buildRoutingHint, type RoutingHint } from "../routingHint";
 
 type Member = { _id: string; name: string; role: string };
 
-const CTO_ROLE = /^(?:cto|architect)$/i;
+/** Every alias the shared registry maps to CTO is a CTO, not just two spellings. */
+const isCtoRole = (role: string): boolean => {
+  const key = normalizeRoleKey(role);
+  return key === "cto" || LEGACY_ROLE_SUCCESSORS[key] === "cto";
+};
 
 const ROLE_KEYWORDS: Array<[string, RegExp]> = [
   [
     "frontend",
-    /\b(ui|ux|component|komponen|page|halaman|tampilan|css|tailwind|react|layout|button|tombol|form|modal|frontend|next\.?js|design|desain|mockup|wireframe|warna|color|palette|typography|font|logo|branding)\b/i,
+    /\b(ui|ux|component|komponen|page|halaman|tampilan|css|tailwind|react|layout|button|tombol|form|modal|frontend|next\.?js)\b/i,
+  ],
+  [
+    "designer",
+    /\b(design|desain|mockup|wireframe|warna|color|palette|typography|font|logo|branding|ui\/ux)\b/i,
   ],
   [
     "backend",
@@ -58,7 +66,7 @@ const byRole = <T extends Member>(team: T[], role: string | undefined): T | unde
 
 /** The team's CTO (the planner's model source), if any. */
 export function teamCto<T extends Member>(team: T[]): T | null {
-  return team.find((a) => CTO_ROLE.test(a.role.trim())) ?? null;
+  return team.find((a) => isCtoRole(a.role.trim())) ?? null;
 }
 
 /**
@@ -86,13 +94,20 @@ export function routedOwners<T extends Member>(text: string, team: T[]): { owner
     if (agent && !owners.includes(agent)) owners.push(agent);
   };
   const codeRole = codeRoleForRequest(text);
+  const designerWords = ROLE_KEYWORDS.find(([role]) => role === "designer")?.[1];
+  const designOwner = designerWords?.test(text) ? byRole(team, "designer") : undefined;
   const fileChange = /\b(?:add|create|write|change|edit|update|remove|tambah|buat|ubah|tulis|hapus)\b/i.test(text);
   // A concrete file change outranks a topic keyword: "add a comment saying
   // QA checks..." is Frontend work that merely mentions QA, not QA work.
   if (fileChange && codeRole) add(byRole(team, codeRole));
-  if (route.kind === "specialist" && !CTO_ROLE.test(route.agent.role.trim())) add(route.agent);
-  if (!fileChange) add(byRole(team, codeRole ?? undefined));
-  for (const [role, words] of ROLE_KEYWORDS) if (words.test(text)) add(byRole(team, role));
+  if (route.kind === "specialist" && !isCtoRole(route.agent.role.trim())) add(route.agent);
+  // Design words are Designer's when the Designer is on the team. Without a
+  // Designer, Frontend is the fallback and still owns them.
+  if (!fileChange && !(designOwner && codeRole === "frontend")) add(byRole(team, codeRole ?? undefined));
+  for (const [role, words] of ROLE_KEYWORDS) {
+    if (!words.test(text)) continue;
+    add(byRole(team, role) ?? (role === "designer" ? byRole(team, "frontend") : undefined));
+  }
   const domain = fileChange && codeRole ? codeRole : route.kind === "specialist" ? route.domain : undefined;
   const topic = route.kind === "specialist" ? route.topic : undefined;
   return { owners, ...(domain ? { domain } : {}), ...(topic ? { topic } : {}) };
@@ -137,7 +152,7 @@ export function hintForCommand<T extends Member>(
   team: T[],
   opts: { mentioned?: T[]; routed?: { owners: T[]; domain?: string; topic?: string } } = {}
 ): RoutingHint {
-  const mentioned = (opts.mentioned ?? []).filter((a) => !CTO_ROLE.test(a.role.trim()));
+  const mentioned = (opts.mentioned ?? []).filter((a) => !isCtoRole(a.role.trim()));
   const routed = opts.routed ?? routedOwners(text, team);
   const owner = mentioned[0] ?? routed.owners[0];
   return buildRoutingHint({

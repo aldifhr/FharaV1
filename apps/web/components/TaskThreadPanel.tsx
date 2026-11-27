@@ -20,6 +20,7 @@ import TaskQuestionCard from "./TaskQuestionCard";
 import SystemLineRow from "./chat/SystemLineRow";
 import CtoTurnLine from "./chat/CtoTurnLine";
 import { canReplyTo, systemLineText, threadBlockOf } from "@/lib/systemLine";
+import { canRetryTask } from "@/lib/taskStatus";
 import { useToast } from "./Toasts";
 import { useSequencedEvents } from "@/lib/useSequencedEvents";
 import { Skeleton } from "@/app/WorkspaceContext";
@@ -455,14 +456,16 @@ export default function TaskThreadPanel({
                 {taskStatus === "failed" && latestFailureKind(endedEvents as any[]) ? ` (${failureKindLabel(latestFailureKind(endedEvents as any[]))})` : ""}
                 {(task as any).errorMessage ? `: ${(task as any).errorMessage}` : ""}
               </p>
-              <button
-                type="button"
-                disabled={retrying}
-                onClick={() => void doRetry()}
-                className="mt-2.5 flex items-center gap-1.5 rounded-lg bg-ink px-3 py-1.5 text-[13px] font-medium text-canvas hover:bg-ink/85 disabled:opacity-50"
-              >
-                <RotateCcw size={14} className={retrying ? "animate-spin" : ""} /> Retry task
-              </button>
+              {canRetryTask(taskStatus) && (
+                <button
+                  type="button"
+                  disabled={retrying}
+                  onClick={() => void doRetry()}
+                  className="mt-2.5 flex items-center gap-1.5 rounded-lg bg-ink px-3 py-1.5 text-[13px] font-medium text-canvas hover:bg-ink/85 disabled:opacity-50"
+                >
+                  <RotateCcw size={14} className={retrying ? "animate-spin" : ""} /> Retry task
+                </button>
+              )}
             </div>
           )}
           <TaskHoldNotice task={task as any} />

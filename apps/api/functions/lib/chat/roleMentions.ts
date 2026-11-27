@@ -25,7 +25,9 @@ const HANDOFF_PATTERNS: readonly RegExp[] = [
   new RegExp(`(?:\\s+dan\\s+)?(?:diserahkan|ditugaskan|diberikan)\\s+ke\\s+(?:@)?(${ROLE})\\b`, "gi"),
   new RegExp(`(?:\\s+and\\s+)?(?:handed(?:\\s+(?:it|the task))?|assigned|sent)\\s+to\\s+(?:@)?(${ROLE})\\b`, "gi"),
   new RegExp(`(?:\\s+untuk\\s+)?(?:the task is with|task\\s+is\\s+with)\\s+(?:@)?(${ROLE})\\b`, "gi"),
-  new RegExp(`\\bwith\\s+(?:@)?(${ROLE})\\b`, "gi"),
+  // Only a copular "is with <role>" is a handoff. "konflik with Backend"
+  // and "compatible with Frontend" are prose, not task handoffs.
+  new RegExp(`\\b(?:is|are|was|were|be)\\s+with\\s+(?:@)?(${ROLE})\\b`, "gi"),
 ];
 
 /** Turn "saya akan menambahkan" / "I will add" into a direct instruction. */

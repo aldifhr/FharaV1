@@ -310,7 +310,7 @@ function classifyCommandBase(command: string): Classification {
       kind: "conversation",
       strategy: "direct",
       reasons: ["greeting"],
-      // O1: greetings go to Support (topic owner), not the CTO.
+      // Greetings go to the documentation owner (Backend), not the CTO.
       suggestedCapabilities: [CAPABILITY.DOCUMENTATION],
     };
   }

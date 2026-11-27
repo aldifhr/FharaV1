@@ -11,9 +11,9 @@
  * A bug fix is therefore reported by the implementing role (Frontend), with
  * the QA evidence inside the report text.
  *
- * QA and Reviewer only gate code: a plan with no code-changing node (docs,
- * research, chat, commands; a Support README edit is a docs change) drops
- * its review/qa nodes, unless they are the whole plan.
+ * QA only gates code: a plan with no code-changing node (docs, research,
+ * chat, commands; a Backend README edit is a docs change) drops its review/qa
+ * nodes, unless they are the whole plan.
  */
 import { CAPABILITY, type AgentDefinition, type ExecutionPlan, type PlanSubtask } from "@/types";
 import { ARCH_DECISION_KEY } from "@/api/functions/lib/architectureFlag";

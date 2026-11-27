@@ -175,4 +175,14 @@ describe("one fix-owner rule: the agent that wrote the code", () => {
     expect(evaluation.targetAgent?._id).toBe("be-2");
     expect(evaluation.targetCapability).toBe("backend-development");
   });
+
+  it("a finding outside every scope has no owner (no last-code_change guess)", () => {
+    expect(ownerForFix({ subtasks, findings: [{ filePath: "docs/guide.md" }], agents: team })).toBeNull();
+  });
+
+  it("a short scope is rooted at the worktree, not every nested lib directory", () => {
+    const nested = [{ ...subtasks[1], key: "lib", allowedPaths: ["lib"] }];
+    expect(ownerForFix({ subtasks: nested, findings: [{ filePath: "apps/api/functions/lib/chat.ts" }], agents: team })).toBeNull();
+    expect(ownerForFix({ subtasks: nested, findings: [{ filePath: "lib/chat.ts" }], agents: team })?.subtask.key).toBe("lib");
+  });
 });

@@ -15,6 +15,8 @@ export function useDraftMentions(
   agents: Array<{ _id: string; name: string; role: string }> = []
 ) {
   const [mention, setMention] = useState<string | null>(null);
+  /** Agent ids picked from the mention list, sent as structured recipients. */
+  const [mentionedIds, setMentionedIds] = useState<string[]>([]);
   const [workspaceFiles, setWorkspaceFiles] = useState<string[]>([]);
 
   useEffect(() => {

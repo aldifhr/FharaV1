@@ -141,7 +141,7 @@ export function pickQaFixOwner(
   findings: Array<{ filePath?: string }>
 ): FixCandidate | undefined {
   const uiOwners = subtasks.filter((s) => s.kind === "code_change" && prefersUi(s));
-  if (uiOwners.length > 0) return pickFixOwner(uiOwners, findings);
+  if (uiOwners.length > 0) return pickFixOwner(uiOwners, findings, { allowGuess: true });
   return pickFixOwner(subtasks, findings);
 }
 

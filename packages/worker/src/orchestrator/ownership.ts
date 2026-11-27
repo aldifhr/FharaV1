@@ -24,14 +24,15 @@ function normalizePathPrefix(raw: string): string {
   return literal.join("/").replace(/\/+$/, "");
 }
 
-/** True when a (possibly absolute, worktree-rooted) file sits inside scope. */
+/**
+ * True when a (possibly absolute, worktree-rooted) file sits inside scope.
+ * A single-segment scope such as `lib` is rooted at the worktree: it must not
+ * match every nested `lib` directory in a monorepo.
+ */
 function fileInScope(file: string, scope: string): boolean {
-  return (
-    file === scope ||
-    file.startsWith(`${scope}/`) ||
-    file.endsWith(`/${scope}`) ||
-    file.includes(`/${scope}/`)
-  );
+  if (file === scope || file.startsWith(`${scope}/`)) return true;
+  if (!scope.includes("/")) return false;
+  return file.endsWith(`/${scope}`) || file.includes(`/${scope}/`);
 }
 
 export interface FixCandidate {
@@ -43,13 +44,15 @@ export interface FixCandidate {
 
 /**
  * Pick the fix owner for review findings: the code_change subtask whose
- * allowedPaths is the LONGEST prefix of a finding file. Ties fall back to
- * the most recent (last) code_change, never the first — a first code_change
- * is often a Backend type-only node while findings live in Frontend files.
+ * allowedPaths is the LONGEST prefix of a finding file. Without a matching
+ * scope there is no owner, except when the caller already restricted the pool
+ * (`allowGuess`, e.g. QA's documented UI-first preference): then the most
+ * recent candidate wins, never the first.
  */
 export function pickFixOwner(
   candidates: FixCandidate[],
-  findings: Array<{ filePath?: string }>
+  findings: Array<{ filePath?: string }>,
+  options: { allowGuess?: boolean } = {}
 ): FixCandidate | undefined {
   const codeChanges = candidates.filter((s) => s.kind === "code_change");
   if (codeChanges.length === 0) return undefined;
@@ -57,6 +60,9 @@ export function pickFixOwner(
     .map((f) => (f.filePath ?? "").trim().replace(/\\/g, "/").replace(/^\.\//, ""))
     .filter(Boolean)
     .map((f) => f.toLowerCase());
+  // With no usable finding path, the most recent code_change is the best
+  // guess. With a path present, guessing is wrong: report no owner instead.
+  if (files.length === 0) return codeChanges.at(-1) ?? codeChanges[0];
 
   let best: FixCandidate | undefined;
   let bestLen = -1;
@@ -72,7 +78,7 @@ export function pickFixOwner(
       }
     }
   }
-  return best ?? codeChanges.at(-1) ?? codeChanges[0];
+  return best ?? (options.allowGuess ? codeChanges.at(-1) ?? codeChanges[0] : undefined);
 }
 
 export interface FixOwner {
@@ -101,7 +107,11 @@ export function ownerForFix(input: {
   prefer?: (candidate: FixCandidate) => boolean;
 }): FixOwner | null {
   const preferred = input.prefer ? input.subtasks.filter((candidate) => candidate.kind === "code_change" && input.prefer!(candidate)) : [];
-  const subtask = pickFixOwner(preferred.length > 0 ? preferred : input.subtasks, input.findings);
+  const subtask = pickFixOwner(
+    preferred.length > 0 ? preferred : input.subtasks,
+    input.findings,
+    { allowGuess: preferred.length > 0 }
+  );
   if (!subtask) return null;
   const writer = input.writerByKey?.get(subtask.key);
   const enabled = input.agents.filter(isAgentAvailable);

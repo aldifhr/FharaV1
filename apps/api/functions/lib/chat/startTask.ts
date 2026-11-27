@@ -11,7 +11,7 @@ import type { Id } from "@fhara/runtime/data";
 import type { PermissionMode } from "../permissionModes";
 import type { RoutingHint } from "../routingHint";
 import { targetsOutsideRepo } from "./intent";
-import { extractAgentMentions, type ChatAgent } from "./team";
+import { type ChatAgent } from "./team";
 import { hintForCommand, resolveTaskAssignees, routedOwners } from "./taskAssignees";
 
 export type ChatTaskArgs = {
@@ -170,7 +170,11 @@ export async function startOfferedTask(
   opts: { offer: StartOffer; team: ChatAgent[]; orchestrator: ChatAgent | null }
 ): Promise<void> {
   const { offer, team, orchestrator } = opts;
-  const mentioned = extractAgentMentions(offer.reply, team, String(orchestrator?._id ?? ""));
+  // The offer already carries the server-resolved assignee: never parse
+  // @tokens out of the reply text.
+  const mentioned = offer.assigneeAgentId
+    ? team.filter((a) => String(a._id) === String(offer.assigneeAgentId))
+    : [];
   const routed = routedOwners(offer.command, team);
   const hint = offer.hint ?? hintForCommand(offer.command, team, { routed });
   const assignees = resolveTaskAssignees({

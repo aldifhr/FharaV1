@@ -49,6 +49,14 @@ export function isClosedStatus(status: string | undefined): boolean {
   return status === "done" || status === "failed" || status === "rejected" || status === "cancelled";
 }
 
+/**
+ * Only failed tasks get a Retry affordance. A rejection or cancellation is a
+ * deliberate user decision; re-queuing it would silently undo that decision.
+ */
+export function canRetryTask(status: string | undefined): boolean {
+  return status === "failed";
+}
+
 /** Subtask statuses from `schema.ts` `subtaskStatus`. */
 const SUBTASK_STATUS: Record<string, { label: string; cls: string; icon: LucideIcon }> = {
   pending: { label: "pending", cls: "text-gray-500 dark:text-gray-400", icon: Clock },

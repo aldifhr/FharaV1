@@ -10,6 +10,7 @@ import { StatusTag, type StatusTone } from "../ui/status-tag";
 import { useToast } from "../Toasts";
 import { refusalCopy } from "@/lib/taskInput";
 import { dueDateLabel, isOverdue } from "@/lib/runFormat";
+import { canRetryTask } from "@/lib/taskStatus";
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : "Please try again.");
 
@@ -260,23 +261,25 @@ export default function TaskCard({
         <PanelCard className="max-w-xl px-3.5 py-3 text-[13px]">
           <p className={isCancelled ? "font-semibold text-ink-2" : "font-semibold text-danger"}>{task.status === "rejected" ? "Task rejected" : isCancelled ? "Task cancelled" : "Task failed"}{task.errorMessage ? `: ${task.errorMessage}` : ""}</p>
           <div className="mt-2 flex items-center gap-2">
-            <button
-              type="button"
-              disabled={retrying}
-              onClick={async () => {
-                setRetrying(true);
-                try {
-                  await retryTask({ taskId: task._id as any });
-                } catch (err) {
-                  toast("error", "Couldn't retry task", errorText(err));
-                } finally {
-                  setRetrying(false);
-                }
-              }}
-              className={BTN_PRIMARY}
-            >
-              <RotateCcw size={14} className={retrying ? "animate-spin" : ""} /> Retry task
-            </button>
+            {canRetryTask(task.status) && (
+              <button
+                type="button"
+                disabled={retrying}
+                onClick={async () => {
+                  setRetrying(true);
+                  try {
+                    await retryTask({ taskId: task._id as any });
+                  } catch (err) {
+                    toast("error", "Couldn't retry task", errorText(err));
+                  } finally {
+                    setRetrying(false);
+                  }
+                }}
+                className={BTN_PRIMARY}
+              >
+                <RotateCcw size={14} className={retrying ? "animate-spin" : ""} /> Retry task
+              </button>
+            )}
             <button type="button" onClick={() => onOpen(task._id)} className={BTN_OUTLINE}>
               View thread
             </button>

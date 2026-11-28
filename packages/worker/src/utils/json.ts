@@ -174,8 +174,19 @@ export function parseDelegation(content: string): {
   return checked.success && Object.keys(result).length ? result : null;
 }
 
+/**
+ * The first file path a prompt or command mentions.
+ *
+ * Segment-aware, and the extension is matched whole: "package.json" must not
+ * come back as "package.js" (the `jsx?` alternative matched first and left
+ * the "on"), and a match never starts mid-path at a "/". A DemoApp fix run
+ * hinted "/package.js", a path that does not exist, so the fixer explored the
+ * repository from a wrong file.
+ */
+const FILE_HINT = /(?:[\w.-]+\/)*[\w.-]+\.(?:tsx|ts|jsx|js|json|css|html|md)(?![\w])/i;
+
 export function extractFileHint(command: string): string | null {
-  const match = command.match(/[\w./-]+\.(tsx?|jsx?|css|html|json|md)/i);
+  const match = command.match(FILE_HINT);
   return match ? match[0] : null;
 }
 

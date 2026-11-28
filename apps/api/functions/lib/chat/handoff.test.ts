@@ -22,10 +22,26 @@ describe("structured CTO/Lead handoff", () => {
     expect(resolveHandoffTargets(reply!.handoff, team, "cto").map((t) => t.agent._id)).toEqual(["be", "qa"]);
   });
 
-  test("a role outside ROLE_KEYS invalidates the whole reply", () => {
+  test("a retired alias or a role title maps to its roster role instead of dropping the reply", () => {
+    // Before: "support" and "Backend Developer" were not ROLE_KEYS, so the whole
+    // reply — message included — was thrown away and the CTO looked like it
+    // answered alone. The registry resolver now maps them the way the rest of
+    // the system already does.
+    const reply = parseStructuredReply(JSON.stringify({
+      message: "Split the work.",
+      handoff: [
+        { role: "support", instruction: "Write the docs." },
+        { role: "Backend Developer", instruction: "Update the schema." },
+      ],
+    }));
+    expect(reply?.message).toBe("Split the work.");
+    expect(reply?.handoff.map((entry) => entry.role)).toEqual(["backend"]);
+  });
+
+  test("a role the registry does not know invalidates the whole reply", () => {
     expect(parseStructuredReply(JSON.stringify({
       message: "ok",
-      handoff: [{ role: "support", instruction: "old role" }],
+      handoff: [{ role: "wizard", instruction: "unknown role" }],
     }))).toBeNull();
     expect(parseStructuredReply(JSON.stringify({
       message: "ok",

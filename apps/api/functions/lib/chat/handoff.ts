@@ -4,7 +4,7 @@
  * roles come from the shared `ROLE_KEYS` enum. Nothing here reads role names
  * out of free text.
  */
-import { isRoleKey, resolveRoleKey, type RoleKey } from "../roles";
+import { resolveRoleKey, type RoleKey } from "../roles";
 
 export type HandoffEntry = { role: RoleKey; instruction: string };
 export type StructuredReply = { message: string; handoff: HandoffEntry[] };
@@ -40,9 +40,12 @@ export function parseStructuredReply(raw: string): StructuredReply | null {
   const handoff: HandoffEntry[] = [];
   for (const item of parsed.handoff) {
     if (!isRecord(item) || typeof item.role !== "string" || typeof item.instruction !== "string") return null;
-    const role = item.role.trim().toLowerCase();
+    // The same resolver the registry, the seed and the web app use: a title
+    // ("Backend Developer") or a retired alias ("support") maps to its roster
+    // role. Only a name the registry does not know invalidates the reply.
+    const role = resolveRoleKey(item.role);
     const instruction = item.instruction.trim();
-    if (!isRoleKey(role) || !instruction || instruction.length > MAX_INSTRUCTION_CHARS) return null;
+    if (!role || !instruction || instruction.length > MAX_INSTRUCTION_CHARS) return null;
     if (handoff.some((entry) => entry.role === role)) continue;
     handoff.push({ role, instruction });
   }

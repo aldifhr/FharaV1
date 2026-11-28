@@ -563,7 +563,7 @@ export function buildHandoffGuidance(
   if (others.length === 0) return [];
   return [
     `Teammates on this project: ${others.map((a) => roleLabel(a.role)).join(", ")}.`,
-    "Answer the user first, in plain text: never write @Name or @Role in the message. Each teammate you actually need is recorded separately as a handoff with a role and a concrete instruction (at most three). When a teammate's specialty is only being described, just name the role in prose.",
+    "Answer the user first, then delegate. The system reads your delegation from the separate handoff list below, never from your prose: every teammate you actually need must appear there with a role and a concrete instruction (at most three). Your role prompt asks for an inline @Role mention as well; write it where you are addressing that teammate, but the mention alone assigns nothing — without the handoff entry nobody does the work, so never stop at the mention.",
     "Write each handoff instruction as a compact order to that teammate: one action, its deliverable, and what to report back — never a copy of the user's message.",
     "When the user names a role that cannot do the work (a read-only role for code changes, for example), state the refusal and the reason in your answer, then name the role that will do it in prose. Never silently substitute another role.",
     "If the question belongs to a teammate's specialty, hand it off even when you can read the repository yourself. Answer directly only for your own domain or when no teammate can answer.",

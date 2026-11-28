@@ -1328,6 +1328,11 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     const handoffFrom = new Map<string, { by: string; request: string }>();
     let handoffs = 0;
     let ctoDecisionLogged = false;
+    // The CTO's reply could not be turned into a handoff at all (invalid JSON,
+    // a role outside the registry, an echoed request). Distinct from "chose to
+    // answer directly": nothing was assigned, so the trace must not claim the
+    // turn needed no teammate.
+    let handoffNotRecorded = false;
     for (let turn = 0; turn < queue.length; turn += 1) {
       const agent = queue[turn];
       // Design proposals are the one "ask" turn where the Designer should
@@ -1481,6 +1486,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
             roles: availableRoles,
             config: globalConfig,
           });
+          if (!structured) handoffNotRecorded = true;
           if (structured) {
             if (result.messageId) {
               await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
@@ -1552,7 +1558,9 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
             projectId,
             conversationId: args.conversationId,
             replyToMessageId: args.userMessageId,
-            content: "CTO decision: answer directly — no teammate needed for this turn.",
+            content: handoffNotRecorded
+              ? "CTO decision not recorded: this reply could not be turned into a handoff, so no teammate was assigned. Name the role again or @mention it."
+              : "CTO decision: answer directly — no teammate needed for this turn.",
           });
         }
       }

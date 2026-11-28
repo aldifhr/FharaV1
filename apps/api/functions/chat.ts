@@ -42,6 +42,7 @@ import { type EchoContext, streamEchoSafe, stripLeadingEcho } from "./lib/chat/e
 import { ROLE_KEYS, ROLES, isCodeWritingRole, isCtoRole, resolveRoleKey, roleLabel, rolePermissionsFor } from "./lib/roles";
 import { chatPreRouteAllowed, mentionsCode, routedAnswerSubtype, systemRoutingLine } from "./lib/chat/dispatch";
 import { buildTaskStatusLine, resolveChatOwner, type ChatOwner } from "./lib/chat/owner";
+import { mentionTargets } from "./lib/chat/mentions";
 import { detectChatRunCommands } from "./lib/chat/runRequest";
 import {
   pickConversationalAgent,
@@ -1077,17 +1078,19 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     // agent answers, not the whole team: fanning out to every agent made 12 sequential LLM calls and blew the action
     // timeout, leaving the first bubble stuck on "Thinking" forever.
     const lastContent = history[history.length - 1]?.content ?? "";
-    // Who the user addressed: only the structured ids from the mention
-    // picker / To pick. Free text is never parsed for @Role tokens.
+    // Who the user addressed: the ids the mention menu sends, plus any
+    // "@Role"/"@Name" typed by hand — the menu is not the only way to address
+    // a teammate, and a typed mention used to be routed as if nobody was.
     const enabledAgents = (await ctx.db.query("agents").collect())
       .filter((a) => a.isEnabled !== false)
       .map((a) => ({ ...a, _id: String(a._id) })) as unknown as ChatAgent[];
     const addressedPool = [
       ...new Map([...team, ...agents, ...enabledAgents].map((a) => [String(a._id), a])).values(),
     ];
-    const pickedAgents = (args.preferredAgentIds ?? [])
+    const menuPicked = (args.preferredAgentIds ?? [])
       .map((id) => addressedPool.find((a) => String(a._id) === String(id)))
       .filter((a): a is ChatAgent => Boolean(a));
+    const pickedAgents = [...menuPicked, ...mentionTargets(lastContent, addressedPool, menuPicked)];
     const ctoPicked = orchestrator !== null && pickedAgents.some((a) => String(a._id) === String(orchestrator._id));
     // An explicit CTO pick still gets the CTO's answer; implementation work
     // is explained separately below and routed to a teammate.

@@ -62,10 +62,14 @@ export async function runAcceptanceStage(ctx: RunContext): Promise<AcceptanceOut
 
   // file_exists targets are resolved up front (evaluateGates is sync).
   const existence = new Map<string, boolean | undefined>();
+  const changed = new Map<string, boolean>();
   for (const subtask of subjects) {
     for (const gate of subtask.acceptance ?? []) {
       if (gate.check !== "file_exists" || !gate.target || existence.has(gate.target)) continue;
       const staged = state.fileChanges.get(gate.target);
+      // Whether THIS run touched the path: a file that already existed and was
+      // left alone only proves existence, and the gate says so.
+      changed.set(gate.target, Boolean(staged));
       existence.set(
         gate.target,
         staged ? staged.changeType !== "deleted" : await existsOnDisk(input.workspacePath, gate.target)
@@ -86,6 +90,7 @@ export async function runAcceptanceStage(ctx: RunContext): Promise<AcceptanceOut
       review: reviewFor(ctx, subtask),
       output: state.deliveredOutputs?.get(subtask.key) ?? state.priorOutputs.get(subtask.key),
       fileExists: (target) => existence.get(target),
+      fileChanged: (target) => changed.get(target),
     });
     const verdict = acceptanceFromGates(gates, results);
     outcome.evaluated.push(subtask.key);

@@ -221,6 +221,23 @@ describe("gate evaluation mapping (plan 022)", () => {
     expect(verdict.failed).toEqual(["tests"]);
   });
 
+  it("file_exists evidence says whether this run changed the path", () => {
+    const readmeGate = [{ id: "readme", criterion: "README documents the components", check: "file_exists" as const, target: "README.md" }];
+    // A code_change gate needs this run's change: an untouched pre-existing file fails it.
+    const untouched = evaluateGates({ kind: "code_change", gates: readmeGate, fileExists: () => true, fileChanged: () => false });
+    expect(untouched[0].status).toBe("fail");
+    expect(untouched[0].evidence.summary).toBe("File already existed and this run did not change it — a code_change gate needs this run's change");
+    const touched = evaluateGates({ kind: "code_change", gates: readmeGate, fileExists: () => true, fileChanged: () => true });
+    expect(touched[0].status).toBe("pass");
+    expect(touched[0].evidence.summary).toBe("File exists and this run created or changed it");
+    const unknown = evaluateGates({ kind: "code_change", gates: readmeGate, fileExists: () => true });
+    expect(unknown[0].status).toBe("pass");
+    expect(unknown[0].evidence.summary).toBe("File exists");
+    // A read-only kind may gate on a file it must not modify: existence is enough.
+    const reviewGate = evaluateGates({ kind: "review", gates: readmeGate, fileExists: () => true, fileChanged: () => false });
+    expect(reviewGate[0].status).toBe("pass");
+  });
+
   it("no script / no verification is skipped, not failed: the subtask is accepted", () => {
     const results = evaluateGates({ kind: "code_change", gates: defaultGatesForKind("code_change"), verification: { ran: true, checks: [{ name: "verification", status: "skipped" }] } });
     expect(results.map((r) => r.status)).toEqual(["skipped", "skipped"]);

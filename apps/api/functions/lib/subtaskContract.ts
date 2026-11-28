@@ -299,6 +299,12 @@ export interface GateEvaluationInput {
    * count). Undefined = unknown (evaluated as skipped).
    */
   fileExists?: (path: string) => boolean | undefined;
+  /**
+   * Whether this run created, changed or deleted the path. A `file_exists` gate
+   * on a code_change fails when it is false (a file that was already there and
+   * was left untouched proves nothing), and the evidence says which it was.
+   */
+  fileChanged?: (path: string) => boolean | undefined;
 }
 
 /** "root:typecheck" / "web:test" → step name. */
@@ -387,10 +393,27 @@ export function evaluateGates(input: GateEvaluationInput): GateResult[] {
         if (exists === undefined) {
           return { gateId: gate.id, status: "skipped", evidence: { kind: "workspace", ref: target, summary: "Could not check the workspace" } };
         }
+        const changed = exists && target ? input.fileChanged?.(target) : undefined;
+        // A code_change gate means "this run produced or updated the path". A
+        // file that was already there and was left untouched fails it: otherwise
+        // a no-op change passes a docs gate on a file it never wrote. Read-only
+        // kinds (review, qa, research, audit) may legitimately gate on a file
+        // they must not modify, so existence is enough there.
+        const stale = input.kind === "code_change" && changed === false;
         return {
           gateId: gate.id,
-          status: exists ? "pass" : "fail",
-          evidence: { kind: "workspace", ref: target, summary: exists ? "File exists" : "File is missing" },
+          status: exists && !stale ? "pass" : "fail",
+          evidence: {
+            kind: "workspace",
+            ref: target,
+            summary: !exists
+              ? "File is missing"
+              : stale
+                ? "File already existed and this run did not change it — a code_change gate needs this run's change"
+                : changed === true
+                  ? "File exists and this run created or changed it"
+                  : "File exists",
+          },
         };
       }
       case "review": {

@@ -1,4 +1,4 @@
-import { query } from "@fhara/runtime/functions";
+import { mutation, query } from "@fhara/runtime/functions";
 import { v } from "@fhara/runtime/values";
 import { paginationOptsValidator } from "@fhara/runtime/server";
 import { decideResume, replayEncodedBytes, RESUME_MAX_REPLAY_EVENTS } from "./lib/eventResume";
@@ -27,6 +27,22 @@ export const listByProject = query({
       .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
       .order("desc")
       .take(Math.min(Math.max(args.limit ?? 200, 1), 500));
+  },
+});
+
+const CLEAR_BATCH = 200;
+
+export const clearByProject = mutation({
+  args: { projectId: v.id("projects") },
+  handler: async (ctx, args) => {
+    await assertProjectAccess(ctx, args.projectId);
+    const rows = await ctx.db
+      .query("taskEvents")
+      .withIndex("by_project", (q) => q.eq("projectId", args.projectId))
+      .order("desc")
+      .take(CLEAR_BATCH);
+    for (const row of rows) await ctx.db.delete(row._id);
+    return { deleted: rows.length, more: rows.length === CLEAR_BATCH };
   },
 });
 

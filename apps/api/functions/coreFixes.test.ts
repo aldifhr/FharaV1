@@ -36,6 +36,59 @@ async function seed(
   return { t, ...ids };
 }
 
+describe("approval reuse (no repeated apply card)", () => {
+  test("an approved apply for the same file set is reused, not requested again", async () => {
+    const { t, projectId, taskId } = await seed({ status: "running", workerId: "w1" });
+    const args = {
+      taskId,
+      projectId,
+      kind: "apply_changes" as const,
+      summary: "Apply changes to 1 file(s): src/App.tsx",
+      subtaskKey: "refactor-app",
+      planVersion: 1,
+      workerId: "w1",
+      payload: { filePaths: ["src/App.tsx"] },
+    };
+    const first = await t.mutation(internal.orchestration.requestApproval, args);
+    expect(first.reused).toBe(false);
+    await t.mutation(internal.approvals.approve, { approvalId: first.approvalId });
+
+    const before = await t.run(async (ctx) => (await ctx.db.query("approvals").collect()).length);
+    await t.run(async (ctx) => {
+      await ctx.db.patch(taskId, { status: "running", workerId: "w1", leaseExpiresAt: Date.now() + 60_000 });
+    });
+    const second = await t.mutation(internal.orchestration.requestApproval, args);
+    expect(second.reused).toBe(true);
+    expect(second.approvalId).toBe(first.approvalId);
+    expect(await t.run(async (ctx) => (await ctx.db.query("approvals").collect()).length)).toBe(before);
+    expect(await t.run(async (ctx) => (await ctx.db.get(taskId))?.status)).toBe("running");
+  });
+
+  test("a different file set still asks for a new approval", async () => {
+    const { t, projectId, taskId } = await seed({ status: "running", workerId: "w1" });
+    const base = {
+      taskId,
+      projectId,
+      kind: "apply_changes" as const,
+      summary: "Apply changes to 1 file(s): src/App.tsx",
+      subtaskKey: "refactor-app",
+      workerId: "w1",
+      payload: { filePaths: ["src/App.tsx"] },
+    };
+    const first = await t.mutation(internal.orchestration.requestApproval, base);
+    await t.mutation(internal.approvals.approve, { approvalId: first.approvalId });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(taskId, { status: "running", workerId: "w1", leaseExpiresAt: Date.now() + 60_000 });
+    });
+    const second = await t.mutation(internal.orchestration.requestApproval, {
+      ...base,
+      summary: "Apply changes to 1 file(s): src/main.tsx",
+      payload: { filePaths: ["src/main.tsx"] },
+    });
+    expect(second.reused).toBe(false);
+  });
+});
+
 describe("H4 permission broker", () => {
   test("worker path is allowed to evaluate an OWNED project (no identity)", async () => {
     const { t, projectId, taskId } = await seed({ ownerId: "user-1" });

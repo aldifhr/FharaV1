@@ -48,6 +48,14 @@ describe("classifier: explicit no-code phrasing is research", () => {
     expect(result.suggestedCapabilities[0]).toBe("security-audit");
   });
 
+  it("a scoped 'do not change other files' does not cancel a real change request", () => {
+    const command =
+      "Tambahkan file docs/CAPABILITY_SMOKE.md berisi tabel role dan capability-nya. Jangan ubah file lain.";
+    expect(isExplicitNoCode(command)).toBe(false);
+    expect(classifyCommand(command).kind).toBe("code_change");
+    expect(classifyCommand("Buat README baru, don't change other files").kind).toBe("code_change");
+  });
+
   it("change requests without no-code phrasing are unchanged", () => {
     expect(classifyCommand("Tambahkan dark mode toggle di header").kind).toBe("code_change");
     expect(classifyCommand("fix the login button styling").kind).toBe("code_change");

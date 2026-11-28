@@ -17,6 +17,7 @@ import { verificationPlan } from "./verificationPlan";
 export { BROWSER_QA_REQUESTED, qaWarranted } from "./qaWarrant";
 import { validatePlan } from "./planValidator";
 import { extractJson } from "@/utils/json";
+import { parseCtoDecision, type CtoDecision } from "./ctoDecision";
 import { planningPrompt, PLAN_NODE_INSTRUCTIONS } from "@/prompts/planner";
 import { ensureRoutable, gateArchitecture } from "./planRouting";
 import type { RoutingHint } from "./planningHint";
@@ -120,6 +121,8 @@ export interface PlannerResult {
    * read-only role turned into an analysis). Logged as visible events.
    */
   routingAdjustments?: RoutingAdjustment[];
+  /** CTO's own answer-vs-delegate and role decision from this planning call. */
+  ctoDecision?: CtoDecision | null;
 }
 
 import type { RoutingAdjustment } from "./planRouting";
@@ -233,6 +236,8 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
         );
       }
       const parsed = extractJson(response.content);
+      const executorField = (parsed as Record<string, unknown> | null)?.executor;
+      const ctoDecision = parseCtoDecision(executorField);
       // Plan 063: a deadline the request stated rides on the plan (never invented).
       const dueAt = parsePlanDue((parsed as Record<string, unknown> | null)?.due);
       const validation = validatePlan(
@@ -266,6 +271,7 @@ export async function createPlan(input: PlannerInput): Promise<PlannerResult> {
             notes,
             droppedHintKeys: routed.dropped,
             routingAdjustments: routed.adjustments,
+            ctoDecision,
           };
         }
         notes.push("planner output references capabilities that no enabled agent can serve");

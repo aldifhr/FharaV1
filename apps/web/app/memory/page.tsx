@@ -2,12 +2,15 @@
 import { Suspense, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "@/lib/spaRouter";
 import { useMutation, useQuery } from "@fhara/runtime/react";
-import { Pin, Plus } from "lucide-react";
+import { Brain, Pin, Plus, Search, User, Users } from "lucide-react";
 import { api } from "@fhara/runtime/api";
 import Sidebar from "@/components/Sidebar";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import MemorySuggestions from "@/components/memory/MemorySuggestions";
+import { HEADER_ACTION, PageHeader } from "@/components/ui/page-header";
 import Segmented from "@/components/ui/segmented";
+import { Input } from "@/components/ui/input";
+import { StatusTag } from "@/components/ui/status-tag";
 import { roleLabel } from "@/lib/agentRoles";
 import { relativeTime } from "@/lib/runFormat";
 import { MEMORY_CONTENT_MAX, MEMORY_PROMPT_BUDGET, MEMORY_TITLE_MAX, type MemoryScope } from "@/api/functions/lib/memory";
@@ -33,7 +36,7 @@ type Agent = { _id: string; name: string; role: string; isEnabled?: boolean };
 const field =
   "w-full rounded-lg border border-line bg-transparent px-3 py-2 text-[14px] text-ink outline-none transition focus:border-ink-3";
 const label = "grid gap-1.5 text-[12.5px] text-ink-3";
-const picker = `${field} h-9 w-auto max-w-[240px] bg-canvas py-1 text-[13px]`;
+const picker = "h-[30px] w-auto max-w-[240px] rounded-field border border-line bg-panel px-2.5 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30";
 
 const SCOPE_HINT: Record<MemoryScope, string> = {
   shared: "Every agent, in every project",
@@ -165,19 +168,28 @@ function MemoryInner() {
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
       <Sidebar projectId={scope === "project" && projectId ? projectId : roleProjectId || undefined} />
-      <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
-        <div className="mx-auto max-w-3xl">
-          <header className="flex items-end justify-between gap-4">
-            <h1 className="mt-1 text-[26px] font-semibold tracking-tight">Memory</h1>
-            <button
-              type="button"
-              disabled={needsTarget}
-              onClick={() => setEditingId("new")}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
-            >
-              <Plus size={14} /> Memory
-            </button>
-          </header>
+      <main className="min-w-0 flex-1 overflow-y-auto px-6 py-8 max-[979px]:px-4 max-[979px]:py-6">
+        <div className="mx-auto max-w-[1280px]">
+          <PageHeader
+            eyebrow="Context that carries between runs"
+            title="Memory"
+            leading={
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-field border border-line bg-panel text-ink-2">
+                <Brain size={17} />
+              </span>
+            }
+            meta={<p className="text-[13.5px] text-ink-2">Pinned notes are always in the prompt; the rest are recalled by match.</p>}
+            actions={
+              <button
+                type="button"
+                disabled={needsTarget}
+                onClick={() => setEditingId("new")}
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-field bg-ink px-2.5 text-[12.5px] font-medium text-canvas outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
+              >
+                <Plus size={14} /> Memory
+              </button>
+            }
+          />
 
           <div className="mt-5 flex flex-wrap items-center gap-2">
             <Segmented
@@ -241,110 +253,167 @@ function MemoryInner() {
             </select>
           </div>
 
-          <p className="mt-6 text-[15px] text-ink-2">
-            {loading
-              ? "Loading…"
-              : `${hint} · ${pinnedCount} pinned`}
-          </p>
-          <p className="mt-1 text-[12.5px] text-ink-3">
-            Pinned memories are always added to an agent's instructions (shared, then project, then the agent's own, up to{" "}
-            {MEMORY_PROMPT_BUDGET.toLocaleString("en-US")} characters). Unpinned ones are added only when they match the
-            task or message, up to {RECALL_TOP_K} at a time.
-          </p>
-          {!needsTarget && (
-            <input
-              type="search"
-              aria-label="Search memory"
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              placeholder="Search memory"
-              className={`${field} mt-4 h-9 py-1 text-[13px]`}
-            />
+          {needsTarget ? null : loading ? (
+            <div className="mt-6 space-y-4" aria-label="Loading memory">
+              <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-line bg-panel shadow-card sm:grid-cols-4">
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i} className="p-5">
+                    <div className="h-3 w-16 rounded bg-hover" />
+                    <div className="mt-3 h-8 w-12 rounded bg-hover" />
+                  </div>
+                ))}
+              </div>
+              <div className="h-48 rounded-2xl border border-line bg-panel shadow-card" />
+            </div>
+          ) : (
+            <>
+              <section
+                aria-label="Memory metrics"
+                className="mt-6 grid grid-cols-2 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-panel shadow-card sm:divide-y-0 sm:divide-x lg:grid-cols-4"
+              >
+                {[
+                  { label: "Memories", value: (memories ?? []).length, note: "in scope", icon: <Brain size={13} />, title: "Memories in this scope" },
+                  { label: "Pinned", value: pinnedCount, note: "always injected", icon: <Pin size={13} />, title: "Pinned memories added to every prompt" },
+                  { label: "By agents", value: (memories ?? []).filter((m) => m.source === "agent").length, note: "from the team", icon: <Users size={13} />, title: "Memories written by agents" },
+                  { label: "By you", value: (memories ?? []).filter((m) => m.source === "user").length, note: "written here", icon: <User size={13} />, title: "Memories you wrote" },
+                ].map((metric) => (
+                  <div key={metric.label} className="p-4 sm:p-5" title={metric.title}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-caption">{metric.label}</span>
+                      <span className="flex h-6 w-6 items-center justify-center rounded-md bg-inset text-ink-3">{metric.icon}</span>
+                    </div>
+                    <div className="mt-2 flex items-baseline gap-2">
+                      <span className="text-[28px] font-semibold leading-none tracking-[-0.03em] tabular-nums text-ink">{metric.value}</span>
+                      <span className="truncate text-[12px] text-ink-3">{metric.note}</span>
+                    </div>
+                  </div>
+                ))}
+              </section>
+              <p className="mt-2 text-[12px] text-ink-3">
+                {hint} · {MEMORY_PROMPT_BUDGET.toLocaleString("en-US")} char pin budget · {RECALL_TOP_K} recalled at a time
+              </p>
+            </>
           )}
-          {error && <p role="alert" className="mt-3 text-[13px] text-red-600 dark:text-red-400">{error}</p>}
+
+          {!needsTarget && (
+            <div className="relative mt-4 w-full sm:max-w-sm">
+              <Search size={14} className="pointer-events-none absolute left-2.5 top-2 text-ink-3" />
+              <Input
+                type="search"
+                aria-label="Search memory"
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                placeholder="Search memory"
+                className="h-[30px] bg-panel pl-8 text-[12.5px]"
+              />
+            </div>
+          )}
+          {error && <p role="alert" className="mt-3 text-[13px] text-danger">{error}</p>}
           {!needsTarget && <MemorySuggestions scope={scope} projectId={scope === "project" ? projectId : undefined} />}
 
           {needsTarget ? (
-            <div className="mt-10 rounded-xl border border-dashed border-line px-4 py-5 text-[13px] text-ink-3">
-              {scope === "project" ? "No projects yet. Create a project to keep project memory." : "No agents yet."}
+            <div className="mt-6 flex flex-col items-center rounded-2xl border border-dashed border-line bg-panel px-5 py-10 text-center">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-inset text-ink-3"><Brain size={18} /></span>
+              <p className="mt-4 text-[13px] text-ink-2">
+                {scope === "project" ? "No projects yet. Create a project to keep project memory." : "No agents yet."}
+              </p>
             </div>
-          ) : loading ? (
-            <p className="mt-10 text-[13px] text-ink-3" aria-label="Loading memory">Loading…</p>
-          ) : searchQuery && (visible === undefined || visible.length === 0) && editingId === null ? (
-            <p className="mt-10 text-[13px] text-ink-3">
+          ) : loading ? null : searchQuery && (visible === undefined || visible.length === 0) && editingId === null ? (
+            <p className="mt-4 rounded-2xl border border-line bg-panel px-5 py-10 text-center text-[13px] text-ink-3">
               {visible === undefined ? "Searching…" : `No memories match “${searchQuery}”.`}
             </p>
           ) : (memories ?? []).length === 0 && editingId === null ? (
-            <div className="mt-10 rounded-xl border border-dashed border-line px-4 py-5 text-[13px] text-ink-3">
-              <p>
-                Nothing remembered here yet. Add conventions, decisions or context you'd otherwise repeat — or use
-                “Remember” in a chat message's ⋯ menu.
+            <div className="mt-4 flex flex-col items-center rounded-2xl border border-dashed border-line bg-panel px-5 py-10 text-center">
+              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-inset text-ink-3"><Brain size={18} /></span>
+              <p className="mt-4 text-[14px] text-ink-2">Nothing remembered here yet.</p>
+              <p className="mt-1 max-w-md text-[13px] text-ink-3">
+                Add conventions, decisions or context you&apos;d otherwise repeat — or use “Remember” in a chat message&apos;s ⋯ menu.
               </p>
-              <button
-                type="button"
-                onClick={() => setEditingId("new")}
-                className="mt-3 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] text-ink transition hover:bg-hover"
-              >
+              <button type="button" onClick={() => setEditingId("new")} className={`mt-5 ${HEADER_ACTION}`}>
                 Write a memory
               </button>
             </div>
           ) : (visible ?? []).length === 0 && editingId === null ? (
-            <p className="mt-10 text-[13px] text-ink-3">
+            <p className="mt-4 rounded-2xl border border-line bg-panel px-5 py-10 text-center text-[13px] text-ink-3">
               {source === "agent" ? "No memories written by agents here." : "No memories written by you here."}
             </p>
           ) : (
-            <ul className="mt-10 divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
+            <>
               {editingId === "new" && (
-                <li className="border-b border-line">
+                <div className="mt-4">
                   <MemoryEditor note={null} target={target} onClose={() => setEditingId(null)} />
-                </li>
+                </div>
               )}
-              {(visible ?? []).map((m) => (
-                <li key={m._id} className="transition hover:bg-hover">
-                  {editingId === m._id ? (
-                    <MemoryEditor note={m} target={target} onClose={() => setEditingId(null)} />
-                  ) : (
-                    <div className="flex items-start gap-1 pr-2">
-                      <button
-                        type="button"
-                        onClick={() => setEditingId(m._id)}
-                        className="flex min-w-0 flex-1 items-start gap-3 px-4 py-3 text-left outline-none focus-visible:bg-hover"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-[14px] font-medium">{m.title}</p>
-                          <p className="truncate text-[12.5px] text-ink-2">{snippet(m.content)}</p>
-                          {m.tags && m.tags.length > 0 && (
-                            <p className="mt-0.5 truncate text-[11.5px] text-ink-3">{m.tags.join(", ")}</p>
-                          )}
+              <section className="mt-4 overflow-hidden rounded-2xl border border-line bg-panel shadow-card">
+                <div className="hidden items-center gap-3 border-b border-line px-4 py-2.5 text-caption sm:flex">
+                  <span className="min-w-0 flex-1">Memory</span>
+                  <span className="w-20 shrink-0">Source</span>
+                  <span className="w-20 shrink-0 text-right">Updated</span>
+                  <span className="w-8 shrink-0" />
+                </div>
+                <ul className="divide-y divide-line">
+                  {(visible ?? []).map((m) => (
+                    <li key={m._id} className="transition-colors hover:bg-inset/60">
+                      {editingId === m._id ? (
+                        <div className="px-3 py-3">
+                          <MemoryEditor note={m} target={target} onClose={() => setEditingId(null)} />
                         </div>
-                        <span className="shrink-0 pt-0.5 text-right text-[12px] text-ink-3">
-                          {m.source === "agent" ? "Agent" : "You"} · {relativeTime(m.updatedAt)}
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={m.pinned ? `Unpin ${m.title}` : `Pin ${m.title}`}
-                        aria-pressed={m.pinned}
-                        title={m.pinned ? "Pinned — added to prompts" : "Not pinned — added when it matches a task"}
-                        onClick={async () => {
-                          setError("");
-                          try {
-                            await setPinned({ memoryId: m._id as never, pinned: !m.pinned });
-                          } catch (err) {
-                            setError(err instanceof Error ? err.message : "Failed to update memory");
-                          }
-                        }}
-                        className={`mt-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg outline-none transition hover:bg-panel focus-visible:ring-2 focus-visible:ring-ink/30 ${
-                          m.pinned ? "text-ink" : "text-ink-3"
-                        }`}
-                      >
-                        <Pin size={15} className={m.pinned ? "fill-current" : ""} />
-                      </button>
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3">
+                          <button
+                            type="button"
+                            onClick={() => setEditingId(m._id)}
+                            className="flex min-w-0 flex-1 items-start gap-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ink/30 max-sm:basis-full"
+                          >
+                            <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-inset text-ink-3">
+                              <Brain size={13} />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="flex flex-wrap items-baseline gap-x-2">
+                                <span className="truncate text-[13.5px] font-medium text-ink">{m.title}</span>
+                                {m.pinned && <StatusTag tone="active">Pinned</StatusTag>}
+                              </span>
+                              <span className="mt-0.5 block truncate text-[12px] text-ink-2">{snippet(m.content)}</span>
+                              {m.tags && m.tags.length > 0 && (
+                                <span className="mt-0.5 block truncate font-mono text-[11.5px] text-ink-3">{m.tags.join(" · ")}</span>
+                              )}
+                            </span>
+                          </button>
+                          <div className="ml-9 flex shrink-0 items-center gap-3 max-sm:ml-9">
+                            <div className="w-20 shrink-0">
+                              <StatusTag tone={m.source === "agent" ? "active" : "neutral"}>
+                                {m.source === "agent" ? "Agent" : "You"}
+                              </StatusTag>
+                            </div>
+                            <span className="w-20 shrink-0 text-right text-[12px] tabular-nums text-ink-3">{relativeTime(m.updatedAt)}</span>
+                            <button
+                              type="button"
+                              aria-label={m.pinned ? `Unpin ${m.title}` : `Pin ${m.title}`}
+                              aria-pressed={m.pinned}
+                              title={m.pinned ? "Pinned — added to prompts" : "Not pinned — added when it matches a task"}
+                              onClick={async () => {
+                                setError("");
+                                try {
+                                  await setPinned({ memoryId: m._id as never, pinned: !m.pinned });
+                                } catch (err) {
+                                  setError(err instanceof Error ? err.message : "Failed to update memory");
+                                }
+                              }}
+                              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-field outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 ${
+                                m.pinned ? "text-ink" : "text-ink-3"
+                              }`}
+                            >
+                              <Pin size={15} className={m.pinned ? "fill-current" : ""} />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+              <p className="mt-2 text-[12px] text-ink-3">Showing {visible?.length ?? 0} of {memories?.length ?? 0} memories.</p>
+            </>
           )}
         </div>
       </main>
@@ -407,7 +476,7 @@ function MemoryEditor({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="grid gap-4 px-4 py-4">
+    <form onSubmit={handleSubmit} className="grid gap-4 rounded-2xl border border-line bg-panel p-5 shadow-card">
       <div className="grid gap-3 sm:grid-cols-2">
         <label className={label}>
           Title

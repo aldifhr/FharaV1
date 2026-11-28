@@ -50,6 +50,10 @@ export const taskStatus = v.union(
   v.literal("done"),
   v.literal("rejected"),
   v.literal("failed"),
+  // Terminal: the work cannot proceed because no agent/runtime can serve it
+  // (plan 006). Distinct from "failed" so the reason is not read as a bug in
+  // the code, and from "rejected" so it is not read as a user decision.
+  v.literal("blocked"),
   // Terminal: the user stopped the task (tasks.cancel). Distinct from
   // "failed" so filters, incidents and success rates do not count a
   // deliberate stop as a failure.
@@ -404,6 +408,10 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
     queueHeld: v.optional(v.boolean()),
     errorMessage: v.optional(v.string()),
+    // Plan 006 (additive): why the task is `blocked` (no capable agent/
+    // runtime). Kept separate from errorMessage so a block is not read as a
+    // code failure; set by completeTask.
+    blockedReason: v.optional(v.string()),
     updatedAt: v.optional(v.number()),
     branchName: v.optional(v.string()),
     worktreePath: v.optional(v.string()),

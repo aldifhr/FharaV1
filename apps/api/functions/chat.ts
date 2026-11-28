@@ -39,7 +39,7 @@ import {
 } from "./lib/chat/intent";
 import { classifyIntent } from "./lib/chat/classify";
 import { type EchoContext, streamEchoSafe, stripLeadingEcho } from "./lib/chat/echo";
-import { ROLE_KEYS, ROLES, isCtoRole, resolveRoleKey, roleLabel } from "./lib/roles";
+import { ROLE_KEYS, ROLES, isCodeWritingRole, isCtoRole, resolveRoleKey, roleLabel, rolePermissionsFor } from "./lib/roles";
 import { chatPreRouteAllowed, mentionsCode, routedAnswerSubtype, systemRoutingLine } from "./lib/chat/dispatch";
 import { buildTaskStatusLine, resolveChatOwner, type ChatOwner } from "./lib/chat/owner";
 import { detectChatRunCommands } from "./lib/chat/runRequest";
@@ -49,6 +49,7 @@ import {
   type ChatAgent,
 } from "./lib/chat/team";
 import {
+  echoedRequest,
   MAX_HANDOFFS,
   parseStructuredReply,
   resolveHandoffTargets,
@@ -56,7 +57,6 @@ import {
   type StructuredReply,
 } from "./lib/chat/handoff";
 import { actionableRouting, type RoutingClassification } from "./lib/chat/routingClassification";
-import { postRoleChoiceCard } from "./lib/chat/roleChoiceCard";
 import { TERMINAL_TASK_STATUSES, dispatchTaskFromChat, outsideRepoReply, startOfferedTask } from "./lib/chat/startTask";
 import { routedOwners } from "./lib/chat/taskAssignees";
 import { shouldAutoCreateTask } from "./lib/chat/autoTask";
@@ -114,7 +114,6 @@ import {
   buildSkillToolProtocol,
   buildSelfReviewGuidance,
   buildStructuredReplyPrompt,
-  ROLE_CHOICE_QUESTION,
   STRUCTURED_REPLY_SYSTEM,
 } from "./lib/prompts/chat";
 import {
@@ -409,10 +408,11 @@ type StreamReply = (
   },
 ) => Promise<StreamReplyResult>;
 
+
 /**
- * One schema-validated JSON call for a CTO/Lead reply. Invalid output gets
- * exactly one retry, then null: the caller asks the user to pick a role.
- * There is no text-parsing fallback.
+ * One schema-validated JSON call for a CTO/Lead reply. Invalid output, or a
+ * handoff that merely echoes the user's request, gets exactly one retry; then
+ * the reply stands with no handoff. There is no text-parsing fallback.
  */
 async function requestStructuredReply(input: {
   reply: string;
@@ -420,8 +420,8 @@ async function requestStructuredReply(input: {
   roles: readonly string[];
   config: ChatLlmConfig;
 }): Promise<StructuredReply | null> {
+  let correction = "";
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const correction = attempt === 0 ? "" : "\nThe previous output was not a valid JSON object. Output only the JSON object.";
     const raw = await completeWithAgent(
       STRUCTURED_REPLY_SYSTEM,
       [{ role: "user", content: buildStructuredReplyPrompt(input) + correction }],
@@ -430,7 +430,10 @@ async function requestStructuredReply(input: {
       .then((result) => result.content)
       .catch(() => "");
     const parsed = parseStructuredReply(raw);
-    if (parsed) return parsed;
+    if (parsed && !parsed.handoff.some((entry) => echoedRequest(entry.instruction, input.userRequest))) return parsed;
+    correction = parsed
+      ? "\nThe previous handoff instruction copied the user's request. Rewrite it as a short order to that teammate: one action, the deliverable, and what to report."
+      : "\nThe previous output was not a valid JSON object. Output only the JSON object.";
   }
   return null;
 }
@@ -1197,21 +1200,14 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     // the request instead of silently ignoring the pick.
     if (workShaped && ctoPicked) {
       const owner = routedOwners(routing, team).owners.find((a) => !isCtoAgent(a));
-      await ctx.runMutation(internal.chatContext.insertSystemLine, {
-        projectId,
-        conversationId: args.conversationId,
-        replyToMessageId: args.userMessageId,
-        content: owner
-          ? `The CTO does not write code. ${roleLabel(owner.role)} will handle this request.`
-          : ROLE_CHOICE_QUESTION,
-      });
-      if (!owner) await postRoleChoiceCard(ctx, { ...msgScope, conversationId: args.conversationId, userMessageId: args.userMessageId, agentId: orchestrator?._id as any });
-    }
-
-    // No live role at sufficient confidence: ask the user instead of guessing
-    // an owner (never a silent Backend default).
-    if (workShaped && !ctoPicked && mentionedAgents.length === 0 && !routing) {
-      await postRoleChoiceCard(ctx, { ...msgScope, conversationId: args.conversationId, userMessageId: args.userMessageId, agentId: orchestrator?._id as any });
+      if (owner) {
+        await ctx.runMutation(internal.chatContext.insertSystemLine, {
+          projectId,
+          conversationId: args.conversationId,
+          replyToMessageId: args.userMessageId,
+          content: `The CTO does not write code. ${roleLabel(owner.role)} will handle this request.`,
+        });
+      }
     }
 
     // Plan 061: a work-shaped message gets its task in this same turn. The CTO
@@ -1226,22 +1222,15 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
       mentionCount: mentionedAgents.length,
       autoCreateChatTasks: data.autoCreateChatTasks,
     });
-    if (autoCreated) {
-      await dispatchTaskFromChat(ctx, projectArgs, {
-        text: lastUserContent,
-        team,
-        orchestrator,
-        routing,
-        title: lastUserContent.split("\n")[0].slice(0, 80),
-        conversationContext: false,
-      });
-    }
+    // The task is dispatched after the CTO reply so its structured handoff can
+    // supply the owner when the classifier returned no role.
+    let handoffOwner: ChatAgent | null = null;
 
     let routed: ChatAgent | null = null;
     // The route's domain and code topic ride on the Create task offer's hint (P1a).
     let routeInfo: { domain: string | null; topic?: string } | null = null;
     if (mentionedAgents.length === 0) {
-      if (workShaped && orchestrator) {
+      if (orchestrator) {
         routed = orchestrator;
         const line = team.length > 1 ? systemRoutingLine([orchestrator]) : "";
         const routeMessageId = line && await ctx.runMutation(internal.chatContext.insertSystemLine, {
@@ -1338,6 +1327,7 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
     // Plan 059: teammates the CTO @mentions answer next, in order.
     const handoffFrom = new Map<string, { by: string; request: string }>();
     let handoffs = 0;
+    let ctoDecisionLogged = false;
     for (let turn = 0; turn < queue.length; turn += 1) {
       const agent = queue[turn];
       // Design proposals are the one "ask" turn where the Designer should
@@ -1491,25 +1481,57 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
             roles: availableRoles,
             config: globalConfig,
           });
-          if (!structured) {
-            await postRoleChoiceCard(ctx, { ...msgScope, agentId: agent._id as any, conversationId: args.conversationId, userMessageId: args.userMessageId });
-            } else {
-              if (result.messageId) {
-                await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
-                  messageId: result.messageId,
-                  handoff: structured.handoff,
-                });
+          if (structured) {
+            if (result.messageId) {
+              await ctx.runMutation(internal.chatContext.updateStreamingAgentMessage, {
+                messageId: result.messageId,
+                handoff: structured.handoff,
+              });
+            }
+            if (!handoffOwner) {
+              // The owner must actually be able to do the work: a write task
+              // goes to a code-writing role, a run request to a shell-capable
+              // one. A read-only handoff (QA/Designer/Lead) never becomes the
+              // owner of write work.
+              const needsWriter = writeRequest || deterministicWork;
+              for (const entry of structured.handoff) {
+                if (isCtoRole(entry.role)) continue;
+                const member = team.find(
+                  (candidate) => resolveRoleKey(candidate.role) === entry.role && !isCtoAgent(candidate)
+                );
+                if (!member) continue;
+                const canOwn = needsWriter
+                  ? isCodeWritingRole(member.role)
+                  : (rolePermissionsFor(member.role)?.shell ?? "none") !== "none";
+                if (canOwn) {
+                  handoffOwner = member;
+                  break;
+                }
               }
-              const unmatched = unmatchedHandoffRoles(structured.handoff, team);
-              if (unmatched.length) {
-                await ctx.runMutation(internal.chatContext.insertSystemLine, {
-                  projectId,
-                  conversationId: args.conversationId,
-                  replyToMessageId: args.userMessageId,
-                  content: `No teammate for ${unmatched.map((role) => roleLabel(role)).join(", ")} on this project's team.`,
-                });
-              }
-              for (const { agent: mentioned, instruction } of resolveHandoffTargets(structured.handoff, team, String(agent._id))) {
+            }
+            const unmatched = unmatchedHandoffRoles(structured.handoff, team);
+            const targets = resolveHandoffTargets(structured.handoff, team, String(agent._id));
+            if (isCto && structured.handoff.length > 0) {
+              ctoDecisionLogged = true;
+              const chosen = targets.map((target) => `@${roleLabel(target.agent.role)}`);
+              await ctx.runMutation(internal.chatContext.insertSystemLine, {
+                projectId,
+                conversationId: args.conversationId,
+                replyToMessageId: args.userMessageId,
+                content: chosen.length
+                  ? `CTO decision: ${chosen.join(", ")} — ${String(structured.handoff[0]?.instruction ?? "").slice(0, 200)}`
+                  : `CTO decision refused: no teammate for ${structured.handoff.map((entry) => roleLabel(entry.role)).join(", ")}.`,
+              });
+            }
+            if (unmatched.length) {
+              await ctx.runMutation(internal.chatContext.insertSystemLine, {
+                projectId,
+                conversationId: args.conversationId,
+                replyToMessageId: args.userMessageId,
+                content: `No teammate for ${unmatched.map((role) => roleLabel(role)).join(", ")} on this project's team. CTO decision refused with reason: role not in the project registry.`,
+              });
+            }
+            for (const { agent: mentioned, instruction } of targets) {
               if (handoffs >= MAX_HANDOFFS) break;
               if (answered.has(String(mentioned._id))) continue;
               if (queue.some((queued, index) => index > turn && String(queued._id) === String(mentioned._id))) continue;
@@ -1525,7 +1547,29 @@ async function answerChat(ctx: ActionCtx, rawArgs: ChatTurnArgs, scope: ChatScop
             }
           }
         }
+        if (isCto && !ctoDecisionLogged && !isOptionPick && team.length > 1) {
+          await ctx.runMutation(internal.chatContext.insertSystemLine, {
+            projectId,
+            conversationId: args.conversationId,
+            replyToMessageId: args.userMessageId,
+            content: "CTO decision: answer directly — no teammate needed for this turn.",
+          });
+        }
       }
+    }
+
+    if (autoCreated) {
+      await dispatchTaskFromChat(ctx, {
+        ...projectArgs,
+        ...(handoffOwner ? { preferredAgentIds: [handoffOwner._id as Id<"agents">] } : {}),
+      }, {
+        text: lastUserContent,
+        team,
+        orchestrator,
+        routing,
+        title: lastUserContent.split("\n")[0].slice(0, 80),
+        conversationContext: false,
+      });
     }
 
     // Several @mentioned teammates can independently report the same

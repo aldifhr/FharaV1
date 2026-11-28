@@ -1,11 +1,13 @@
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "@/lib/spaRouter";
 import { useFharaRuntime, useMutation, useQuery } from "@fhara/runtime/react";
-import { ChevronRight, Download, ScrollText, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
+import { Ban, ChevronRight, Download, Layers, ScrollText, ShieldAlert, ShieldCheck, Trash2, Wrench } from "lucide-react";
 import { api } from "@fhara/runtime/api";
 import Sidebar from "@/components/Sidebar";
 import { HEADER_ACTION, PageHeader } from "@/components/ui/page-header";
+import Segmented from "@/components/ui/segmented";
+import { StatusTag, type StatusTone } from "@/components/ui/status-tag";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import { roleLabel } from "@/lib/agentRoles";
 import { clockTime, isSameDay, shortDate } from "@/lib/format";
@@ -14,8 +16,8 @@ import { useToast } from "@/components/Toasts";
 type Filter = "all" | "config" | "tools" | "denied";
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "All" },
-  { key: "config", label: "Config changes" },
-  { key: "tools", label: "Tool calls" },
+  { key: "config", label: "Config" },
+  { key: "tools", label: "Tools" },
   { key: "denied", label: "Denied" },
 ];
 
@@ -37,11 +39,11 @@ type Row = {
 
 const PAGE = 50;
 
-const DOT: Record<Row["decision"], string> = {
-  allowed: "bg-ink-2",
-  denied: "bg-destructive",
-  pending: "bg-warn",
-  recorded: "bg-line-strong",
+const DECISION_TONE: Record<Row["decision"], StatusTone> = {
+  allowed: "ok",
+  denied: "danger",
+  pending: "warn",
+  recorded: "neutral",
 };
 
 function filterArgs(filter: Filter) {
@@ -58,7 +60,18 @@ function when(ms: number): string {
 /** "agent.update" -> "Agent update"; tool calls read "run_command · run". */
 function actionLabel(row: Row): string {
   if (row.tool === "config" || row.tool === "approval") {
-    const text = row.action.replace(/[._]/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+    let spaced = "";
+    for (let i = 0; i < row.action.length; i++) {
+      const char = row.action[i];
+      const prev = row.action[i - 1];
+      if (char === "." || char === "_") {
+        spaced += " ";
+        continue;
+      }
+      if (i > 0 && char >= "A" && char <= "Z" && prev >= "a" && prev <= "z") spaced += " ";
+      spaced += char;
+    }
+    const text = spaced.toLowerCase();
     return text.charAt(0).toUpperCase() + text.slice(1);
   }
   return `${row.tool} · ${row.action}`;
@@ -98,7 +111,7 @@ function csvCell(value: unknown): string {
       : typeof value === "object"
         ? JSON.stringify(value)
         : String(value);
-  return `"${text.replace(/"/g, '""')}"`;
+  return `"${text.split('"').join('""')}"`;
 }
 
 function toCsv(rows: Row[]): string {
@@ -110,7 +123,7 @@ function toCsv(rows: Row[]): string {
 }
 
 function exportStamp(): string {
-  return new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  return new Date().toISOString().slice(0, 19).split(":").join("-").replace("T", "-");
 }
 
 function AuditPage() {
@@ -146,6 +159,15 @@ function AuditPage() {
   const firstIds = new Set<string>((first?.items ?? []).map((r) => r._id as string));
   const rows: Row[] = [...((first?.items ?? []) as Row[]), ...older.filter((r) => !firstIds.has(r._id))].filter(
     (r) => !removedIds.has(r._id),
+  );
+  const stats = useMemo(
+    () => ({
+      shown: rows.length,
+      allowed: rows.filter((r) => r.decision === "allowed").length,
+      denied: rows.filter((r) => r.decision === "denied").length,
+      pending: rows.filter((r) => r.decision === "pending").length,
+    }),
+    [rows],
   );
 
   const loadMore = async () => {
@@ -254,12 +276,17 @@ function AuditPage() {
       <main className="min-w-0 flex-1 overflow-y-auto px-6 py-8 max-[979px]:px-4 max-[979px]:py-6">
         <div className="mx-auto max-w-[1440px] min-[112.5rem]:max-w-[1640px]">
           <PageHeader
-            eyebrow={projectName}
+            eyebrow={projectName ?? "All projects"}
             title="Audit log"
+            leading={
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-field border border-line bg-panel text-ink-2">
+                <ScrollText size={17} />
+              </span>
+            }
             status={chain ? (chain.ok ? { tone: "ok", label: "Chain intact" } : { tone: "danger", label: "Chain broken" }) : null}
             meta={
               <>
-                <p className="text-[15px] text-ink-2">Tool calls, approvals and configuration changes, newest first.</p>
+                <p className="text-[13.5px] text-ink-2">Tool calls, approvals and configuration changes, newest first.</p>
                 {chain && (
                   <p
                     data-testid="audit-chain"
@@ -268,11 +295,11 @@ function AuditPage() {
                         ? `${chain.checked} chained ${chain.checked === 1 ? "entry" : "entries"} verified${chain.preChain ? `, ${chain.preChain} pre-chain` : ""}${chain.truncated ? " (newest only)" : ""}`
                         : chain.reason
                     }
-                    className={`mt-1 inline-flex items-center gap-1.5 text-[12.5px] ${chain.ok ? "text-ink-3" : "text-destructive"}`}
+                    className={`mt-1 inline-flex items-center gap-1.5 text-[12.5px] ${chain.ok ? "text-ink-3" : "text-danger"}`}
                   >
                     {chain.ok ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
                     {chain.ok
-                      ? `Chain intact · ${chain.checked} verified${chain.preChain ? ` · ${chain.preChain} pre-chain` : ""}`
+                      ? `Chain intact · ${chain.checked} verified${chain.preChain ? ` · ${chain.preChain} pre-chain` : ""}${chain.truncated ? " · newest only" : ""}`
                       : `Chain broken at entry ${chain.brokenAt}: ${chain.reason}`}
                   </p>
                 )}
@@ -280,21 +307,11 @@ function AuditPage() {
             }
             actions={
               <>
-                <button
-                  type="button"
-                  disabled={exporting !== null}
-                  onClick={() => void exportRows("json")}
-                  className={HEADER_ACTION}
-                >
+                <button type="button" disabled={exporting !== null} onClick={() => void exportRows("json")} className={HEADER_ACTION}>
                   <Download size={14} />
                   {exporting === "json" ? "Exporting…" : "Export JSON"}
                 </button>
-                <button
-                  type="button"
-                  disabled={exporting !== null}
-                  onClick={() => void exportRows("csv")}
-                  className={HEADER_ACTION}
-                >
+                <button type="button" disabled={exporting !== null} onClick={() => void exportRows("csv")} className={HEADER_ACTION}>
                   <Download size={14} />
                   {exporting === "csv" ? "Exporting…" : "Export CSV"}
                 </button>
@@ -302,7 +319,7 @@ function AuditPage() {
                   type="button"
                   disabled={rows.length === 0 || busy}
                   onClick={askDeleteShown}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-panel px-2.5 py-1.5 text-[12.5px] text-ink-3 outline-none transition hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-field border border-line bg-panel px-2.5 text-[12.5px] text-ink-3 outline-none transition hover:border-danger/40 hover:bg-danger/5 hover:text-danger focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
                 >
                   <Trash2 size={14} />
                   Delete shown
@@ -311,109 +328,154 @@ function AuditPage() {
             }
           />
 
-          <div role="tablist" aria-label="Filter" className="mt-6 inline-flex flex-wrap items-center rounded-lg border border-line bg-hover p-0.5">
-            {FILTERS.map((f) => (
-              <button
-                key={f.key}
-                type="button"
-                role="tab"
-                aria-selected={filter === f.key}
-                onClick={() => setFilter(f.key)}
-                className={`rounded-md px-3 py-1 text-[12.5px] font-medium outline-none transition focus-visible:ring-2 focus-visible:ring-brand/40 ${
-                  filter === f.key
-                    ? "bg-panel text-ink shadow-card"
-                    : "text-ink-2 hover:text-ink"
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-
           {first === undefined ? (
-            <div className="mt-6 space-y-3" aria-label="Loading audit log">
-              {[0, 1, 2, 3].map((i) => (
-                <div key={i} className="h-12 rounded-xl bg-hover" />
-              ))}
-            </div>
-          ) : rows.length === 0 ? (
-            <div className="mt-16 flex flex-col items-center text-center">
-              <span className="flex h-11 w-11 items-center justify-center rounded-full bg-hover text-ink-3">
-                <ScrollText size={18} />
-              </span>
-              <p className="mt-4 text-[14px] text-ink-2">Nothing logged{filter === "all" ? " yet" : " for this filter"}.</p>
-              <p className="mt-1 text-[13px] text-ink-3">Agent tool calls and settings changes show up here.</p>
+            <div className="mt-6 space-y-4" aria-label="Loading audit log">
+              <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-line bg-panel shadow-card sm:grid-cols-4">
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i} className="p-5">
+                    <div className="h-3 w-16 rounded bg-hover" />
+                    <div className="mt-3 h-8 w-12 rounded bg-hover" />
+                  </div>
+                ))}
+              </div>
+              <div className="h-64 rounded-2xl border border-line bg-panel shadow-card" />
             </div>
           ) : (
             <>
-              <ul className="mt-5 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-panel shadow-card">
-                {rows.map((row) => {
-                  const expanded = open === row._id;
-                  return (
-                    <li key={row._id}>
-                      <div className="flex items-center gap-2 px-4 py-2.5 transition hover:bg-hover">
-                        <button
-                          type="button"
-                          aria-expanded={expanded}
-                          onClick={() => setOpen(expanded ? null : row._id)}
-                          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
-                        >
-                          <span
-                            aria-label={row.decision}
-                            title={row.decision}
-                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${DOT[row.decision]}`}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-[14px]">
-                              <span className="text-ink">{actionLabel(row)}</span>
-                              {row.target && <span className="text-ink-2"> · {row.target}</span>}
-                            </p>
-                            <p className="truncate text-[12.5px] text-ink-3">
-                              {actorLabel(row)}
-                              {row.projectName && !projectId ? ` · ${row.projectName}` : ""}
-                              {row.decision !== "recorded" ? ` · ${row.decision}` : ""}
-                            </p>
-                          </div>
-                          <span className="shrink-0 text-[12px] tabular-nums text-ink-3">{when(row.createdAt)}</span>
-                          <ChevronRight
-                            size={14}
-                            className={`shrink-0 text-ink-3 transition-transform ${expanded ? "rotate-90" : ""}`}
-                          />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => askDelete(row)}
-                          aria-label={`Delete ${actionLabel(row)}`}
-                          title="Delete entry"
-                          className="shrink-0 rounded-lg p-1.5 text-ink-3 outline-none transition hover:bg-hover hover:text-destructive focus-visible:ring-2 focus-visible:ring-ink/30"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                      {expanded && (
-                        <pre className="mx-4 mb-3 max-h-72 overflow-auto rounded-lg border border-line bg-canvas px-3 py-2 font-mono text-[12px] leading-relaxed text-ink-2">
-                          {JSON.stringify(
-                            { tool: row.tool, action: row.action, decision: row.decision, actor: row.actor, target: row.target, details: row.details },
-                            null,
-                            2,
-                          )}
-                        </pre>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-              {nextCursor !== null && (
-                <div className="mt-4 flex justify-center">
-                  <button
-                    type="button"
-                    disabled={loadingMore}
-                    onClick={() => void loadMore()}
-                    className="rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-50"
-                  >
-                    {loadingMore ? "Loading…" : "Load more"}
-                  </button>
+              <section
+                aria-label="Audit metrics"
+                className="mt-6 grid grid-cols-2 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-panel shadow-card sm:divide-y-0 sm:divide-x lg:grid-cols-4"
+              >
+                {[
+                  { label: "Shown", value: stats.shown, note: "entries loaded", icon: <Layers size={13} />, tone: "", title: "Entries currently loaded for this filter" },
+                  { label: "Allowed", value: stats.allowed, note: "approved", icon: <ShieldCheck size={13} />, tone: "", title: "Allowed decisions among loaded entries" },
+                  { label: "Denied", value: stats.denied, note: "blocked", icon: <Ban size={13} />, tone: stats.denied > 0 ? "text-danger" : "", title: "Denied decisions among loaded entries" },
+                  { label: "Pending", value: stats.pending, note: "awaiting approval", icon: <Wrench size={13} />, tone: stats.pending > 0 ? "text-warn" : "", title: "Pending decisions among loaded entries" },
+                ].map((metric) => (
+                  <div key={metric.label} className="p-4 sm:p-5" title={metric.title}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-caption">{metric.label}</span>
+                      <span className="flex h-6 w-6 items-center justify-center rounded-md bg-inset text-ink-3">{metric.icon}</span>
+                    </div>
+                    <div className="mt-2 flex items-baseline gap-2">
+                      <span className={`text-[28px] font-semibold leading-none tracking-[-0.03em] tabular-nums ${metric.tone || "text-ink"}`}>
+                        {metric.value}
+                      </span>
+                      <span className="truncate text-[12px] text-ink-3">{metric.note}</span>
+                    </div>
+                  </div>
+                ))}
+              </section>
+
+              <div className="mt-5">
+                <Segmented
+                  label="Filter audit log"
+                  value={filter}
+                  onChange={setFilter}
+                  options={FILTERS.map((f) => ({ value: f.key, label: f.label }))}
+                />
+              </div>
+
+              {rows.length === 0 ? (
+                <div className="mt-4 flex flex-col items-center rounded-2xl border border-dashed border-line bg-panel px-5 py-10 text-center">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-full bg-inset text-ink-3">
+                    <ScrollText size={18} />
+                  </span>
+                  <p className="mt-4 text-[14px] text-ink-2">Nothing logged{filter === "all" ? " yet" : " for this filter"}.</p>
+                  <p className="mt-1 text-[13px] text-ink-3">Agent tool calls and settings changes show up here.</p>
                 </div>
+              ) : (
+                <>
+                  <section className="mt-4 overflow-hidden rounded-2xl border border-line bg-panel shadow-card">
+                    <div className="hidden items-center gap-3 border-b border-line px-4 py-2.5 text-caption sm:flex">
+                      <span className="min-w-0 flex-1">Entry</span>
+                      <span className="hidden w-28 shrink-0 lg:block">Project</span>
+                      <span className="w-24 shrink-0">Decision</span>
+                      <span className="w-16 shrink-0 text-right">When</span>
+                      <span className="w-6 shrink-0" />
+                      <span className="w-8 shrink-0" />
+                    </div>
+                    <ul className="divide-y divide-line">
+                      {rows.map((row) => {
+                        const expanded = open === row._id;
+                        return (
+                          <li key={row._id} className="transition-colors hover:bg-inset/60">
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5">
+                              <button
+                                type="button"
+                                onClick={() => setOpen(expanded ? null : row._id)}
+                                className="flex min-w-0 flex-1 items-center gap-2.5 rounded-field text-left outline-none focus-visible:ring-2 focus-visible:ring-ink/30 max-sm:basis-full"
+                              >
+                                <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-inset text-ink-3">
+                                  <Wrench size={13} />
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-[13.5px] font-medium text-ink">{actionLabel(row)}</span>
+                                  {row.target && <span className="mt-0.5 block truncate text-[12px] text-ink-3">{row.target}</span>}
+                                  <span className="mt-0.5 block truncate text-[11.5px] text-ink-3">
+                                    {actorLabel(row)}
+                                    {row.projectName && !projectId ? ` · ${row.projectName}` : ""}
+                                  </span>
+                                </span>
+                              </button>
+                              <div className="flex shrink-0 items-center gap-3 max-sm:ml-9">
+                                <span className="hidden w-28 shrink-0 truncate text-[12px] text-ink-3 lg:block">
+                                  {row.projectName ?? "—"}
+                                </span>
+                                <div className="w-24 shrink-0">
+                                  <StatusTag tone={DECISION_TONE[row.decision]}>
+                                    {row.decision.charAt(0).toUpperCase() + row.decision.slice(1)}
+                                  </StatusTag>
+                                </div>
+                                <span className="w-16 shrink-0 text-right text-[12px] tabular-nums text-ink-3">{when(row.createdAt)}</span>
+                                <button
+                                  type="button"
+                                  aria-expanded={expanded}
+                                  aria-label={`Details for ${actionLabel(row)}`}
+                                  onClick={() => setOpen(expanded ? null : row._id)}
+                                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-field text-ink-3 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30"
+                                >
+                                  <ChevronRight size={14} className={`transition-transform ${expanded ? "rotate-90" : ""}`} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => askDelete(row)}
+                                  aria-label={`Delete ${actionLabel(row)}`}
+                                  title="Delete entry"
+                                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-field text-ink-3 outline-none transition hover:bg-hover hover:text-danger focus-visible:ring-2 focus-visible:ring-ink/30"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </div>
+                            {expanded && (
+                              <pre className="mx-4 mb-3 max-h-72 overflow-auto rounded-field border border-line bg-inset px-3 py-2 font-mono text-[12px] leading-relaxed text-ink-2">
+                                {JSON.stringify(
+                                  { tool: row.tool, action: row.action, decision: row.decision, actor: row.actor, target: row.target, details: row.details },
+                                  null,
+                                  2,
+                                )}
+                              </pre>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </section>
+                  <p className="mt-2 text-[12px] text-ink-3">Showing {rows.length} entries for this filter.</p>
+                  {nextCursor !== null && (
+                    <div className="mt-4 flex justify-center">
+                      <button
+                        type="button"
+                        disabled={loadingMore}
+                        onClick={() => void loadMore()}
+                        className={HEADER_ACTION}
+                      >
+                        {loadingMore ? "Loading…" : "Load more"}
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}

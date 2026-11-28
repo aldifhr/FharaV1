@@ -18,6 +18,7 @@ export interface AutoTaskInput {
 
 export function shouldAutoCreateTask(input: AutoTaskInput): boolean {
   if (input.autoCreateChatTasks === false) return false;
-  if (input.optionPick || input.pasted || input.mentionCount > 0) return false;
+  if (input.optionPick || input.pasted) return false;
+  if (input.mentionCount > 0 && !input.workShaped) return false;
   return input.workShaped || input.runRequest;
 }

@@ -70,9 +70,17 @@ function trimPiece(text: string, start: number): Piece | null {
 
 /** Split one sentence into its list items when it is a list; otherwise the sentence itself. */
 function splitSentence(sentence: string, start: number): Piece[] {
-  const colon = sentence.indexOf(":");
+  let colon = sentence.indexOf(":");
+  while (
+    colon > 0 &&
+    colon < sentence.length - 1 &&
+    (sentence.startsWith("//", colon + 1) || isInsideUrl(sentence, colon))
+  ) {
+    colon = sentence.indexOf(":", colon + 1);
+  }
   // "Implement auth: login, register, logout, dan refresh token" → the
-  // items after the colon are the requirements.
+  // items after the colon are the requirements. A colon inside a URL is not
+  // a list marker.
   if (colon > 0 && colon < sentence.length - 1) {
     const items = splitList(sentence.slice(colon + 1), start + colon + 1);
     if (items.length >= 2) return items;
@@ -92,6 +100,32 @@ function splitSentence(sentence: string, start: number): Piece[] {
 
 function firstWord(text: string): string {
   return (text.trim().split(/\s+/)[0] ?? "").toLowerCase().replace(/[^\p{L}]/gu, "");
+}
+
+function firstSpace(text: string): number {
+  const space = text.indexOf(" ");
+  const tab = text.indexOf("\t");
+  if (space < 0) return tab;
+  if (tab < 0) return space;
+  return Math.min(space, tab);
+}
+
+function isInsideUrl(text: string, index: number): boolean {
+  const before = text.slice(0, index);
+  const start = Math.max(before.lastIndexOf("http://"), before.lastIndexOf("https://"));
+  return start >= 0 && firstSpace(before.slice(start)) < 0;
+}
+
+const CONSTRAINT_LEADS = ["jangan", "do not"];
+
+/** Mentions, bare URLs and negative constraints are routing/scope, not deliverables. */
+function isTraceableRequirement(text: string): boolean {
+  const value = text.trim();
+  if (!value) return false;
+  if (value.startsWith("@") && firstSpace(value) < 0) return false;
+  if (firstSpace(value) < 0 && (value.startsWith("http://") || value.startsWith("https://"))) return false;
+  const lead = value.toLowerCase();
+  return !CONSTRAINT_LEADS.some((prefix) => lead.startsWith(prefix));
 }
 
 function splitList(text: string, start: number): Piece[] {
@@ -148,18 +182,14 @@ export function extractRequirementsFallback(request: string): Requirement[] {
   }
   const seen = new Set<string>();
   const unique = pieces.filter((piece) => {
+    if (!isTraceableRequirement(piece.text)) return false;
     const key = piece.text.toLowerCase();
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
   const capped = unique.slice(0, MAX_REQUIREMENTS);
-  if (capped.length === 0) {
-    const text = source.trim();
-    if (!text) return [];
-    const start = source.indexOf(text);
-    return [{ id: "r1", text: text.slice(0, TEXT_MAX), span: { start, end: start + Math.min(text.length, TEXT_MAX) }, source: "fallback" }];
-  }
+  if (capped.length === 0) return [];
   return capped.map((piece, index) => ({
     id: `r${index + 1}`,
     text: piece.text.slice(0, TEXT_MAX),
@@ -199,7 +229,7 @@ export function normalizeLlmRequirements(
     if (!value || typeof value !== "object" || Array.isArray(value)) continue;
     const record = value as Record<string, unknown>;
     const text = typeof record.text === "string" ? record.text.trim().slice(0, TEXT_MAX) : "";
-    if (!text || seen.has(text.toLowerCase())) continue;
+    if (!text || !isTraceableRequirement(text) || seen.has(text.toLowerCase())) continue;
     seen.add(text.toLowerCase());
     const quote =
       typeof record.quote === "string" ? record.quote : typeof record.source === "string" ? record.source : "";
@@ -221,6 +251,7 @@ export function parseStoredRequirements(raw: unknown): Requirement[] {
     if (!entry || typeof entry !== "object") continue;
     const record = entry as Record<string, unknown>;
     if (typeof record.id !== "string" || typeof record.text !== "string") continue;
+    if (!isTraceableRequirement(record.text)) continue;
     const span = record.span as { start?: unknown; end?: unknown } | undefined;
     out.push({
       id: record.id,
@@ -353,7 +384,7 @@ export interface RequirementCoverageSubtask {
 export interface RequirementCoverage {
   requirement: Requirement;
   state: RequirementState;
-  /** Why the requirement is not covered (empty when covered). */
+  /** Why the requirement is not covered, or why environment-skipped checks were accepted. */
   reason: string;
   subtasks: RequirementCoverageSubtask[];
 }
@@ -368,6 +399,15 @@ export interface CoverageReport {
 }
 
 const BAD_ACCEPTANCE = new Set(["rejected", "blocked", "escalated"]);
+const READ_ONLY_KINDS = new Set(["research", "audit", "review"]);
+
+function environmentSkipped(row: RequirementCoverageSubtask): boolean {
+  return (
+    row.evidence.length > 0 &&
+    !row.evidence.some((item) => item.status === "pass" || item.status === "fail") &&
+    row.evidence.every((item) => item.kind === "qa" && item.status === "skipped")
+  );
+}
 
 function evidenceFor(subtask: CoverageSubtask, input: CoverageInput): TraceEvidence[] {
   const evidence: TraceEvidence[] = [];
@@ -428,18 +468,28 @@ export function computeRequirementCoverage(input: CoverageInput): CoverageReport
     }));
     let state: RequirementState = "covered";
     let reason = "";
-    if (rows.length === 0) {
+    const changeReq = ACTION_VERBS.has(firstWord(requirement.text));
+    const eligible = changeReq ? rows.filter((row) => !READ_ONLY_KINDS.has(row.kind)) : rows;
+    if (changeReq && rows.length > 0 && eligible.length === 0) {
+      state = "uncovered";
+      reason = "Only read-only subtasks serve this change request";
+    } else if (rows.length === 0) {
       state = "uncovered";
       reason = "No subtask in the plan serves this requirement";
     } else {
-      const active = rows.filter((row) => row.status !== "skipped");
+      const active = eligible.filter((row) => row.status !== "skipped" && !environmentSkipped(row));
       const unfinished = active.find((row) => row.status !== "completed");
       const refused = active.find((row) => row.acceptanceStatus && BAD_ACCEPTANCE.has(row.acceptanceStatus));
       const failing = active.find((row) => row.evidence.some((item) => item.status === "fail"));
       const passing = active.some((row) => row.evidence.some((item) => item.status === "pass"));
       if (active.length === 0) {
-        state = "missing_evidence";
-        reason = "Every subtask serving it was skipped";
+        if (eligible.length > 0 && eligible.every(environmentSkipped)) {
+          state = "covered";
+          reason = "Environment-blocked checks were skipped";
+        } else {
+          state = "missing_evidence";
+          reason = "Every subtask serving it was skipped";
+        }
       } else if (unfinished) {
         state = "missing_evidence";
         reason = `Subtask ${unfinished.key} is ${unfinished.status.replace(/_/g, " ")}`;

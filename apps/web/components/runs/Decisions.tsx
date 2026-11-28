@@ -6,7 +6,7 @@ import { DECISION_TYPE_LABELS, type DecisionType } from "@/api/functions/lib/cal
 import ContextInspector from "@/components/context/ContextInspector";
 
 /**
- * Decision Outcome Calibration: each orchestrator decision of the run →
+ * Decision Outcome Calibration: each CTO orchestration decision of the run →
  * what it expected → its deterministic outcome label → the factors. A
  * plain list; the label is coloured text, never a pill.
  */

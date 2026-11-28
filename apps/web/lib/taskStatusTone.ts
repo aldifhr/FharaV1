@@ -10,10 +10,20 @@ const TASK_STATUS_TONE: Record<string, StatusTone> = {
   done: "ok",
   failed: "danger",
   rejected: "danger",
+  blocked: "warn",
   cancelled: "neutral",
 };
 
 export function taskStatusTone(status: string | undefined, needsYou = false): StatusTone {
-  if (needsYou && status !== "done" && status !== "failed" && status !== "rejected" && status !== "cancelled") return "warn";
+  if (
+    needsYou &&
+    status !== "done" &&
+    status !== "failed" &&
+    status !== "rejected" &&
+    status !== "blocked" &&
+    status !== "cancelled"
+  ) {
+    return "warn";
+  }
   return TASK_STATUS_TONE[status ?? ""] ?? "neutral";
 }

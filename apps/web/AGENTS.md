@@ -11,9 +11,9 @@ Vite + React 19 SPA, React Router, Tailwind 4, local runtime React client. Read 
 
 ```
 app/              routes: /, /project/[projectId],
-                  /runs, /pull-requests, /library, /memory, /audit, /inbox, /search, /improve,
-                  /integrations (plus the legacy redirects in plan 053)
-app/api/          server-side routes (llm-providers, mcp-servers, project-files, …)
+                  /runs, /pull-requests, /library, /memory, /audit, /activity, /inbox, /search, /improve
+                  (plus the legacy redirects in plan 053)
+app/api/          server-side routes (llm-providers, project-files, …)
 components/       feature components (ChatPanel, TaskBoard, TaskThreadPanel, Settings, …)
 components/ui/    shared primitives
 lib/runtime.tsx    Fhara runtime provider/client bootstrap

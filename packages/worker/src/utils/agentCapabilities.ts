@@ -1,4 +1,4 @@
-import { ROLES } from "@/api/functions/lib/roles";
+import { resolveRoleKey, ROLES } from "@/api/functions/lib/roles";
 import { CAPABILITY, type AgentDefinition } from "@/types";
 
 /**
@@ -6,75 +6,70 @@ import { CAPABILITY, type AgentDefinition } from "@/types";
  * role-name heuristic). No routing or availability logic: that stays in
  * orchestrator/capabilities, which re-exports these.
  *
- * Role patterns take their capabilities from the shared role registry
- * (apps/api/functions/lib/roles.ts `registryCapabilities`); the non-role
- * patterns (security, github, shell) are worker-only heuristics.
+ * Fixed roles take their capabilities from the shared role registry
+ * (apps/api/functions/lib/roles.ts `registryCapabilities`), through the same
+ * `resolveRoleKey` the backend and the executor use — no second regex table.
+ * Only roles that are not one of the seven keep the worker-only heuristics
+ * below (security, github, shell), matched on whole tokens.
  */
 
-const ROLE_CAPABILITIES: Array<{ pattern: RegExp; capabilities: string[] }> = [
+const WORKER_ONLY_CAPABILITIES: ReadonlyArray<{
+  tokens: readonly string[];
+  capabilities: readonly string[];
+}> = [
+  { tokens: ["security", "audit", "pentest", "appsec"], capabilities: [CAPABILITY.SECURITY] },
   {
-    pattern: /^(lead|project lead|team lead)$/i,
-    capabilities: [...ROLES.lead.registryCapabilities],
-  },
-  {
-    pattern: /\b(cto|architect|architecture|tech lead|principal)\b/i,
-    capabilities: [...ROLES.cto.registryCapabilities],
-  },
-  {
-    pattern: /\b(designer|design|wireframe|ui-ux|figma)\b/i,
-    capabilities: [...ROLES.designer.registryCapabilities],
-  },
-  {
-    pattern: /\b(frontend|front-end|ui|ux|react|web)\b/i,
-    capabilities: [...ROLES.frontend.registryCapabilities],
-  },
-  {
-    pattern: /\b(devops|dev ops|ci|cd|pipeline|github actions|workflow|docker|dockerfile|deploy|deployment|release|infrastructure|infra)\b/i,
-    capabilities: [...ROLES.devops.registryCapabilities],
-  },
-  {
-    pattern: /\b(backend|back-end|api|server|database|db|python|django|fastapi|golang|java|kotlin|rust|ruby|php|laravel|dotnet|node|postgres|mysql)\b/i,
-    capabilities: [...ROLES.backend.registryCapabilities],
-  },
-  {
-    pattern: /\b(qa|test|testing|quality|e2e)\b/i,
-    capabilities: [...ROLES.qa.registryCapabilities],
-  },
-  {
-    pattern: /\b(reviewer|code-?review)\b/i,
-    capabilities: [...ROLES.qa.registryCapabilities],
-  },
-  {
-    pattern: /\b(support|documentation|docs|technical-writer|writer)\b/i,
-    capabilities: [...ROLES.backend.registryCapabilities],
-  },
-  {
-    pattern: /\b(security|audit|pentest|appsec)\b/i,
-    capabilities: [CAPABILITY.SECURITY],
-  },
-  {
-    pattern: /\b(research|analyst|investigator)\b/i,
-    capabilities: [...ROLES.cto.registryCapabilities],
-  },
-  {
-    pattern: /\b(github|git|pr|pull request|issue|repo)\b/i,
+    tokens: ["github", "git", "pr", "pull", "request", "issue", "repo"],
     capabilities: [CAPABILITY.GITHUB, CAPABILITY.SHELL_EXECUTION],
   },
   {
-    pattern: /\b(shell|terminal|exec|command|run|bash)\b/i,
+    tokens: ["shell", "terminal", "exec", "command", "run", "bash", "cmd", "powershell"],
     capabilities: [CAPABILITY.SHELL_EXECUTION],
   },
 ];
 
+/** Lowercase whole tokens: "Dev-Ops / CI" → ["dev", "ops", "ci"]. */
+function splitTokens(value: string): string[] {
+  const out: string[] = [];
+  let current = "";
+  for (const ch of value.toLowerCase()) {
+    const isWord = (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9");
+    if (isWord) current += ch;
+    else if (current) {
+      out.push(current);
+      current = "";
+    }
+  }
+  if (current) out.push(current);
+  return out;
+}
+
+/** Collapse whitespace runs to a single dash: "UI  UX" → "ui-ux". */
 export function normalizeCapability(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, "-");
+  const parts: string[] = [];
+  let current = "";
+  for (const ch of value.trim().toLowerCase()) {
+    if (ch === " " || ch === "\t" || ch === "\n" || ch === "\r") {
+      if (current) {
+        parts.push(current);
+        current = "";
+      }
+    } else {
+      current += ch;
+    }
+  }
+  if (current) parts.push(current);
+  return parts.join("-");
 }
 
 export function capabilityForRole(role: string): string[] {
   const normalized = role.trim();
   if (!normalized) return [CAPABILITY.GENERAL];
-  for (const entry of ROLE_CAPABILITIES) {
-    if (entry.pattern.test(normalized)) return entry.capabilities;
+  const key = resolveRoleKey(normalized);
+  if (key) return [...ROLES[key].registryCapabilities];
+  const tokens = new Set(splitTokens(normalized));
+  for (const entry of WORKER_ONLY_CAPABILITIES) {
+    if (entry.tokens.some((token) => tokens.has(token))) return [...entry.capabilities];
   }
   return [normalizeCapability(normalized), CAPABILITY.GENERAL];
 }

@@ -16,7 +16,11 @@ function planAsks(ctx: RunContext, files: number): boolean {
 
 /** Legacy order: the plan-level approval gate, before anything is applied. */
 export const legacyApprovalPhase: Phase = async ({ ctx, prepared }) => {
-  if (planAsks(ctx, prepared!.preparedChanges.length)) return exit(await requestApplyApproval(ctx, prepared!, "plan"));
+  if (planAsks(ctx, prepared!.preparedChanges.length)) {
+    const requested = await requestApplyApproval(ctx, prepared!, "plan");
+    if (requested.status === "approved") return next();
+    return exit({ status: "waiting_approval" });
+  }
   return next();
 };
 
@@ -65,7 +69,10 @@ export const approvalPhase: Phase = async (s) => {
     approvedVerdicts: Object.values(state.reviewVerdicts).filter((verdict) => verdict.verdict === "approved"),
     ...(s.prepared?.dryRunSummary ? { dryRunSummary: s.prepared.dryRunSummary } : {}),
   };
-  if (planAsks(gateCtx, changes.length)) return exit(await requestApplyApproval(gateCtx, prepared, "plan"));
+  if (planAsks(gateCtx, changes.length)) {
+    const requested = await requestApplyApproval(gateCtx, prepared, "plan");
+    if (requested.status !== "approved") return exit({ status: "waiting_approval" });
+  }
   const passed = await brokerGate(gateCtx, prepared);
   if (passed.stop) return exit({ status: passed.stop });
   s.accepted = mergeAcceptance(gateCtx);

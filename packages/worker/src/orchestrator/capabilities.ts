@@ -28,6 +28,30 @@ const CODE_WRITING_CAPABILITIES = new Set([
   "devops",
 ]);
 
+/**
+ * Capabilities that need a shell. `shell-execution` needs the full allowlist
+ * (`allowlist`); running tests / a build also fits a `verify`-only role (QA).
+ */
+const SHELL_CAPABILITIES = new Set(["shell-execution", "test-run", "build-verify"]);
+
+/** Whether the agent's enforced role permissions actually allow the capability. */
+function meetsCapability(
+  agent: AgentDefinition,
+  capability: string
+): { ok: true } | { ok: false; reason: string } {
+  const permissions = permissionsForAgent(agent);
+  if (CODE_WRITING_CAPABILITIES.has(capability) && !canWriteAny(permissions)) {
+    return { ok: false, reason: "the role may not write files" };
+  }
+  if (SHELL_CAPABILITIES.has(capability)) {
+    const needsFullAllowlist = capability === "shell-execution";
+    if (needsFullAllowlist ? permissions.shell !== "allowlist" : permissions.shell === "none") {
+      return { ok: false, reason: "the role may not run commands" };
+    }
+  }
+  return { ok: true };
+}
+
 const UNAVAILABLE_STATUSES = new Set(["offline", "disabled", "unavailable"]);
 
 export function isAgentAvailable(agent: AgentDefinition): boolean {
@@ -100,19 +124,18 @@ export function routeCapability(
   if (enabled.length === 0) return null;
 
   const scored = rankCapability(capability, enabled);
-  // A code-writing capability goes only to an agent that may write.
-  const eligible = CODE_WRITING_CAPABILITIES.has(normalized)
-    ? scored.filter((entry) => canWriteAny(permissionsForAgent(entry.agent)))
-    : scored;
+  // A capability goes only to an agent whose enforced permissions allow it:
+  // code-writing needs a writable role, shell work needs a shell-capable one.
+  const eligible = scored.filter((entry) => meetsCapability(entry.agent, normalized).ok);
   if (eligible.length > 0) return eligible[0].agent;
   if (options.allowFallback !== true) return null;
   const pool = enabled.filter((agent) => resolveRoleKey(agent.role ?? "") !== "cto");
-  const writers = CODE_WRITING_CAPABILITIES.has(normalized)
-    ? pool.filter((agent) => canWriteAny(permissionsForAgent(agent)))
-    : pool;
-  if (CODE_WRITING_CAPABILITIES.has(normalized) && writers.length === 0) return null;
+  const allowed = pool.filter((agent) => meetsCapability(agent, normalized).ok);
+  if ((CODE_WRITING_CAPABILITIES.has(normalized) || SHELL_CAPABILITIES.has(normalized)) && allowed.length === 0) {
+    return null;
+  }
   return (
-    writers
+    allowed
       .slice()
       .sort(
         (a, b) =>
@@ -128,6 +151,9 @@ export function unroutedReason(capability: string, agents: AgentDefinition[]): s
   const normalized = normalizeCapability(capability);
   if (CODE_WRITING_CAPABILITIES.has(normalized) && rankCapability(capability, enabled).length > 0) {
     return `No agent available for capability "${capability}": the agents that declare it may not write files`;
+  }
+  if (SHELL_CAPABILITIES.has(normalized) && rankCapability(capability, enabled).length > 0) {
+    return `No agent available for capability "${capability}": the agents that declare it may not run commands`;
   }
   return `No agent available for capability "${capability}": no enabled agent declares it (no fallback; add or enable an agent with this capability)`;
 }

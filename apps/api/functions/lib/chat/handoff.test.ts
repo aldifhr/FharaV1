@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { MAX_HANDOFFS, parseStructuredReply, resolveHandoffTargets, unmatchedHandoffRoles } from "./handoff";
+import { echoedRequest, MAX_HANDOFFS, parseStructuredReply, resolveHandoffTargets, unmatchedHandoffRoles } from "./handoff";
 
 const team = [
   { _id: "cto", role: "cto" },
@@ -46,5 +46,16 @@ describe("structured CTO/Lead handoff", () => {
 
   test("unmatched roles are reported instead of silently dropped", () => {
     expect(unmatchedHandoffRoles([{ role: "designer", instruction: "spec" }], team)).toEqual(["designer"]);
+  });
+
+  test("a long user request copied verbatim is an echoed handoff", () => {
+    const request = "Di D:\\CODE\\demo-app, jalankan typecheck, lint, build, lalu dev server dan verifikasi halaman.";
+    expect(echoedRequest(request, request)).toBe(true);
+    expect(echoedRequest("  di D:\\CODE\\demo-app,  jalankan typecheck, lint, build, lalu dev server dan verifikasi halaman. ", request)).toBe(true);
+  });
+
+  test("a short request and a condensed order are not echoes", () => {
+    expect(echoedRequest("check the tests", "check the tests")).toBe(false);
+    expect(echoedRequest("Run the build and report any failures.", "Di D:\\CODE\\demo-app, jalankan typecheck, lint, build, lalu dev server.")).toBe(false);
   });
 });

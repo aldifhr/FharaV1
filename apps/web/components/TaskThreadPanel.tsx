@@ -445,18 +445,28 @@ export default function TaskThreadPanel({
         />
         {threadView === "changes" && <ChangesPane taskId={(task as any)._id} />}
         <div className={`${threadView === "changes" ? "hidden" : ""} shell-scroll h-0 min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-5`}>
-          {(taskStatus === "failed" || taskStatus === "rejected" || taskStatus === "cancelled") && (
+          {(taskStatus === "failed" || taskStatus === "rejected" || taskStatus === "cancelled" || taskStatus === "blocked") && (
             <div
               className={
-                taskStatus === "cancelled"
+                taskStatus === "cancelled" || taskStatus === "blocked"
                   ? "rounded-card border border-line bg-hover p-3.5 text-[14px] text-ink-2"
                   : "rounded-card border border-danger/40 bg-panel p-3.5 text-[14px] text-danger"
               }
             >
               <p className="font-medium">
-                {taskStatus === "rejected" ? "Task rejected" : taskStatus === "cancelled" ? "Task cancelled" : "Task failed"}
+                {taskStatus === "rejected"
+                  ? "Task rejected"
+                  : taskStatus === "cancelled"
+                    ? "Task cancelled"
+                    : taskStatus === "blocked"
+                      ? "Task blocked"
+                      : "Task failed"}
                 {taskStatus === "failed" && latestFailureKind(endedEvents as any[]) ? ` (${failureKindLabel(latestFailureKind(endedEvents as any[]))})` : ""}
-                {(task as any).errorMessage ? `: ${(task as any).errorMessage}` : ""}
+                {(taskStatus === "blocked"
+                  ? (task as any).blockedReason ?? (task as any).errorMessage
+                  : (task as any).errorMessage)
+                  ? `: ${taskStatus === "blocked" ? (task as any).blockedReason ?? (task as any).errorMessage : (task as any).errorMessage}`
+                  : ""}
               </p>
               {canRetryTask(taskStatus) && (
                 <button

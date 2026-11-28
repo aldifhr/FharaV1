@@ -2,10 +2,12 @@
 import { Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "@/lib/spaRouter";
 import { useAction, useMutation, useQuery } from "@fhara/runtime/react";
-import { Download, MoreHorizontal, Plus } from "lucide-react";
+import { BookOpen, Check, Download, GitBranch, History, Layers, MoreHorizontal, Plus, Search } from "lucide-react";
 import { ImportFromGithubModal } from "./ImportFromGithub";
 import { useToast } from "@/components/Toasts";
 import Segmented from "@/components/ui/segmented";
+import { HEADER_ACTION, PageHeader } from "@/components/ui/page-header";
+import { Input } from "@/components/ui/input";
 import { TemplatesTab } from "./TemplatesTab";
 import { BrowseTab } from "./BrowseTab";
 import {
@@ -43,9 +45,6 @@ function sourceText(source: NonNullable<Skill["source"]>): string {
   return [source.repo, source.license].filter(Boolean).join(" · ");
 }
 
-const headerButton =
-  "inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30";
-
 /**
  * Library: reusable agent skills. Each skill is markdown guidance attached
  * to agents; at run time it is appended to the agent's prompt as
@@ -78,8 +77,8 @@ function LibraryInner() {
   return (
     <div className="flex h-screen overflow-hidden bg-transparent text-ink max-[979px]:h-auto max-[979px]:min-h-screen max-[979px]:flex-col">
       <Sidebar projectId={projectId} />
-      <main className="min-w-0 flex-1 overflow-y-auto px-6 py-10 max-[979px]:px-4 max-[979px]:py-6">
-        <div className="mx-auto max-w-3xl">
+      <main className="min-w-0 flex-1 overflow-y-auto px-6 py-8 max-[979px]:px-4 max-[979px]:py-6">
+        <div className="mx-auto max-w-[1280px]">
           {tab === "browse" ? (
             <BrowseView tabs={<LibraryTabs tab={tab} onChange={setTab} />} />
           ) : tab !== "templates" ? (
@@ -115,6 +114,8 @@ function BrowseView({ tabs }: { tabs: React.ReactNode }) {
   return <BrowseTab tabs={tabs} skills={skills} />;
 }
 
+type UsageFilter = "all" | "used" | "unused";
+
 function SkillsTab({ tabs, view }: { tabs: React.ReactNode; view: "skills" | "sources" }) {
   const skills = useQuery(api.skills.list, {}) as Skill[] | undefined;
   const agents = useQuery(api.agents.list, {}) as Agent[] | undefined;
@@ -123,9 +124,34 @@ function SkillsTab({ tabs, view }: { tabs: React.ReactNode; view: "skills" | "so
   const [history, setHistory] = useState<Skill | null>(null);
   const [importing, setImporting] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const [search, setSearch] = useState("");
+  const [usage, setUsage] = useState<UsageFilter>("all");
 
   const current = editing && editing !== "new" ? (skills ?? []).find((s) => s._id === editing._id) ?? editing : editing;
   const historyFor = history ? (skills ?? []).find((s) => s._id === history._id) ?? history : null;
+
+  const stats = useMemo(() => {
+    const list = skills ?? [];
+    return {
+      total: list.length,
+      used: list.filter((s) => s.usedBy.length > 0).length,
+      imported: list.filter((s) => Boolean(s.source)).length,
+      versions: list.reduce((n, s) => n + (s.versionCount ?? 0), 0),
+    };
+  }, [skills]);
+
+  const visible = useMemo(() => {
+    if (!skills) return [];
+    const query = search.trim().toLowerCase();
+    return skills.filter((s) => {
+      if (usage === "used" && s.usedBy.length === 0) return false;
+      if (usage === "unused" && s.usedBy.length > 0) return false;
+      if (!query) return true;
+      return [s.name, s.description, s.source ? sourceText(s.source) : "", ...(s.tags ?? [])]
+        .filter(Boolean)
+        .some((part) => part!.toLowerCase().includes(query));
+    });
+  }, [skills, search, usage]);
 
   const modals = (
     <>
@@ -154,97 +180,184 @@ function SkillsTab({ tabs, view }: { tabs: React.ReactNode; view: "skills" | "so
 
   return (
     <>
-          <header className="flex items-end justify-between gap-4">
-            <h1 className="mt-1 text-[26px] font-semibold tracking-tight">Library</h1>
-            <div className="flex shrink-0 gap-2">
-              <button type="button" onClick={() => setImporting(true)} className={headerButton}>
-                <Download size={14} /> Import from GitHub
-              </button>
-              <button type="button" onClick={() => setEditing("new")} className={headerButton}>
-                <Plus size={14} /> Skill
-              </button>
-            </div>
-          </header>
-          <div className="mt-5">{tabs}</div>
-          <p className="mt-6 text-[15px] text-ink-2">
-            {skills === undefined
-              ? "Loading…"
-              : `${skills.length} ${skills.length === 1 ? "skill" : "skills"} · added to an agent's instructions when it runs`}
-          </p>
+      <PageHeader
+        eyebrow="Reusable instructions"
+        title="Library"
+        leading={
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-field border border-line bg-panel text-ink-2">
+            <BookOpen size={17} />
+          </span>
+        }
+        meta={<p className="text-[13.5px] text-ink-2">Skills join an agent&apos;s instructions when it runs.</p>}
+        actions={
+          <>
+            <button type="button" onClick={() => setImporting(true)} className={HEADER_ACTION}>
+              <Download size={14} /> Import from GitHub
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditing("new")}
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-field bg-ink px-2.5 text-[12.5px] font-medium text-canvas outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ink/30"
+            >
+              <Plus size={14} /> Skill
+            </button>
+          </>
+        }
+      />
+      <div className="mt-5">{tabs}</div>
 
-          {skills === undefined ? (
-            <p className="mt-10 text-[13px] text-ink-3" aria-label="Loading library">Loading…</p>
-          ) : skills.length === 0 ? (
-            <div className="mt-10 rounded-xl border border-dashed border-line px-4 py-5 text-[13px] text-ink-3">
-              <p>No skills yet. A skill is a short set of instructions you can give to any agent.</p>
-              <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  disabled={seeding}
-                  onClick={async () => {
-                    setSeeding(true);
-                    try {
-                      await seedDefaults({});
-                    } finally {
-                      setSeeding(false);
-                    }
-                  }}
-                  className="rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] text-ink transition hover:bg-hover disabled:opacity-40"
-                >
-                  {seeding ? "Adding…" : "Add starter skills"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setImporting(true)}
-                  className="rounded-lg px-3 py-1.5 text-[13px] text-ink-2 transition hover:bg-hover"
-                >
-                  Import from GitHub
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEditing("new")}
-                  className="rounded-lg px-3 py-1.5 text-[13px] text-ink-2 transition hover:bg-hover"
-                >
-                  Write your own
-                </button>
+      {skills === undefined ? (
+        <div className="mt-6 space-y-4" aria-label="Loading library">
+          <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-line bg-panel shadow-card sm:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="p-5">
+                <div className="h-3 w-16 rounded bg-hover" />
+                <div className="mt-3 h-8 w-12 rounded bg-hover" />
               </div>
+            ))}
+          </div>
+          <div className="h-64 rounded-2xl border border-line bg-panel shadow-card" />
+        </div>
+      ) : skills.length === 0 ? (
+        <div className="mt-12 flex flex-col items-center rounded-2xl border border-dashed border-line bg-panel px-5 py-10 text-center">
+          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-inset text-ink-3">
+            <BookOpen size={18} />
+          </span>
+          <p className="mt-4 text-[14px] text-ink-2">No skills yet.</p>
+          <p className="mt-1 text-[13px] text-ink-3">A skill is a short set of instructions you can give to any agent.</p>
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
+            <button
+              type="button"
+              disabled={seeding}
+              onClick={async () => {
+                setSeeding(true);
+                try {
+                  await seedDefaults({});
+                } finally {
+                  setSeeding(false);
+                }
+              }}
+              className={HEADER_ACTION}
+            >
+              {seeding ? "Adding…" : "Add starter skills"}
+            </button>
+            <button type="button" onClick={() => setImporting(true)} className={HEADER_ACTION}>
+              Import from GitHub
+            </button>
+            <button type="button" onClick={() => setEditing("new")} className={HEADER_ACTION}>
+              Write your own
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <section
+            aria-label="Library metrics"
+            className="mt-6 grid grid-cols-2 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-panel shadow-card sm:divide-y-0 sm:divide-x lg:grid-cols-4"
+          >
+            {[
+              { label: "Skills", value: stats.total, note: "in the library", icon: <Layers size={13} />, title: "Skills in the library" },
+              { label: "In use", value: stats.used, note: `of ${stats.total} assigned`, icon: <Check size={13} />, title: "Skills assigned to at least one agent" },
+              { label: "Imported", value: stats.imported, note: "from GitHub", icon: <GitBranch size={13} />, title: "Skills imported from a GitHub repository" },
+              { label: "Versions", value: stats.versions, note: "stored", icon: <History size={13} />, title: "Saved versions across all skills" },
+            ].map((metric) => (
+              <div key={metric.label} className="p-4 sm:p-5" title={metric.title}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-caption">{metric.label}</span>
+                  <span className="flex h-6 w-6 items-center justify-center rounded-md bg-inset text-ink-3">{metric.icon}</span>
+                </div>
+                <div className="mt-2 flex items-baseline gap-2">
+                  <span className="text-[28px] font-semibold leading-none tracking-[-0.03em] tabular-nums text-ink">{metric.value}</span>
+                  <span className="truncate text-[12px] text-ink-3">{metric.note}</span>
+                </div>
+              </div>
+            ))}
+          </section>
+
+          <div className="mt-5 flex flex-wrap items-center gap-2">
+            <Segmented
+              label="Filter skills by usage"
+              value={usage}
+              onChange={setUsage}
+              options={[
+                { value: "all", label: "All" },
+                { value: "used", label: "In use" },
+                { value: "unused", label: "Unused" },
+              ]}
+            />
+            <div className="relative w-full sm:ml-auto sm:w-64">
+              <Search size={14} className="pointer-events-none absolute left-2.5 top-2 text-ink-3" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search skills"
+                aria-label="Search skills"
+                className="h-[30px] bg-panel pl-8 text-[12.5px]"
+              />
             </div>
-          ) : (
-            <ul className="mt-10 divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
-              {skills.map((s) => (
-                <li key={s._id} className="group flex items-start gap-1 pr-2 transition hover:bg-hover">
-                  <div className="min-w-0 flex-1">
+          </div>
+
+          <section className="mt-3 overflow-hidden rounded-2xl border border-line bg-panel shadow-card">
+            <div className="hidden items-center gap-3 border-b border-line px-4 py-2.5 text-caption sm:flex">
+              <span className="min-w-0 flex-1">Skill</span>
+              <span className="hidden w-44 shrink-0 lg:block">Source</span>
+              <span className="w-40 shrink-0">Used by</span>
+              <span className="w-8 shrink-0" />
+            </div>
+            {visible.length === 0 ? (
+              <p className="px-5 py-10 text-center text-[13px] text-ink-3">No skills match these filters.</p>
+            ) : (
+              <ul className="divide-y divide-line">
+                {visible.map((s) => (
+                  <li key={s._id} className="group flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 transition-colors hover:bg-inset/60">
                     <button
                       type="button"
                       onClick={() => setEditing(s)}
-                      className={`flex w-full items-start gap-3 px-4 pt-3 text-left outline-none focus-visible:bg-hover ${s.source ? "pb-1" : "pb-3"}`}
+                      className="flex min-w-0 flex-1 items-start gap-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ink/30 max-sm:basis-full"
                     >
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-[14px] font-medium">{s.name}</p>
-                        {s.description && <p className="truncate text-[12.5px] text-ink-2">{s.description}</p>}
-                        <p className="truncate text-[12px] text-ink-3">{skillMetaText(s)}</p>
-                      </div>
-                      <span className="max-w-[40%] shrink-0 truncate pt-0.5 text-[12px] text-ink-3">
-                        {s.usedBy.length ? usedByText(s.usedBy) : "Not used"}
+                      <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-inset text-ink-3">
+                        <BookOpen size={13} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-baseline gap-x-2">
+                          <span className="truncate text-[13.5px] font-medium text-ink">{s.name}</span>
+                          {s.version ? <span className="text-mono-id">v{s.version}</span> : null}
+                        </span>
+                        {s.description && <span className="mt-0.5 block truncate text-[12px] text-ink-2">{s.description}</span>}
+                        <span className="mt-0.5 block truncate font-mono text-[11.5px] text-ink-3">{skillMetaText(s)}</span>
+                        {s.tags?.length ? <span className="mt-1 block truncate text-[11px] text-ink-3">{s.tags.join(" · ")}</span> : null}
                       </span>
                     </button>
-                    {s.source && (
-                      <a
-                        href={s.source.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mb-3 ml-4 block w-fit max-w-[calc(100%-2rem)] truncate text-[12px] text-ink-3 outline-none transition hover:text-ink hover:underline focus-visible:underline"
-                      >
-                        {sourceText(s.source)}
-                        {s.trimmed ? " · trimmed" : s.inlineTrimmed ? " · trimmed when inline" : ""}
-                      </a>
-                    )}
-                  </div>
-                  <SkillRowMenu skill={s} onEdit={() => setEditing(s)} onHistory={() => setHistory(s)} />
-                </li>
-              ))}
-            </ul>
-          )}
+                    <div className="flex shrink-0 items-center gap-3 max-sm:ml-9">
+                      <div className="hidden w-44 shrink-0 lg:block">
+                        {s.source ? (
+                          <a
+                            href={s.source.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            title={sourceText(s.source)}
+                            className="block truncate text-[12px] text-ink-2 outline-none transition hover:text-ink hover:underline focus-visible:underline"
+                          >
+                            {sourceText(s.source)}
+                            {s.trimmed ? " · trimmed" : s.inlineTrimmed ? " · trimmed when inline" : ""}
+                          </a>
+                        ) : (
+                          <span className="text-[12px] text-ink-3">Written here</span>
+                        )}
+                      </div>
+                      <span className="w-40 shrink-0 truncate text-[12px] text-ink-3">
+                        {s.usedBy.length ? usedByText(s.usedBy) : "Not used"}
+                      </span>
+                      <SkillRowMenu skill={s} onEdit={() => setEditing(s)} onHistory={() => setHistory(s)} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+          <p className="mt-2 text-[12px] text-ink-3">Showing {visible.length} of {stats.total} skills.</p>
+        </>
+      )}
       {modals}
     </>
   );

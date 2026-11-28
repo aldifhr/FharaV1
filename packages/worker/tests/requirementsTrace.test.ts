@@ -51,6 +51,17 @@ describe("requirement extraction fallback", () => {
     }
   });
 
+  it("drops @mentions, bare URLs and negative constraints from the requirements", () => {
+    const request = "@QA, periksa http://127.0.0.1:5173 apakah halaman DemoApp dapat diakses dan laporkan HTTP statusnya. Jangan ubah file apa pun.";
+    const texts = extractRequirementsFallback(request).map((r) => r.text);
+    expect(texts).toEqual([
+      "periksa http://127.0.0.1:5173 apakah halaman DemoApp dapat diakses",
+      "laporkan HTTP statusnya",
+    ]);
+    expect(extractRequirementsFallback("https://example.org/health").map((r) => r.text)).toEqual([]);
+    expect(extractRequirementsFallback("Jangan ubah file lain.").map((r) => r.text)).toEqual([]);
+  });
+
   it("reads bullet lists and keeps a plain request as one requirement", () => {
     expect(extractRequirementsFallback("Please:\n- add dark mode\n- update README\n- add tests").map((r) => r.text)).toEqual([
       "add dark mode",
@@ -191,6 +202,50 @@ describe("coverage check", () => {
     const report = computeRequirementCoverage({ requirements: single, subtasks: done(authPlan(false)) });
     expect(report.missingEvidence).toEqual(["r1"]);
     expect(coverageBlocksDone(report)).toBe(false);
+  });
+
+  it("a read-only report node cannot cover a change requirement", () => {
+    const change = extractRequirementsFallback("Tambahkan tombol logout di src/App.tsx. Jangan ubah file lain.");
+    const report = computeRequirementCoverage({
+      requirements: change,
+      subtasks: [{
+        key: "unblock-implementation",
+        title: "Aktifkan agen frontend untuk menerapkan perubahan",
+        kind: "research",
+        status: "completed",
+        origin: null,
+        requirementIds: ["r1", "r2"],
+        acceptanceStatus: "accepted",
+        acceptance: [{ id: "report", criterion: "Laporan blocker", check: "review" }],
+        gateResults: [{ gateId: "report", status: "pass", evidence: { kind: "output", ref: "", summary: "739 characters" } }],
+      }],
+    });
+    expect(report.uncovered).toEqual(["r1"]);
+    expect(report.covered).toEqual([]);
+    expect(report.complete).toBe(false);
+    expect(coverageBlocksDone(report)).toBe(true);
+    expect(coverageGapNote(report)).toContain("Only read-only subtasks serve this change request");
+  });
+
+  it("an environment-blocked QA verdict is skipped, not a coverage gap", () => {
+    const request = "Periksa apakah halaman dapat diakses dan laporkan HTTP statusnya.";
+    const requirements = extractRequirementsFallback(request);
+    const report = computeRequirementCoverage({
+      requirements,
+      subtasks: [{
+        key: "qa",
+        title: "Verify the running app",
+        kind: "qa",
+        status: "completed",
+        origin: null,
+        requirementIds: requirements.map((r) => r.id),
+        acceptanceStatus: "delivered",
+      }],
+      qaVerdicts: { qa: "blocked" },
+    });
+    expect(report.complete).toBe(true);
+    expect(coverageBlocksDone(report)).toBe(false);
+    expect(report.requirements[0].reason).toContain("Environment-blocked checks were skipped");
   });
 
   it("runner-added nodes carry no requirement of their own", () => {

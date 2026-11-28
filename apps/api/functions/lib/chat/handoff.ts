@@ -12,6 +12,16 @@ export type StructuredReply = { message: string; handoff: HandoffEntry[] };
 export const MAX_HANDOFFS = 3;
 const MAX_INSTRUCTION_CHARS = 400;
 
+/** Literal-only normalisation: no regex, just word tokens. */
+function normaliseWords(value: string): string {
+  return value.trim().toLowerCase().split(" ").filter(Boolean).join(" ");
+}
+
+/** A long user request copied verbatim into a handoff is a failed handoff. */
+export function echoedRequest(instruction: string, userRequest: string): boolean {
+  return userRequest.trim().length > 60 && normaliseWords(instruction) === normaliseWords(userRequest);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -86,6 +86,44 @@ describe("completeTask terminal guard (Phase 4 hardening)", () => {
     expect(after?.status).toBe("done");
     expect(after?.completedAt).toBeTypeOf("number");
   });
+
+  test("a blocked task stores its reason and a late completion cannot overwrite it", async () => {
+    const t = runtimeTest(schema, modules);
+    const taskId = await t.run(async (ctx) => {
+      const projectId = await ctx.db.insert("projects", {
+        name: "P",
+        workspacePath: "/tmp/p",
+      });
+      return await ctx.db.insert("tasks", {
+        projectId,
+        title: "T",
+        command: "do the thing",
+        status: "running",
+        workerId: "w1",
+        leaseExpiresAt: Date.now() + 60_000,
+      });
+    });
+
+    const res = await t.mutation(internal.orchestration.completeTask, {
+      taskId,
+      status: "blocked",
+      blockedReason: 'No agent available for capability "frontend-development"',
+      workerId: "w1",
+    });
+    expect(res.applied).toBe(true);
+
+    const after = await t.run(async (ctx) => await ctx.db.get(taskId));
+    expect(after?.status).toBe("blocked");
+    expect(after?.blockedReason).toMatch(/No agent available/);
+
+    const late = await t.mutation(internal.orchestration.completeTask, {
+      taskId,
+      status: "done",
+      workerId: "w1",
+    });
+    expect(late.applied).toBe(false);
+    if (!late.applied) expect(late.reason).toBe("task_already_terminal");
+  });
 });
 
 describe("provider mutation token gate (Phase 1)", () => {

@@ -13,8 +13,6 @@ export type CardSurface = {
   pendingApprovals?: any[];
   approvalMode?: "ask" | "auto";
   onOpenTask?: (taskId: string) => void;
-  /** Structured recipient pick from a role-choice card (agent id, never text). */
-  onChooseRole?: (agentId: string) => void;
   /** Where cards are shown; verification belongs to task threads only. */
   surface?: "project-chat" | "task-thread" | "personal-chat";
 };

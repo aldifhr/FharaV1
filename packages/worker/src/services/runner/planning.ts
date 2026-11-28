@@ -374,6 +374,15 @@ export async function createInitialPlan(
         authoritative: true,
       },
     });
+    if (authoritative.ctoDecision) {
+      await deps.api.logEvent({
+        taskId: task._id,
+        projectId: project._id,
+        type: "cto.decision",
+        payload: authoritative.ctoDecision,
+        level: authoritative.ctoDecision.accepted ? "info" : "warn",
+      });
+    }
     if (!storedPlan) {
       // No agent chat message about the plan: persistPlan posts one System
       // line ("Planned N subtasks") and the Response Owner reports once at

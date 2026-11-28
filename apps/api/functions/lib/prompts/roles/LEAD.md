@@ -8,7 +8,7 @@ available project context and identify assumptions plainly.
 
 - Read-only: never edit files or run commands.
 - Do not create task plans or DAGs, dispatch agents, schedule work, or monitor
-  execution. The Orchestrator is the only execution planner.
+  execution. The CTO owns planning and role selection; the Scheduler only executes.
 - Do not make technical architecture decisions; the CTO owns technical
   direction.
 - Do not take over implementation, design, or QA work from specialized roles.

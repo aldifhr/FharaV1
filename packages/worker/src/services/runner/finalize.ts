@@ -171,6 +171,36 @@ export async function finalize(input: {
   // findings, which already fail their check) can never conclude as
   // `done` — the task fails with the missing list instead.
   const finalizeFailed = evaluation.verdict === "failed" || evaluation.verdict === "inconclusive";
+  // Plan 006: a run that only stopped because no agent/runtime could serve a
+  // node is `blocked`, not `failed`: the reason is missing capability, not a
+  // code failure. Only the capability-routing block qualifies; a blocked
+  // gate/dependency/approval keeps the `failed` path.
+  const blockedRows = input.subtasks.filter(
+    (row) =>
+      row.status === "blocked" &&
+      (row.error ?? "").includes("No agent available for capability")
+  );
+  const hasFailedRow = input.subtasks.some(
+    (row) => row.status === "failed" && !toleratedAngle(row)
+  );
+  if (finalizeFailed && blockedRows.length > 0 && !hasFailedRow) {
+    const reason = (
+      blockedRows[0].error?.trim() || "No agent or runtime can execute this work"
+    ).slice(0, 500);
+    await deps.api.logEvent({
+      taskId: task._id,
+      projectId: project._id,
+      type: "task.blocked",
+      payload: { reason, keys: blockedRows.map((row) => row.key) },
+      level: "warn",
+    });
+    await deps.api.completeTask({
+      taskId: task._id,
+      status: "blocked",
+      blockedReason: reason,
+    });
+    return evaluation;
+  }
   if (finalizeFailed) {
     const message =
       evaluation.verdict === "inconclusive"

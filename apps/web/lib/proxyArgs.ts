@@ -1,6 +1,6 @@
 /**
- * Helpers for the service-token proxy routes (llm-providers, mcp-servers,
- * magic-prompt). Release audit P0-3: those routes used to spread the whole
+ * Helpers for the service-token proxy routes (llm-providers, magic-prompt).
+ * Release audit P0-3: those routes used to spread the whole
  * request body into the FharaRuntime call next to FHARA_SERVICE_TOKEN, so the
  * caller decided every argument of an admin call. Now each operation names
  * the exact fields it forwards; anything else (including a caller-supplied

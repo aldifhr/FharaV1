@@ -314,23 +314,27 @@ body {
   color: var(--shell-ink-2);
   font-variant-numeric: tabular-nums;
 }
-/* Status chip: hairline frame + soft tinted fill (plan 067, see ui/status-tag.tsx). */
+/* Status chip: tinted fill, hairline frame and a soft top highlight (plan 067, see ui/status-tag.tsx). */
 @utility status-tag {
   display: inline-flex;
   align-items: center;
   gap: 0.375rem;
   height: 1.375rem;
   padding-inline: 0.5rem;
-  /* A tone sets --status-tone; the frame is that colour at half strength. */
-  border: 1px solid color-mix(in oklab, var(--status-tone, var(--shell-ink-3)) 50%, transparent);
+  /* A tone sets --status-tone; neutral chips fall back to ink-2. */
+  border: 1px solid color-mix(in oklab, var(--status-tone, var(--shell-ink-2)) 45%, transparent);
   border-radius: 0.375rem;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   line-height: 1;
   white-space: nowrap;
   color: var(--status-tone, var(--shell-ink-2));
-  /* Plan 067 (mockup parity): a soft tinted fill under the hairline frame. */
-  background: color-mix(in oklab, var(--status-tone, var(--shell-ink-3)) 10%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--status-tone, var(--shell-ink-2)) 16%, transparent),
+    color-mix(in oklab, var(--status-tone, var(--shell-ink-2)) 9%, transparent)
+  );
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--status-tone, var(--shell-ink-2)) 14%, transparent), 0 1px 1px var(--shell-line);
 }
 
 /* Status as a hairline frame plus a soft tint (see ui/status-tag.tsx). */

@@ -23,7 +23,7 @@ export type ChatTaskArgs = {
   permissionMode?: PermissionMode;
 };
 
-export const TERMINAL_TASK_STATUSES = ["done", "rejected", "failed", "cancelled"];
+export const TERMINAL_TASK_STATUSES = ["done", "rejected", "failed", "blocked", "cancelled"];
 
 /** Refusal copy for a request that targets a path outside the repository. */
 export function outsideRepoReply(text: string, outsidePath: string): string {
@@ -91,7 +91,7 @@ async function createChatTask(
         data: {
           taskId: String(taskId),
           title: opts.title,
-          assignees: (assignees.length ? assignees : team)
+          assignees: assignees
             .filter((a) => !cto.test(a.role.trim()))
             .map((a) => ({ agentId: String(a._id), name: a.name, role: a.role })),
           assignedBy: "System",

@@ -67,7 +67,7 @@ export async function requestApplyApproval(
   ctx: RunContext,
   prepared: PreparedApply,
   reason: "plan" | "broker"
-): Promise<{ status: "waiting_approval" }> {
+): Promise<{ status: "waiting_approval" | "approved" }> {
   if (ctx.stageOrder === "verified_first") return requestVerifiedApproval(ctx, prepared, reason);
   const { deps, project, plan, state, input, taskId, reviewNodes, qaNodes } = ctx;
   const { preparedChanges, approvedVerdicts, reviewSnapshotId, dryRunSummary } = prepared;
@@ -83,7 +83,7 @@ export async function requestApplyApproval(
   // apply, so before approval they are "not run" unless a previous
   // invocation recorded a real result.
   const { build: buildMetric, tests: testMetric } = verificationMetrics(state.verification?.checks);
-  await deps.api.requestApproval({
+  const requested = await deps.api.requestApproval({
     taskId,
     projectId: project._id,
     subtaskKey: plan.subtasks.find((subtask) => subtask.kind === "code_change")?.key,
@@ -115,6 +115,16 @@ export async function requestApplyApproval(
     requestedByAgentId: implementer?._id as any,
     planVersion: plan.version,
   });
+  if (requested.reused) {
+    await deps.api.logEvent({
+      taskId,
+      projectId: project._id,
+      type: "approval.reused",
+      payload: { approvalId: requested.approvalId, summary },
+      level: "info",
+    });
+    return { status: "approved" };
+  }
   await deps.api.appendAgentMessage({
     projectId: project._id,
     taskId,
@@ -167,7 +177,7 @@ async function requestVerifiedApproval(
   ctx: RunContext,
   prepared: PreparedApply,
   reason: "plan" | "broker"
-): Promise<{ status: "waiting_approval" }> {
+): Promise<{ status: "waiting_approval" | "approved" }> {
   const { deps, project, plan, state, input, taskId, reviewNodes } = ctx;
   const { preparedChanges, approvedVerdicts, reviewSnapshotId, dryRunSummary } = prepared;
   const implementer = implementerAgent(plan, input.agents);
@@ -178,7 +188,7 @@ async function requestVerifiedApproval(
   const summary = `Merge ${preparedChanges.length} reviewed, verified file(s): ${files.join(", ")}${noTarget ? `\n\n${noTarget}` : ""}${secretNote ? `\n\n${secretNote}` : ""}`;
   const verification = state.verification?.status ?? "not run";
   const { build: buildMetric, tests: testMetric } = verificationMetrics(state.verification?.checks);
-  await deps.api.requestApproval({
+  const requested = await deps.api.requestApproval({
     taskId,
     projectId: project._id,
     subtaskKey: plan.subtasks.find((subtask) => subtask.kind === "code_change")?.key,
@@ -206,6 +216,16 @@ async function requestVerifiedApproval(
     requestedByAgentId: implementer?._id as any,
     planVersion: plan.version,
   });
+  if (requested.reused) {
+    await deps.api.logEvent({
+      taskId,
+      projectId: project._id,
+      type: "approval.reused",
+      payload: { approvalId: requested.approvalId, summary },
+      level: "info",
+    });
+    return { status: "approved" };
+  }
   await deps.api.appendAgentMessage({
     projectId: project._id,
     taskId,
@@ -259,7 +279,8 @@ export async function secretGate(
       level: "warn",
     })
     .catch(() => undefined);
-  return (await requestApplyApproval(ctx, prepared, "broker")).status;
+  const requested = await requestApplyApproval(ctx, prepared, "broker");
+  return requested.status === "approved" ? null : requested.status;
 }
 
 /**
@@ -330,6 +351,14 @@ export async function brokerGate(
   const secretStop = await secretGate(ctx, prepared);
   if (secretStop) return { stop: secretStop };
   let autoApproved = false;
+  const askWithReuse = async (): Promise<"failed" | "waiting_approval" | null> => {
+    const requested = await requestApplyApproval(ctx, prepared, "broker");
+    if (requested.status === "approved") {
+      autoApproved = true;
+      return null;
+    }
+    return requested.status;
+  };
   // A fix that only adds new files is flagged for a human look: never
   // auto-approved by the permission mode (noTargetGuard).
   const noTarget = newFilesOnlyFixWarning(input.task.command, preparedChanges);
@@ -347,7 +376,8 @@ export async function brokerGate(
         payload: { stage: "dependency_check", status: dependency.status, high: dependency.high, summary: dependency.summary },
         level: "warn",
       });
-      return { stop: (await requestApplyApproval(ctx, prepared, "broker")).status };
+      const stop = await askWithReuse();
+      if (stop) return { stop };
     }
   }
   // A broker "ask" always needs a recorded approval row. The legacy
@@ -355,7 +385,8 @@ export async function brokerGate(
   // approved row when the task's permission mode allows it, otherwise the
   // run pauses for a human approval. Never apply on a bare "ask".
   if (broker.decision === "ask" && noTarget) {
-    return { stop: (await requestApplyApproval(ctx, prepared, "broker")).status };
+    const stop = await askWithReuse();
+    if (stop) return { stop };
   }
   if (broker.decision === "ask") {
     // Plan 020: the task's permission mode may approve this batch itself.
@@ -380,7 +411,8 @@ export async function brokerGate(
       // Never return waiting_approval without an approval row (core H2):
       // the task would stay `running`, its lease renewed by heartbeat,
       // with nothing for the user to approve.
-      return { stop: (await requestApplyApproval(ctx, prepared, "broker")).status };
+      const stop = await askWithReuse();
+      if (stop) return { stop };
     }
   }
   return { stop: null, autoApproved };

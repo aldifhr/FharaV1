@@ -3,6 +3,7 @@ import {
   capabilitiesOf,
   capabilityForRole,
   routeCapability,
+  unroutedReason,
 } from "@/orchestrator/capabilities";
 import type { AgentDefinition } from "@/orchestrator/types";
 
@@ -83,5 +84,28 @@ describe("capability routing", () => {
         { _id: "x", name: "X", role: "frontend", isEnabled: false },
       ])
     ).toBeNull();
+  });
+});
+
+describe("capability routing enforces the role's actual tools", () => {
+  const cto = { _id: "c", name: "CTO", role: "cto", capabilities: ["shell-execution"], priority: 9 };
+  const qa = { _id: "q", name: "QA", role: "qa", capabilities: ["shell-execution", "test-run"], supportedTools: ["run_command"], priority: 7 };
+  const backend = { _id: "b", name: "Backend", role: "backend", capabilities: ["shell-execution"], supportedTools: ["run_command"], priority: 3 };
+
+  it("a read-only agent that declares shell-execution is not an owner", () => {
+    expect(routeCapability("shell-execution", [cto])).toBeNull();
+  });
+
+  it("a verify-only role may own test-run but not shell-execution", () => {
+    expect(routeCapability("shell-execution", [qa])).toBeNull();
+    expect(routeCapability("test-run", [qa])?._id).toBe("q");
+  });
+
+  it("an allowlisted shell role owns shell-execution", () => {
+    expect(routeCapability("shell-execution", [cto, qa, backend])?._id).toBe("b");
+  });
+
+  it("the reason names the permission that is missing", () => {
+    expect(unroutedReason("shell-execution", [cto])).toMatch(/may not run commands/);
   });
 });

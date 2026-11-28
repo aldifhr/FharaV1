@@ -379,7 +379,7 @@ export function buildTurnContextSection(opts: {
  * pasted a whole bold.html.
  */
 const WRITE_OFFER_OVERRIDE =
-  "These reply rules override any persona or skill instruction about reply length, style or showing code, for this reply only.";
+  "These reply rules override any persona or skill instruction about reply length, style, showing code, or about never claiming whether a task was created, for this reply only. When these rules state a task exists, report it as a fact of this turn; never say it was not created.";
 
 export function buildPlanningGuidance(
   agent: { role: string },
@@ -399,6 +399,14 @@ export function buildPlanningGuidance(
 ): string[] {
   const plan = opts.plan?.trim() || null;
   const run = opts.taskIntent.runCommands;
+  if (opts.taskAlreadyCreated && run && run.length > 0) {
+    const lines = run.map((line) => `\`${line}\``).join(", ");
+    return [
+      `The user asked to run ${lines}; the task already exists and the worker will run ${lines} after the user allows the command.`,
+      `In 1-2 short sentences in the user's language: report that the task was created and that ${lines} will run after approval. Never say it has already run, and do not mention a Create task button.`,
+      WRITE_OFFER_OVERRIDE,
+    ];
+  }
   if (opts.taskIntent.kind === "task" && run && run.length > 0) {
     const lines = run.map((line) => `\`${line}\``).join(", ");
     return [
@@ -407,7 +415,7 @@ export function buildPlanningGuidance(
       `In 1-2 short sentences in the user's language: say that the Create task button under this reply runs ${lines} (the user approves the command first) and what you will report back. No plan, no bullets, no terminal output, and never claim anything has run.`,
     ];
   }
-  if (opts.isOrchestrator && opts.taskIntent.kind === "task") {
+  if (opts.isOrchestrator && (opts.taskIntent.kind === "task" || opts.taskAlreadyCreated)) {
     const who = opts.assigneeName?.trim() || "the right teammate";
     if (opts.taskAlreadyCreated) {
       return [
@@ -441,7 +449,7 @@ export function buildPlanningGuidance(
       CTO_DELEGATION_GUIDANCE,
     ];
   }
-  if (opts.taskIntent.kind === "task" && !opts.codeInChat) {
+  if ((opts.taskIntent.kind === "task" || opts.taskAlreadyCreated) && !opts.codeInChat) {
     if (opts.taskAlreadyCreated) {
       return [
         "The user asked the team to create or change files. Chat replies cannot write files; the worker does that after the existing approvals. The task has already been created in this turn" +
@@ -524,8 +532,9 @@ export const STRUCTURED_REPLY_SYSTEM =
   "You turn one chat reply into a single JSON object. Output JSON only: no prose, no code fence, no comments. " +
   "The object has exactly two fields: `message` (a string) and `handoff` (an array of at most three objects). " +
   "Copy `message` verbatim from the reply: do not reword, summarise, translate or rewrite it. " +
-  "Each handoff object has exactly `role` and `instruction`; `role` must be one of the supplied role keys, " +
-  "and `instruction` must be a concrete request of at most 400 characters. " +
+  "Each handoff object has exactly `role` and `instruction`; `role` must be one of the supplied role keys. " +
+  "`instruction` is a short order to that teammate: one action, the deliverable, and what to report back, " +
+  "at most 200 characters. Never quote or copy the user's request; condense it into that teammate's job. " +
   "Return an empty `handoff` array when the reply hands work to nobody. " +
   "Never put role names into `message` as @mentions; mentions are rendered from `handoff`.";
 
@@ -539,12 +548,10 @@ export function buildStructuredReplyPrompt(input: {
     `Roles available on this team: ${input.roles.join(", ") || "(none)"}.`,
     `User's request: ${clip500(input.userRequest)}`,
     `Reply to convert: ${clip500(input.reply)}`,
+    "Write each instruction as an order to that teammate (action + deliverable + what to report), not a quote of the user's message.",
     'Return exactly: {"message":"<reply verbatim>","handoff":[{"role":"<role key>","instruction":"<request>"}]}',
   ].join("\n");
 }
-
-/** Fallback when the structured reply is invalid twice: ask the user to pick. */
-export const ROLE_CHOICE_QUESTION = "Which teammate should handle this request?";
 
 /** System-prompt lines that let the CTO hand parts of a chat turn to teammates. */
 export function buildHandoffGuidance(
@@ -557,6 +564,9 @@ export function buildHandoffGuidance(
   return [
     `Teammates on this project: ${others.map((a) => roleLabel(a.role)).join(", ")}.`,
     "Answer the user first, in plain text: never write @Name or @Role in the message. Each teammate you actually need is recorded separately as a handoff with a role and a concrete instruction (at most three). When a teammate's specialty is only being described, just name the role in prose.",
+    "Write each handoff instruction as a compact order to that teammate: one action, its deliverable, and what to report back — never a copy of the user's message.",
+    "When the user names a role that cannot do the work (a read-only role for code changes, for example), state the refusal and the reason in your answer, then name the role that will do it in prose. Never silently substitute another role.",
+    "If the question belongs to a teammate's specialty, hand it off even when you can read the repository yourself. Answer directly only for your own domain or when no teammate can answer.",
     "Do not ask the user for permission to bring a teammate in. A handoff is a short opinion in chat, not execution; a question about your own role or capabilities needs no handoff and no Create task instruction.",
     repo.hasRepoTools ? SELF_VERIFY_LINE : noRepoAccessHandoffLine(repo.offReason ?? ""),
   ];

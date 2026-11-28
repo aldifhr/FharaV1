@@ -14,7 +14,13 @@ export {
 
 /** Terminal task statuses: a task in one of these is finished for good. */
 export function isTerminalTaskStatus(status: string | undefined): boolean {
-  return status === "done" || status === "failed" || status === "rejected" || status === "cancelled";
+  return (
+    status === "done" ||
+    status === "failed" ||
+    status === "rejected" ||
+    status === "blocked" ||
+    status === "cancelled"
+  );
 }
 
 /**
@@ -147,6 +153,24 @@ export async function failTaskWithError(input: {
       level: "warn",
     });
     await deps.api.completeTask({ taskId, status: "failed", errorMessage: message });
+    return;
+  }
+  // Plan 006: a run that cannot proceed because no agent serves a capability
+  // is `blocked`, not `failed`. The unroutable node says so; the replan
+  // rejection carries the same text as its root cause.
+  if (message.includes("No agent available for capability")) {
+    await deps.api.logEvent({
+      taskId,
+      projectId,
+      type: "task.blocked",
+      payload: { reason: message.slice(0, 500) },
+      level: "warn",
+    });
+    await deps.api.completeTask({
+      taskId,
+      status: "blocked",
+      blockedReason: message.slice(0, 500),
+    });
     return;
   }
   await deps.api.logEvent({

@@ -1,6 +1,7 @@
 
 import { useState } from "react";
 import { useMutation } from "@fhara/runtime/react";
+import { ClipboardList } from "lucide-react";
 import { Link } from "@/lib/spaRouter";
 import { api } from "@fhara/runtime/api";
 import ConfirmDialog from "@/components/ConfirmDialog";
@@ -57,12 +58,15 @@ export default function McpDraftsSection({ drafts }: { drafts: McpDraft[] }) {
   };
 
   return (
-    <section className="mt-10">
-      <h2 className="mb-3 flex items-baseline gap-2 text-[13px] font-medium text-ink-2">
-        Task drafts
-        <span className="tabular-nums text-ink-3">{drafts.length}</span>
-      </h2>
-      <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
+    <section className="overflow-hidden rounded-2xl border border-line bg-panel shadow-card">
+      <div className="flex items-center gap-2 border-b border-line px-4 py-3">
+        <span aria-hidden="true" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-inset text-ink-3">
+          <ClipboardList size={14} />
+        </span>
+        <h3 className="text-[13.5px] font-medium text-ink">Task drafts</h3>
+        <span className="ml-auto text-[12px] tabular-nums text-ink-3">{drafts.length}</span>
+      </div>
+      <ul className="divide-y divide-line">
         {drafts.map((d) => (
           <li key={d._id} className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:gap-4">
             <div className="min-w-0 flex-1">
@@ -83,7 +87,7 @@ export default function McpDraftsSection({ drafts }: { drafts: McpDraft[] }) {
                 type="button"
                 disabled={busy === d._id}
                 onClick={() => setDiscarding(d)}
-                className="rounded-lg px-3 py-2 text-[13px] text-ink-2 transition hover:bg-hover disabled:opacity-50 sm:px-2.5 sm:py-1"
+                className="inline-flex h-8 items-center justify-center rounded-field px-2.5 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
               >
                 Discard
               </button>
@@ -91,7 +95,7 @@ export default function McpDraftsSection({ drafts }: { drafts: McpDraft[] }) {
                 type="button"
                 disabled={busy === d._id}
                 onClick={() => void startDraft(d)}
-                className="inline-flex items-center gap-1 rounded-lg bg-ink px-3 py-2 text-[13px] font-medium text-canvas transition hover:opacity-90 disabled:opacity-50 sm:px-2.5 sm:py-1"
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-field bg-ink px-2.5 text-[12.5px] font-medium text-canvas outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
               >
                 Start
               </button>

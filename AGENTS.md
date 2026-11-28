@@ -188,3 +188,83 @@ once) to generate it. Fhara runtime agent skills for common tasks can be install
 running `npx runtime ai-files install`.
 
 <!-- runtime-ai-end -->
+
+## STRICT ARCHITECTURAL CONSTRAINTS — FHARA
+
+Sebelum implementasi, baca dan patuhi repository `AGENTS.md` serta seluruh AGENTS.md yang relevan dengan file yang akan diubah.
+
+### 1. No Hardcoded Routing
+
+DILARANG menggunakan:
+
+- Regex untuk mendeteksi role atau intent.
+- Hardcoded keyword-to-role mapping.
+- `includes()`, `startsWith()`, atau string matching sebagai mekanisme utama role resolution.
+- Hardcoded conditional routing berdasarkan nama atau variasi role.
+- Daftar kalimat yang dipetakan secara manual ke agent tertentu.
+- Role-specific routing logic yang harus diubah setiap kali role baru ditambahkan.
+
+Role resolution harus menggunakan pemahaman semantik LLM dengan konteks agent registry yang tersedia.
+
+### 2. Preserve Single Planning Authority
+
+Fhara hanya boleh memiliki satu planning authority: **CTO**.
+
+- CTO memutuskan WHAT dan WHO: strategi, role penjawab, role eksekutor, dan delegasi.
+- Planner tetap menjadi subroutine, bukan pengambil keputusan kedua.
+- Orchestrator adalah execution infrastructure: menerjemahkan dan menjalankan keputusan CTO, bukan membuat rencana sendiri.
+- Scheduler hanya menjalankan dependency, concurrency, dan eksekusi teknis; bukan planning authority kedua.
+- Validator memvalidasi permission, budget, approval, dan lifecycle. CTO tidak boleh melewati guard ini.
+- Registry boleh menolak keputusan CTO hanya dengan alasan yang tercatat; tidak boleh diam-diam menggantinya.
+- Jangan membuat second planner atau parallel routing pipeline.
+- Jangan melewati ExecutionPlan dan scheduler yang sudah ada.
+- Requested role tetap menjadi input yang mengikat bagi keputusan CTO.
+
+### 3. Dynamic Agent Registry
+
+Agent registry harus menjadi sumber kebenaran untuk role yang tersedia.
+
+Ketika role baru ditambahkan:
+- LLM dapat memahami dan memilih role tersebut berdasarkan deskripsi dan kemampuan agent.
+- Tidak perlu menambahkan regex.
+- Tidak perlu mengubah routing implementation.
+- Tidak perlu menambahkan conditional mapping baru.
+
+Jangan hardcode daftar role di routing logic.
+
+### 4. Execution Identity
+
+Pastikan requested role benar-benar menjadi execution owner melalui mekanisme existing.
+
+Jangan hanya mengganti:
+- Display name.
+- Message sender.
+- Agent label.
+- UI representation.
+
+System prompt, agent identity, capabilities, dan execution context harus sesuai dengan agent yang dipilih.
+
+### 5. Observability
+
+Catat keputusan routing menggunakan mekanisme observability existing, terutama taskEvents dan lifecycleHistory.
+
+Informasi yang perlu dapat ditelusuri:
+- Role yang diminta.
+- Agent yang dipilih.
+- Alasan pemilihan secara ringkas.
+- Status validasi registry.
+- Hasil routing.
+
+Jangan membuat tracing infrastructure baru.
+
+### 6. Implementation Discipline
+
+- Audit root cause sebelum mengubah kode.
+- Ikuti arsitektur existing.
+- Hindari refactor yang tidak diperlukan.
+- Jangan melemahkan security, approval gate, budget gate, atau task lifecycle.
+- Tambahkan regression tests.
+- Jalankan typecheck dan test yang relevan.
+- Laporkan bukti implementasi dan keterbatasan secara transparan.
+
+**Final principle: LLM understands the user's intent, Agent Registry defines available capabilities, and the existing Orchestrator owns execution decisions.**

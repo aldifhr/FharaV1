@@ -697,15 +697,18 @@ export const completeTask = action({
     status: taskStatus,
     errorMessage: v.optional(v.string()),
     completionWarning: v.optional(v.string()),
+    // Plan 006: the reason a task is `blocked` (no capable agent/runtime).
+    blockedReason: v.optional(v.string()),
     workerId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<any> => {
-    const { taskId, status, errorMessage, completionWarning, workerId } = withoutToken(args);
+    const { taskId, status, errorMessage, completionWarning, blockedReason, workerId } = withoutToken(args);
     return await ctx.runMutation(internal.orchestration.completeTask, {
       taskId,
       status,
       errorMessage,
       completionWarning,
+      blockedReason,
       workerId,
     });
   },

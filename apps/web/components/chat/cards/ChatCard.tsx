@@ -10,7 +10,6 @@ import type {
   VerificationCardData,
 } from "@/api/functions/cardTypes";
 import { ROLE_COLORS, roleKeyForMention, roleLabel, NEUTRAL_MENTION_COLOR } from "@/lib/agentRoles";
-import TaskCard from "../TaskCard";
 import { useCardSurface } from "./CardContext";
 import ChangesCard from "./ChangesCard";
 import PlanCard from "./PlanCard";
@@ -46,36 +45,9 @@ export default function ChatCard({ card }: { card: MessageCard | undefined | nul
       return <PlanCard data={card.data as PlanCardData} />;
     case "side_effect":
       return <SideEffectCard data={card.data as SideEffectCardData} />;
-    case "role_choice":
-      return <RoleChoiceCard data={card.data as { question?: string }} />;
     default:
       return null;
   }
-}
-
-/** Fallback when a structured role reply was invalid twice: the user picks a teammate. */
-function RoleChoiceCard({ data }: { data: { question?: string } }) {
-  const surface = useCardSurface();
-  const candidates = (surface.agents ?? []).filter(
-    (agent: any) => roleKeyForMention(agent.role) !== "cto"
-  );
-  return (
-    <div className={`${CARD_SURFACE} max-w-xl px-4 py-3`}>
-      <p className="text-[13px] text-ink">{data.question ?? "Which teammate should handle this request?"}</p>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {candidates.map((agent: any) => (
-          <button
-            key={String(agent._id)}
-            type="button"
-            onClick={() => surface.onChooseRole?.(String(agent._id))}
-            className="rounded-md border border-line px-2 py-1 text-[12px] text-ink hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink/30"
-          >
-            {roleLabel(agent.role)}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
 }
 
 /**
@@ -85,21 +57,7 @@ function RoleChoiceCard({ data }: { data: { question?: string } }) {
  */
 function AssignmentCard({ data }: { data: AssignmentCardData }) {
   const surface = useCardSurface();
-  const task = (surface.tasks ?? []).find((t: any) => String(t._id) === data.taskId);
   const assignees = Array.isArray(data.assignees) ? data.assignees : [];
-  if (task) {
-    return (
-      <TaskCard
-        task={task}
-        subtasks={surface.subtasksOf?.get(String(task._id)) ?? []}
-        pending={(surface.pendingApprovals ?? []).filter((a: any) => a.taskId === task._id && a.status === "pending")}
-        onOpen={(id) => surface.onOpenTask?.(id)}
-        agents={surface.agents ?? []}
-        approvalMode={surface.approvalMode ?? "ask"}
-        assignees={assignees}
-      />
-    );
-  }
   return (
     <div className={`${CARD_SURFACE} max-w-xl px-4 py-3`}>
       <div className="flex items-center gap-2.5">
@@ -116,22 +74,23 @@ function AssignmentCard({ data }: { data: AssignmentCardData }) {
           </button>
         )}
       </div>
-      <div className={`mt-2 flex flex-wrap items-center gap-1.5 text-[12px] ${MUTED}`}>
-        {data.assignedBy && <span>Assigned by {data.assignedBy} to</span>}
-        {assignees.length === 0 && <span>the team</span>}
-        {assignees.map((assignee) => {
-          const key = roleKeyForMention(assignee.role) ?? roleKeyForMention(roleLabel(assignee.role));
-          return (
-            <span
-              key={assignee.agentId}
-              className={`inline-flex items-center gap-1 rounded-md py-0.5 pl-0.5 pr-1.5 text-[12px] font-medium ring-1 ring-inset ${key ? ROLE_COLORS[key] : NEUTRAL_MENTION_COLOR}`}
-            >
-              <RoleAvatar role={assignee.role} size={16} />
-              {roleLabel(assignee.role)}
-            </span>
-          );
-        })}
-      </div>
+      {assignees.length > 0 && (
+        <div className={`mt-2 flex flex-wrap items-center gap-1.5 text-[12px] ${MUTED}`}>
+          {data.assignedBy && <span>Assigned by {data.assignedBy} to</span>}
+          {assignees.map((assignee) => {
+            const key = roleKeyForMention(assignee.role) ?? roleKeyForMention(roleLabel(assignee.role));
+            return (
+              <span
+                key={assignee.agentId}
+                className={`inline-flex items-center gap-1 rounded-md py-0.5 pl-0.5 pr-1.5 text-[12px] font-medium ring-1 ring-inset ${key ? ROLE_COLORS[key] : NEUTRAL_MENTION_COLOR}`}
+              >
+                <RoleAvatar role={assignee.role} size={16} />
+                {roleLabel(assignee.role)}
+              </span>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

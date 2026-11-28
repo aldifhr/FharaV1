@@ -95,6 +95,12 @@ describe("CTO @mention handoff", () => {
     expect(lines[0]).not.toContain("@");
   });
 
+  test("the CTO must state a role refusal instead of silently substituting", () => {
+    const text = buildHandoffGuidance(team, "cto").join("\n");
+    expect(text).toContain("state the refusal and the reason");
+    expect(text).toContain("Never silently substitute another role");
+  });
+
   test("the CTO handoff guidance does not push Create task for a question", () => {
     const text = buildHandoffGuidance(team, "cto").join("\n");
     expect(text).not.toContain("Work that needs running or changing files still ends");

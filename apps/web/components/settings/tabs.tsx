@@ -893,13 +893,6 @@ export function SharingTab() {
           description={workerEnvNote("ORCHESTRATOR_APPROVAL_TIMEOUT_MS", "default 30 min; then the task stops waiting")}
         />
       </Section>
-      <Section title="Accounts">
-        <Row label="GitHub and MCP servers" description="Connections every project uses live in Integrations.">
-          <Link href="/integrations" className={BUTTON}>
-            Open Integrations
-          </Link>
-        </Row>
-      </Section>
     </>
   );
 }
@@ -907,7 +900,6 @@ export function SharingTab() {
 // ── Workspace ───────────────────────────────────────────────────────────
 
 const WORKSPACE_LINKS = [
-  { id: "integrations", label: "Integrations", description: "GitHub connection, MCP servers.", href: "/integrations" },
   { id: "library", label: "Library", description: "Agent skills and templates.", href: "/library" },
   { id: "memory", label: "Memory", description: "Saved facts and context.", href: "/memory" },
   { id: "audit", label: "Audit log", description: "Every action the app took.", href: "/audit" },
@@ -1057,7 +1049,7 @@ export function LabsTab() {
       <KnobSelect
         knob="ORCHESTRATOR_DECISION_LLM"
         label="LLM decision advisor"
-        description="Consult an LLM on orchestrator decisions. The rules still win when they disagree."
+        description="Consult an LLM on CTO orchestration decisions. Validator rules still win when they disagree."
         options={[
           { value: "ambiguous", label: "When unsure" },
           { value: "always", label: "Always" },

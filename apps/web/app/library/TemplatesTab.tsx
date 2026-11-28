@@ -1,12 +1,16 @@
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useMutation, useQuery } from "@fhara/runtime/react";
-import { Plus } from "lucide-react";
+import { BookOpen, Layers, Plus, Search, Sparkles } from "lucide-react";
 import { api } from "@fhara/runtime/api";
 import Modal from "@/components/Modal";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import AgentAvatar from "@/components/AgentAvatar";
 import { useToast } from "@/components/Toasts";
+import { PageHeader } from "@/components/ui/page-header";
+import Segmented from "@/components/ui/segmented";
+import { Input } from "@/components/ui/input";
+import { StatusTag } from "@/components/ui/status-tag";
 import type { TemplateView } from "@/components/sidebar/AgentForms";
 import { AGENT_ROLES, prefillPromptForRole, roleLabel, roleTemplateFor } from "@/lib/agentRoles";
 import {
@@ -34,6 +38,31 @@ export function TemplatesTab({ projectId, tabs }: { projectId?: string; tabs: Re
   const toast = useToast();
   const [editing, setEditing] = useState<TemplateView | "new" | null>(null);
   const [using, setUsing] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [kind, setKind] = useState<"all" | "builtin" | "custom">("all");
+
+  const stats = useMemo(() => {
+    const list = templates ?? [];
+    return {
+      total: list.length,
+      builtIn: list.filter((t) => t.builtIn).length,
+      custom: list.filter((t) => !t.builtIn).length,
+      withSkills: list.filter((t) => t.skillIds.length > 0).length,
+    };
+  }, [templates]);
+
+  const visible = useMemo(() => {
+    if (!templates) return [];
+    const query = search.trim().toLowerCase();
+    return templates.filter((t) => {
+      if (kind === "builtin" && !t.builtIn) return false;
+      if (kind === "custom" && t.builtIn) return false;
+      if (!query) return true;
+      return [t.name, t.description, roleLabel(t.role), ...(t.tags ?? [])]
+        .filter(Boolean)
+        .some((part) => String(part).toLowerCase().includes(query));
+    });
+  }, [templates, kind, search]);
 
   const skillName = (id: string) => (skills ?? []).find((s) => s._id === id)?.name;
   const current =
@@ -56,68 +85,141 @@ export function TemplatesTab({ projectId, tabs }: { projectId?: string; tabs: Re
 
   return (
     <>
-      <header className="flex items-end justify-between gap-4">
-        <h1 className="mt-1 text-[26px] font-semibold tracking-tight">Library</h1>
-        <button
-          type="button"
-          onClick={() => setEditing("new")}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30"
-        >
-          <Plus size={14} /> Template
-        </button>
-      </header>
+      <PageHeader
+        eyebrow="Reusable instructions"
+        title="Library"
+        leading={
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-field border border-line bg-panel text-ink-2">
+            <BookOpen size={17} />
+          </span>
+        }
+        meta={<p className="text-[13.5px] text-ink-2">A starting point for a new agent.</p>}
+        actions={
+          <button
+            type="button"
+            onClick={() => setEditing("new")}
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-field bg-ink px-2.5 text-[12.5px] font-medium text-canvas outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ink/30"
+          >
+            <Plus size={14} /> Template
+          </button>
+        }
+      />
       <div className="mt-5">{tabs}</div>
-      <p className="mt-6 text-[15px] text-ink-2">
-        {templates === undefined
-          ? "Loading…"
-          : `${templates.length} ${templates.length === 1 ? "template" : "templates"} · a starting point for a new agent`}
-      </p>
 
       {templates === undefined ? (
-        <div className="mt-10 space-y-3" aria-label="Loading templates">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="h-14 animate-pulse rounded-xl bg-hover" />
-          ))}
+        <div className="mt-6 space-y-4" aria-label="Loading templates">
+          <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-line bg-panel shadow-card sm:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="p-5">
+                <div className="h-3 w-16 rounded bg-hover" />
+                <div className="mt-3 h-8 w-12 rounded bg-hover" />
+              </div>
+            ))}
+          </div>
+          <div className="h-64 rounded-2xl border border-line bg-panel shadow-card" />
         </div>
       ) : (
-        <ul className="mt-10 divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
-          {templates.map((t) => {
-            const skillNames = t.skillIds.map(skillName).filter(Boolean) as string[];
-            return (
-              <li key={t.id} className="flex items-center gap-1 pr-3 transition hover:bg-hover">
-                <button
-                  type="button"
-                  onClick={() => setEditing(t)}
-                  className="flex min-w-0 flex-1 items-start gap-3 px-4 py-3 text-left outline-none focus-visible:bg-hover"
-                >
-                  <AgentAvatar name={t.name} size={28} avatarParams={t.avatarParams} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[14px] font-medium">
-                      {t.name}
-                      <span className="ml-2 text-[12px] font-normal text-ink-3">
-                        {roleLabel(t.role)}
-                        {t.builtIn ? " · built-in" : ""}
-                      </span>
-                    </p>
-                    {t.description && <p className="truncate text-[12.5px] text-ink-2">{t.description}</p>}
-                    {skillNames.length > 0 && (
-                      <p className="truncate text-[12px] text-ink-3">Skills: {skillNames.join(", ")}</p>
-                    )}
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  disabled={using === t.id}
-                  onClick={() => use(t)}
-                  aria-label={`Create an agent from ${t.name}`}
-                  className="shrink-0 rounded-lg border border-line bg-canvas px-2.5 py-1 text-[12.5px] text-ink outline-none transition hover:bg-panel focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
-                >
-                  {using === t.id ? "Adding…" : "Use"}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+        <>
+          <section
+            aria-label="Template metrics"
+            className="mt-6 grid grid-cols-2 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-panel shadow-card sm:divide-y-0 sm:divide-x lg:grid-cols-4"
+          >
+            {[
+              { label: "Templates", value: stats.total, note: "available", icon: <Layers size={13} />, title: "Templates available" },
+              { label: "Built-in", value: stats.builtIn, note: "from Fhara", icon: <Sparkles size={13} />, title: "Built-in templates from code" },
+              { label: "Custom", value: stats.custom, note: "yours", icon: <Plus size={13} />, title: "Templates you created" },
+              { label: "With skills", value: stats.withSkills, note: "preloaded", icon: <BookOpen size={13} />, title: "Templates that include skills" },
+            ].map((metric) => (
+              <div key={metric.label} className="p-4 sm:p-5" title={metric.title}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-caption">{metric.label}</span>
+                  <span className="flex h-6 w-6 items-center justify-center rounded-md bg-inset text-ink-3">{metric.icon}</span>
+                </div>
+                <div className="mt-2 flex items-baseline gap-2">
+                  <span className="text-[28px] font-semibold leading-none tracking-[-0.03em] tabular-nums text-ink">{metric.value}</span>
+                  <span className="truncate text-[12px] text-ink-3">{metric.note}</span>
+                </div>
+              </div>
+            ))}
+          </section>
+
+          <div className="mt-5 flex flex-wrap items-center gap-2">
+            <Segmented
+              label="Filter templates"
+              value={kind}
+              onChange={setKind}
+              options={[
+                { value: "all", label: "All" },
+                { value: "builtin", label: "Built-in" },
+                { value: "custom", label: "Custom" },
+              ]}
+            />
+            <div className="relative w-full sm:ml-auto sm:w-64">
+              <Search size={14} className="pointer-events-none absolute left-2.5 top-2 text-ink-3" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search templates"
+                aria-label="Search templates"
+                className="h-[30px] bg-panel pl-8 text-[12.5px]"
+              />
+            </div>
+          </div>
+
+          <section className="mt-3 overflow-hidden rounded-2xl border border-line bg-panel shadow-card">
+            <div className="hidden items-center gap-3 border-b border-line px-4 py-2.5 text-caption sm:flex">
+              <span className="min-w-0 flex-1">Template</span>
+              <span className="hidden w-40 shrink-0 lg:block">Skills</span>
+              <span className="w-32 shrink-0">Origin</span>
+              <span className="w-16 shrink-0 text-right">Action</span>
+            </div>
+            {visible.length === 0 ? (
+              <p className="px-5 py-10 text-center text-[13px] text-ink-3">No templates match these filters.</p>
+            ) : (
+              <ul className="divide-y divide-line">
+                {visible.map((t) => {
+                  const skillNames = t.skillIds.map(skillName).filter(Boolean) as string[];
+                  return (
+                    <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 transition-colors hover:bg-inset/60">
+                      <button
+                        type="button"
+                        onClick={() => setEditing(t)}
+                        className="flex min-w-0 flex-1 items-start gap-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ink/30 max-sm:basis-full"
+                      >
+                        <AgentAvatar name={t.name} size={28} avatarParams={t.avatarParams} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13.5px] font-medium text-ink">{t.name}</span>
+                          <span className="mt-0.5 block truncate text-[12px] text-ink-2">{t.description || roleLabel(t.role)}</span>
+                          <span className="mt-0.5 block truncate text-[11.5px] text-ink-3">{roleLabel(t.role)}</span>
+                        </span>
+                      </button>
+                      <div className="flex shrink-0 items-center gap-3 max-sm:ml-11">
+                        <span className="hidden w-40 shrink-0 truncate text-[12px] text-ink-3 lg:block" title={skillNames.join(", ")}>
+                          {skillNames.length ? skillNames.join(", ") : "—"}
+                        </span>
+                        <div className="w-32 shrink-0">
+                          <StatusTag tone={t.builtIn ? "neutral" : "active"}>{t.builtIn ? "Built-in" : "Custom"}</StatusTag>
+                        </div>
+                        <div className="flex w-16 shrink-0 justify-end">
+                          <button
+                            type="button"
+                            disabled={using === t.id}
+                            onClick={() => use(t)}
+                            aria-label={`Create an agent from ${t.name}`}
+                            className="rounded-field border border-line bg-panel px-2.5 py-1 text-[12.5px] text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
+                          >
+                            {using === t.id ? "Adding…" : "Use"}
+                          </button>
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+          <p className="mt-2 text-[12px] text-ink-3">Showing {visible.length} of {stats.total} templates.</p>
+        </>
       )}
 
       {current && (

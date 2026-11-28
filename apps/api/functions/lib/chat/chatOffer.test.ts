@@ -85,6 +85,40 @@ describe("a chat write request produces an offer with a brief", () => {
     expect(lines).not.toContain("press the Create task button");
   });
 
+  test("an LLM-classified ask still reports the task that was auto-created", () => {
+    const lines = buildPlanningGuidance(cto, {
+      isOrchestrator: true,
+      taskIntent: { kind: "chat", frontend: false, backend: false, testing: false, security: false },
+      assigneeName: "Backend",
+      taskAlreadyCreated: true,
+    }).join("\n");
+    expect(lines).toContain("I created a task and handed it to Backend.");
+    expect(lines).not.toContain("use Create task");
+    expect(lines).toContain("never claiming whether a task was created");
+  });
+
+  test("a routed specialist reports an auto-created task even when the intent was ask", () => {
+    const lines = buildPlanningGuidance(fe, {
+      isOrchestrator: false,
+      hasRepoTools: true,
+      taskIntent: { kind: "chat", frontend: false, backend: false, testing: false, security: false },
+      assigneeName: "Frontend",
+      taskAlreadyCreated: true,
+    }).join("\n");
+    expect(lines).toContain("The task has already been created in this turn");
+    expect(lines).not.toContain("Want me to create a task for it");
+  });
+
+  test("an auto-created run request does not offer the Create task button again", () => {
+    const lines = buildPlanningGuidance(cto, {
+      isOrchestrator: true,
+      taskIntent: { kind: "task", frontend: false, backend: false, testing: false, security: false, runCommands: ["npm run test"] },
+      taskAlreadyCreated: true,
+    }).join("\n");
+    expect(lines).toContain("the task already exists");
+    expect(lines).not.toContain("press the Create task button");
+  });
+
   test("a CTO answer to a capability question offers nothing and hands off to nobody", () => {
     const lines = buildPlanningGuidance(cto, {
       isOrchestrator: true,
@@ -153,7 +187,7 @@ describe("prompt text never says 'read-only session'", () => {
       ...Object.values(ROLE_PROMPT_TEMPLATES),
     ].join("\n");
     expect(texts).not.toMatch(/read-only session/i);
-    expect(ROLE_PROMPT_TEMPLATES.frontend).toContain('Never ask "Want me to create a task for it?"');
+    expect(ROLE_PROMPT_TEMPLATES.frontend).toContain("never claim a task was created when none is visible");
     expect(texts).not.toContain("then ask \"Chat can't change files. Want me to create a task for it?\"");
   });
 });

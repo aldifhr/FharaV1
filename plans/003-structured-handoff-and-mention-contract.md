@@ -22,6 +22,9 @@ audit edits and rerunning), so the refactor is not actually protected.
 
 - CTO/Lead output uses `{ message, handoff[] }` only; no `@Role` in `message`.
 - An unmatched handoff role is shown to the user instead of disappearing.
+- A reply that carries a handoff shows only `@Role` + instruction; the CTO/Lead
+  prose is suppressed so the request is not stated twice. The task router, not
+  this line, picks the executor.
 - Handoff delivery is covered by a green runtime test suite.
 
 ## Current state
@@ -30,6 +33,13 @@ audit edits and rerunning), so the refactor is not actually protected.
 - `apps/api/functions/lib/prompts/chat.ts:529,558` forbids `@Name`/`@Role` in the message; `:537` supplies the enum.
 - Generated copies: `apps/api/functions/lib/prompts/rolePrompts.data.ts:5-6`; prior seeds need updating so unedited live agents follow the new template.
 - `apps/api/functions/chat.ts:1475-1507` — structured conversion, now surfaces `unmatchedHandoffRoles` after this audit.
+- `apps/api/functions/lib/prompts/chat.ts` — structured-reply and CTO/Lead guidance now demand a
+  compact order (action + deliverable + report) and forbid copying the user's request.
+- `apps/api/functions/lib/chat/handoff.ts:14` — `echoedRequest` rejects long verbatim copies;
+  `requestStructuredReply` retries once with that correction, then leaves the reply without a handoff.
+- `apps/web/components/chat/MessageList.tsx:35` — `HandoffLine` renders `@Role` plus
+  the instruction above the reply; `hasHandoff` suppresses `MessageText` for those
+  replies (developer decision 2026-11-27). Stored prose is untouched; only display changes.
 - `apps/api/functions/lib/chat/handoff.ts:57-59` — helper is now wired; pinned by `handoff.test.ts:48`.
 - `apps/api/functions/chatHandoffTools.test.ts:27-52` — mock still derives handoffs from `@role` in prose; 17 failures at `HEAD`.
 - `apps/api/functions/lib/chat/roleMentions.ts` and its test were deleted in this audit (no production caller, regex-based duplicate).

@@ -7,13 +7,13 @@ test.describe("inbox", () => {
     await expectNoRuntimeError(page);
 
     await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
-    await waitForData(page, /item\(s\) need your attention|Nothing is waiting for you\./);
+    await waitForData(page, /All clear|\d+ waiting/);
 
-    const empty = page.getByText("Inbox is empty. All approvals have been processed.");
-    const approval = page.getByRole("heading", { name: /Needs approval \(/ });
-    const task = page.getByRole("heading", { name: /Task needs attention \(/ });
-    const agent = page.getByRole("heading", { name: /Agents waiting for you \(/ });
+    const empty = page.getByText("You're all caught up.");
+    const section = page.getByRole("heading", {
+      name: /Approvals|Questions|Options to review|Ready to push|From GitHub issues|Task drafts|Drafts to review|Pull requests|Recent failures/,
+    });
 
-    await expect(empty.or(approval).or(task).or(agent).first()).toBeVisible();
+    await expect(empty.or(section).first()).toBeVisible();
   });
 });

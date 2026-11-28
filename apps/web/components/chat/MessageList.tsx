@@ -13,7 +13,6 @@ import { ReasoningLine } from "../ui/trace";
 import MessageText from "./MessageText";
 import OptionCards from "./OptionCards";
 import ActivityTimeline, { hasActivityTimeline } from "./ActivityTimeline";
-import TaskCard from "./TaskCard";
 import ChatCard from "./cards/ChatCard";
 import { CardSurfaceProvider } from "./cards/CardContext";
 import { qaStatusLine } from "./cards/QaCard";
@@ -33,21 +32,22 @@ import HistoryBar from "./HistoryBar";
 import { CreateTaskButton, MessageActions, TaskCreatedLink } from "./MessageActions";
 import type { MessageHistory } from "@/lib/useMessageHistory";
 
-/** @Role chips for a reply's structured handoffs. Never parsed from `content`. */
+const hasHandoff = (m: any) => Array.isArray(m?.handoff) && m.handoff.length > 0;
+
+/** @Role + its instruction, shown as the request given. Never parsed from `content`. */
 function HandoffLine({ handoff }: { handoff: Array<{ role: string; instruction: string }> }) {
   if (!Array.isArray(handoff) || handoff.length === 0) return null;
   return (
-    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+    <div className="mb-1.5 flex flex-col gap-1">
       {handoff.map((entry, index) => {
         const key = roleKeyForMention(entry.role);
         return (
-          <span
-            key={`${entry.role}-${index}`}
-            title={entry.instruction}
-            className={`rounded px-1 text-[12px] font-medium ${key ? ROLE_COLORS[key] : NEUTRAL_MENTION_COLOR}`}
-          >
-            @{roleLabel(entry.role)}
-          </span>
+          <p key={`${entry.role}-${index}`} className="text-[13px] leading-relaxed text-ink-2">
+            <span className={`rounded px-1 text-[12px] font-medium ${key ? ROLE_COLORS[key] : NEUTRAL_MENTION_COLOR}`}>
+              @{roleLabel(entry.role)}
+            </span>{" "}
+            {entry.instruction}
+          </p>
         );
       })}
     </div>
@@ -116,7 +116,6 @@ type Props = {
   onCreateTaskFrom?: (messageId: string) => Promise<unknown>;
   /** "Reply": quote this message in the composer. */
   onReply?: (message: any) => void;
-  onChooseRole?: (agentId: string) => void;
   formatTime: (createdAt: number) => string;
   taskTitle: (taskId: string) => string;
   blockKey: (m: any) => string;
@@ -129,7 +128,7 @@ export default function MessageList(props: Props) {
     timeline, firstNewIndex, agents, tasks = [], subtasksOf, pendingItems, projectEvents = [],
     projectApprovalMode, loading = false, showActivityGroups = true, chatSending,
     conversationTyping, typingAgent, scrollRef, scrollToMessageRef,
-  onSelectTask, approve, reject, hold, respond, togglePin, onPickProposal, onCreateTaskFrom, onReply, onChooseRole, formatTime, taskTitle, blockKey, history,
+  onSelectTask, approve, reject, hold, respond, togglePin, onPickProposal, onCreateTaskFrom, onReply, formatTime, taskTitle, blockKey, history,
 } = props;
 
   const listRef = useRef<HTMLDivElement>(null);
@@ -187,10 +186,9 @@ export default function MessageList(props: Props) {
       pendingApprovals: pendingItems,
       approvalMode: projectApprovalMode,
       onOpenTask: onSelectTask,
-      onChooseRole,
       surface: "project-chat" as const,
     }),
-    [agents, tasks, subtasksOf, pendingItems, projectApprovalMode, onSelectTask, onChooseRole]
+    [agents, tasks, subtasksOf, pendingItems, projectApprovalMode, onSelectTask]
   );
   // Tasks whose QA reports as a card: the older event-derived QA panel
   // would show the same checks twice.
@@ -276,6 +274,9 @@ export default function MessageList(props: Props) {
   const speakerOf = (m: any) => (m?.authorType === "agent" && systemLineText(m, (name) => roleLabelForName(agents, name)) === null ? `agent:${m.agentId ?? ""}` : m ? `${m.authorType}` : "");
   const timelinePositions = new Map(timeline.map((item: any, itemIndex: number) => [String(item._id), itemIndex]));
   const renderItem = (m: any, index: number, animate: boolean) => {
+    // QA and verification cards belong to the task thread; ChatCard renders
+    // nothing for them in project chat, which would leave an empty agent row.
+    if (m?.card?.kind === "qa" || m?.card?.kind === "verification") return null;
     const previous = timeline[index - 1];
     const key = blockKey(m);
     const prevKey = previous ? blockKey(previous) : null;
@@ -283,6 +284,20 @@ export default function MessageList(props: Props) {
     // that spawned it), not a transition back to plain conversation.
     const boundary = key !== prevKey && key !== "conversation";
     const systemText = systemLineText(m, (name) => roleLabelForName(agents, name));
+    // Empty agent rows are streaming/residue artifacts: no text, card, reasoning
+    // or activity to show. System lines and live replies are kept.
+    if (
+      m.authorType === "agent" &&
+      systemText === null &&
+      !m.streaming &&
+      !m.content?.trim() &&
+      !m.card &&
+      !m.reasoning &&
+      !hasActivityTimeline(m) &&
+      !m.interrupted &&
+      !m.stopped &&
+      !m.cutOff
+    ) return null;
     const sameTaskTurn = (item: any) => {
       if (blockKey(item) === key) return true;
       if (m.replyToMessageId && item?.replyToMessageId === m.replyToMessageId) return true;
@@ -406,22 +421,7 @@ export default function MessageList(props: Props) {
           const qaEvents = (projectEvents ?? []).filter((e: any) => String(e.taskId) === resolvedTaskId && e.type === "task.check");
           return (
             <div className="ml-11 mt-2 space-y-2">
-              {/* The CTO's assignment message must show the live task card
-                  directly, with its role routing visible. AssignmentCard
-                  would render the same card a second time, so skip it when
-                  the live task is available. */}
-              {cardTask && (
-                <TaskCard
-                  task={cardTask}
-                  subtasks={subtasksOf.get(resolvedTaskId) ?? []}
-                  pending={pending}
-                  onOpen={onSelectTask}
-                  agents={agents}
-                  approvalMode={projectApprovalMode}
-                  assignees={(deferredAssignment?.card?.data?.assignees ?? m.card?.data?.assignees) as any}
-                />
-              )}
-              {deferredAssignment && !cardTask && <ChatCard card={deferredAssignment.card} />}
+              {deferredAssignment && <ChatCard card={deferredAssignment.card} />}
               {pending.map((a: any) => (
                 <ApprovalCard
                   key={a._id}
@@ -452,7 +452,7 @@ export default function MessageList(props: Props) {
       </div>
       <div className="flex min-w-0 max-w-full items-center gap-1.5">
         {/* Optimistic bubble (not saved yet): no actions on a placeholder id. */}
-        {!m.optimistic && !m.simulated && <MessageActions
+        {!m.optimistic && <MessageActions
           inline
           pinned={Boolean(m.pinned)}
           messageId={m._id}
@@ -503,7 +503,7 @@ export default function MessageList(props: Props) {
         ) : m.pinned ? (
           <Pin size={12} className="text-ink" aria-label="Pinned" />
         ) : null}
-        {!m.simulated && <MessageActions
+        <MessageActions
           pinned={Boolean(m.pinned)}
           messageId={m._id}
           content={m.content}
@@ -514,7 +514,7 @@ export default function MessageList(props: Props) {
           // Personal chat replies carry no project: no second opinion (plan 039 D8).
           onSecondOpinion={m.projectId && m.content?.trim() && !isLive(m) ? () => void requestOpinion(String(m._id)) : undefined}
           personal={!m.projectId}
-        />}
+        />
         {hasActivityTimeline(m) && (() => {
           // Activity timeline replaces the Thought line and the separate
           // Checked / Unverified lines for replies that carry it.
@@ -534,8 +534,10 @@ export default function MessageList(props: Props) {
               </div>
               {hasText && (
                 <div className="mt-1 w-fit min-w-0 max-w-[min(100%,48rem)] rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-2.5 text-ink">
-                  <MessageText content={parseOptions(m.content).text} isAnimating={live || (conversationTyping && index === timeline.length - 1)} />
                   <HandoffLine handoff={m.handoff} />
+                  {!hasHandoff(m) && (
+                    <MessageText content={parseOptions(m.content).text} isAnimating={live || (conversationTyping && index === timeline.length - 1)} />
+                  )}
                 </div>
               )}
               {!live && hasText && (
@@ -589,11 +591,13 @@ export default function MessageList(props: Props) {
               <div className="mt-1 w-fit min-w-0 max-w-[min(100%,48rem)] rounded-2xl rounded-tl-md border border-line bg-panel px-4 py-2.5 text-ink">
                 {hasText ? (
                   <>
-                    <MessageText
-                      content={parseOptions(m.content).text}
-                      isAnimating={isLive(m) || (conversationTyping && index === timeline.length - 1)}
-                    />
                     <HandoffLine handoff={m.handoff} />
+                    {!hasHandoff(m) && (
+                      <MessageText
+                        content={parseOptions(m.content).text}
+                        isAnimating={isLive(m) || (conversationTyping && index === timeline.length - 1)}
+                      />
+                    )}
                   </>
                 ) : (
                   <ReasoningLine text={m.reasoning} running={isLive(m)} seconds={m.reasoningDurationMs} />

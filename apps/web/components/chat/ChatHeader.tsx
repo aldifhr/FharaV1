@@ -1,5 +1,5 @@
 
-import { Bell, GitBranch, History, Menu, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
+import { Bell, History, Menu, MoreHorizontal, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
 import { useQuery } from "@fhara/runtime/react";
 import { api } from "@fhara/runtime/api";
 import { useState } from "react";
@@ -70,7 +70,7 @@ export default function ChatHeader({
   tab: ChatTab;
   onTab: (tab: ChatTab) => void;
   openTaskCount: number;
-  branch: { name: string; taskId: string; taskTitle: string } | null;
+  branch: { name: string; taskId: string } | null;
   onOpenTask: (taskId: string) => void;
   pins: PinnedMessage[] | undefined;
   onJumpToPin: (message: PinnedMessage) => void;
@@ -171,18 +171,6 @@ export default function ChatHeader({
         <div className="mx-auto hidden md:block">{tabs}</div>
 
         <div className="ml-auto flex items-center gap-0.5 md:ml-0">
-          {branch && (
-            <button
-              type="button"
-              onClick={() => onOpenTask(branch.taskId)}
-              title={`Branch of “${branch.taskTitle}”`}
-              className="mr-1 hidden h-8 max-w-[180px] items-center gap-1.5 rounded-lg border border-line px-2.5 text-[13.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 sm:flex"
-            >
-              <GitBranch size={14} className="shrink-0" aria-hidden="true" />
-              <span className="truncate">{branch.name}</span>
-            </button>
-          )}
-
           <div className="relative" ref={ctxPop.ref}>
             <button
               type="button"

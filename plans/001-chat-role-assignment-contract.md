@@ -21,10 +21,10 @@ The worker then refuses the write (`rolePolicy.ts:66-69`) and the task stalls.
 
 | Request | Result |
 | --- | --- |
-| `@QA` + "create index.html" | No QA assignee; role-choice card or a code-writing owner |
+| `@QA` + "create index.html" | No QA assignee; CTO or a code-writing owner, no role-choice card |
 | Classifier returns `qa` + `implementation` | Rejected or downgraded; never a code task owner |
 | Offer from a CTO reply | Assignee comes from the validated routing role, not a keyword score |
-| Low/no-confidence write request | Ask the role, do not auto-create a task in the same turn |
+| Low/no-confidence write request | CTO answers and owns the assignment; no role-choice card, ever |
 
 ## Current state
 
@@ -32,7 +32,12 @@ The worker then refuses the write (`rolePolicy.ts:66-69`) and the task stalls.
 - `apps/api/functions/lib/chat/writeOffer.ts:58-59,80-89` — `codeRoleForRequest` (`lib/chat/intent.ts:562-568`) decides the fallback assignee and offer hint.
 - `apps/api/functions/lib/chat/routingClassification.ts:35-49,52-55` — validates fields in isolation; `kind`/`role` pair unchecked.
 - `apps/api/functions/lib/chat/taskAssignees.ts:31-43` — `routedOwners` excludes only the CTO.
-- `apps/api/functions/chat.ts:1207-1232` — role-choice card and `dispatchTaskFromChat` can run in the same turn with `routing === null`.
+- Auto-created chat tasks are dispatched after the CTO/Lead reply (2026-11-27):
+  `chat.ts` passes the first non-CTO structured handoff role as `preferredAgentIds`, so a
+  classifier with no role still gets the owner the CTO actually chose. No owner means no
+  owner is guessed.
+- Assignment cards list only resolved owners (2026-11-27): `startTask.ts:94` no longer falls back to the whole team, and `ChatCard.tsx` hides the empty assignee row. A task with no resolved owner shows no role chips; the orchestrator still decides later.
+- Role-choice fallback removed (2026-11-27): `postRoleChoiceCard`, `ROLE_CHOICE_QUESTION`, `lib/chat/roleChoiceCard.ts` and the web `role_choice` card/`onChooseRole` plumbing are gone; the schema literal stays for stored rows. Low-confidence work is answered by the CTO and dispatched once by `dispatchTaskFromChat`.
 - `apps/api/functions/chat.ts:1236,1279,1353` — `routeInfo` carries `domain`/`topic` only, never `routing.role`.
 - Worker enforcement: `packages/worker/src/utils/rolePolicy.ts:24-26,66-69`.
 - Shared capability source: `apps/api/functions/lib/roles.ts:368-370`.
@@ -73,27 +78,34 @@ only as a topic hint for file paths, never as an owner.
 **Check**: `chat.ts` call sites and `writeOffer.test.ts` updated; no diff in
 tests that only assert keyword behaviour is weakened.
 
-### Step 4: Stop the double action on low confidence
+### Step 4: Remove the role-choice fallback entirely — DONE 2026-11-27
 
-Skip `postRoleChoiceCard` when `autoCreated` is true, or make
-`shouldAutoCreateTask` require an actionable routing for write work. The user's
-pick must be able to redirect the task.
+Decision recorded from the developer: the CTO always decides the owner; there
+is no "ask the user to pick a teammate" path. All three emitters in `chat.ts`
+(CTO pick without an owner, low-confidence work, invalid structured reply) were
+removed, together with the helper, prompt constant, backend module and the web
+card/renderer/`onChooseRole` plumbing. An invalid structured reply now leaves
+the CTO's plain answer standing; no extra bubble is posted.
 
-**Check**: a runtime test where the classifier returns no role creates no task
-and posts exactly one role-choice card.
+The `role_choice` literal stays in the schema and generated datamodel so stored
+rows still validate (additive/reversible rule).
+
+**Check**: no `ROLE_CHOICE_QUESTION` / `postRoleChoiceCard` / `onChooseRole`
+references remain; API + web typecheck pass.
 
 ## Test plan
 
 - `@QA` + write request → no QA in `assignedAgentIds`.
-- Invalid classifier pair → no owner, role-choice card.
+- Invalid classifier pair → no owner, no role-choice card.
 - Valid `frontend` + implementation → Frontend assignee and hard hint.
-- Low-confidence work request → card only, zero tasks.
+- Low-confidence work request → CTO answer and at most one task, zero cards.
 - A retry of the same request does not create a second task.
 
 ## Completion criteria
 
 - [ ] No code-writing decision comes from `codeRoleForRequest`.
 - [ ] No read-only role can appear as `assigneeAgentId` for implementation work.
+- [ ] No role-choice card is emitted anywhere in chat.
 - [ ] `pnpm --filter @fhara/api run typecheck` passes.
 - [ ] Focused API chat/assignee/offers tests pass; new cases fail before the fix.
 

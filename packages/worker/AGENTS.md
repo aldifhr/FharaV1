@@ -43,9 +43,11 @@ import backend internals.
 - `policy.ts#loadPolicy()` is the only place execution limits are read. Add a
   knob there with `intFromEnv` / `boolFromEnv` (with min/max), then read it from
   `ExecutionPolicy`. Do not scatter `process.env` reads through the runner.
-- The orchestrator is authoritative by default (`ORCHESTRATOR_AUTHORITATIVE`).
-  Its `ExecutionPlan` is the plan that runs; the planner is a subroutine. Do not
-  add a second routing path or a second planner call.
+- The CTO is the single planning authority: it decides WHAT and WHO. The
+  orchestrator is execution infrastructure that translates the CTO decision
+  into the `ExecutionPlan` that runs; the planner is a subroutine. Do not add a
+  second routing path or a second planner call. `ORCHESTRATOR_AUTHORITATIVE`
+  now gates that translation, not a competing planner.
 - Decisions are `APPROVE | REJECT | REVISE | COMPLETE | BLOCKED` in the
   evaluation layer, and `execute | delegate | parallel | replan | complete |
   ask_user` in the decision engine (`orchestrator/decision.ts`). The engine

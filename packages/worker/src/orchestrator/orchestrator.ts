@@ -18,6 +18,8 @@ import {
 import type { FixCandidate } from "./ownership";
 import type { RoutingAdjustment } from "./planner";
 import { routePrimaryAgent, evaluateDelegation, type DelegationDecision } from "./delegation";
+import { validateCtoDecision } from "./ctoDecision";
+import type { CtoDecision } from "./ctoDecision";
 
 export interface OrchestratorInput {
   taskId: string;
@@ -279,6 +281,14 @@ export interface AuthoritativePlanResult {
    */
   primaryAgent: AgentDefinition | null;
   primaryCapability: string;
+  /** CTO's validated role decision and any registry/guard refusal, for the event log. */
+  ctoDecision?: {
+    requestedRole: string;
+    capability: string;
+    reason: string;
+    accepted: boolean;
+    refusal?: string;
+  };
 }
 
 /**
@@ -302,7 +312,7 @@ export async function createAuthoritativePlan(
   }
   const classification = input.classification ?? classifyCommand(input.command);
 
-  const orchestratorPlan = createOrchestratorPlan({
+  let orchestratorPlan = createOrchestratorPlan({
     taskId: input.taskId,
     projectId: input.projectId,
     command: input.command,
@@ -319,6 +329,7 @@ export async function createAuthoritativePlan(
   let degradedReason: string | undefined;
   let droppedHintKeys: string[] | undefined;
   let routingAdjustments: RoutingAdjustment[] | undefined;
+  let ctoDecisionFromPlanner: CtoDecision | null = null;
 
   if (input.storedPlan) {
     // Plan 025: a stored version that lost its requirement list (an older
@@ -355,17 +366,48 @@ export async function createAuthoritativePlan(
     });
     plan = created.plan;
     createdBy = created.createdBy;
+    ctoDecisionFromPlanner = created.ctoDecision ?? null;
     degradedReason = created.degradedReason;
     droppedHintKeys = created.droppedHintKeys;
     routingAdjustments = created.routingAdjustments;
   }
 
   const firstSubtask = plan.subtasks[0];
-  const primaryAgent = firstSubtask
+  let primaryAgent = firstSubtask
     ? routeCapability(firstSubtask.capability, input.agents, {
         allowFallback: input.policy.allowFallback,
       })
     : null;
+  let primaryCapability = firstSubtask?.capability ?? orchestratorPlan.primaryCapability;
+  const decision: CtoDecision | null = ctoDecisionFromPlanner;
+  let ctoDecision: AuthoritativePlanResult["ctoDecision"];
+  if (decision) {
+    const validated = validateCtoDecision(decision, input.agents);
+    if (validated.ok) {
+      primaryAgent = validated.agent;
+      primaryCapability = validated.capability;
+      orchestratorPlan = {
+        ...orchestratorPlan,
+        primary: validated.agent,
+        primaryCapability: validated.capability,
+        reasoning: [...orchestratorPlan.reasoning, `CTO selected ${validated.agent.name}`],
+      };
+      ctoDecision = {
+        requestedRole: decision.role,
+        capability: decision.capability,
+        reason: decision.reason,
+        accepted: true,
+      };
+    } else {
+      ctoDecision = {
+        requestedRole: decision.role,
+        capability: decision.capability,
+        reason: decision.reason,
+        accepted: false,
+        refusal: validated.reason,
+      };
+    }
+  }
 
   return {
     orchestratorPlan,
@@ -375,6 +417,7 @@ export async function createAuthoritativePlan(
     droppedHintKeys,
     routingAdjustments,
     primaryAgent,
-    primaryCapability: firstSubtask?.capability ?? orchestratorPlan.primaryCapability,
+    primaryCapability,
+    ...(ctoDecision ? { ctoDecision } : {}),
   };
 }

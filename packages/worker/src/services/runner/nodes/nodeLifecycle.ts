@@ -86,7 +86,9 @@ export async function startNode(env: NodeLifecycleEnv, node: SchedulerNode, atte
   env.siblings.started(node.id);
   const subtask = subtaskOf(ctx, node.id)!;
   const agent = ctx.assign(node.id);
-  if (!agent) throw new Error(`No enabled agent for capability ${subtask.capability}`);
+  // Plan 006: no capable agent is not a crash. Leave the node to `runNode`,
+  // which returns the runnable "unroutable" outcome (blocked, not a replan).
+  if (!agent) return;
   ctx.activeByAgent.set(agent._id, (ctx.activeByAgent.get(agent._id) ?? 0) + 1);
   const modelRouting = await env.resolver.prepare(node.id, agent);
   await logRouted(ctx, node.id, subtask, agent, modelRouting);

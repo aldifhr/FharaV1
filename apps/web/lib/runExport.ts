@@ -324,3 +324,28 @@ export function buildRunJson(run: RunExportData, opts: RunExportOptions): string
     2
   );
 }
+
+// ---------------------------------------------------------------------------
+// Bundles (every run currently loaded on the runs page)
+
+export type RunBundleOptions = RunExportOptions & { projectId?: string | null };
+
+/** One JSON document holding every full trace, newest first as supplied. */
+export function buildRunBundleJson(runs: RunExportData[], opts: RunBundleOptions): string {
+  return JSON.stringify(
+    {
+      exportedAt: new Date(opts.exportedAt).toISOString(),
+      ...(opts.appVersion ? { appVersion: opts.appVersion } : {}),
+      ...(opts.projectId !== undefined ? { projectId: opts.projectId } : {}),
+      count: runs.length,
+      runs,
+    },
+    null,
+    2
+  );
+}
+
+/** The per-run Markdown reports joined with a visible separator. */
+export function buildRunBundleMarkdown(runs: RunExportData[], opts: RunExportOptions): string {
+  return runs.map((run) => buildRunMarkdown(run, opts)).join("\n\n---\n\n");
+}

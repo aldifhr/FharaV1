@@ -299,9 +299,8 @@ export const REVOKED_DEFAULT_CAPABILITIES: Readonly<Record<string, readonly stri
 
 /** Permissions for a fixed role key (null for an unknown/custom role). */
 export function rolePermissionsFor(role: string | undefined): RolePermissions | null {
-  const raw = normalizeRoleKey(role);
-  const key: string = LEGACY_ROLE_SUCCESSORS[raw] ?? raw;
-  return isRoleKey(key) ? ROLES[key].permissions : null;
+  const key = resolveRoleKey(role ?? "");
+  return key ? ROLES[key].permissions : null;
 }
 
 /**
@@ -381,12 +380,9 @@ export function isRoleKey(value: string): value is RoleKey {
 
 /** Role key for a mention like "@QA" / "@frontend", or null if unknown. */
 export function roleKeyForMention(mention: string): RoleKey | null {
-  const raw = mention.replace(/^@/, "").trim().toLowerCase();
+  const raw = (mention.startsWith("@") ? mention.slice(1) : mention).trim().toLowerCase();
   if (!raw) return null;
-  if (isRoleKey(raw)) return raw;
-  if (LEGACY_ROLE_SUCCESSORS[raw]) return LEGACY_ROLE_SUCCESSORS[raw];
-  const byLabel = ROLE_KEYS.find((key) => ROLES[key].label.toLowerCase() === raw);
-  return byLabel ?? null;
+  return resolveRoleKey(raw);
 }
 
 /**
@@ -398,6 +394,8 @@ const ROLE_ALIASES: Readonly<Record<string, RoleKey>> = {
   ...LEGACY_ROLE_SUCCESSORS,
   "ui/ux": "designer",
   "ui/ux designer": "designer",
+  "dev ops engineer": "devops",
+  "dev-ops engineer": "devops",
   "frontend-developer": "frontend",
   developer: "frontend",
   "backend-developer": "backend",
@@ -434,11 +432,8 @@ export function isCtoRole(role: string): boolean {
 
 /** Stack-neutral chat area for a role (null for an unknown/custom role). */
 export function roleChatSummary(role: string | undefined): string | null {
-  const raw = normalizeRoleKey(role);
-  const key: string = LEGACY_ROLE_SUCCESSORS[raw] ?? raw;
-  if (isRoleKey(key)) return ROLES[key].chatSummary;
-  const byLabel = ROLE_KEYS.find((k) => ROLES[k].label.toLowerCase() === raw);
-  return byLabel ? ROLES[byLabel].chatSummary : null;
+  const key = resolveRoleKey(role ?? "");
+  return key ? ROLES[key].chatSummary : null;
 }
 
 /** Role label for a role key, e.g. "frontend" -> "Frontend". */

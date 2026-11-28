@@ -10,6 +10,7 @@ export const TASK_STATUSES = [
   "done",
   "failed",
   "rejected",
+  "blocked",
   "cancelled",
 ] as const;
 
@@ -22,6 +23,7 @@ const TASK_STATUS_LABEL: Record<string, string> = {
   done: "Done",
   failed: "Failed",
   rejected: "Rejected",
+  blocked: "Blocked",
   cancelled: "Cancelled",
 };
 
@@ -46,7 +48,13 @@ export function isParkedLegacyDirect(status: string | undefined, task?: { mode?:
 
 /** Terminal task statuses: the task will not progress on its own. */
 export function isClosedStatus(status: string | undefined): boolean {
-  return status === "done" || status === "failed" || status === "rejected" || status === "cancelled";
+  return (
+    status === "done" ||
+    status === "failed" ||
+    status === "rejected" ||
+    status === "blocked" ||
+    status === "cancelled"
+  );
 }
 
 /**
@@ -54,7 +62,7 @@ export function isClosedStatus(status: string | undefined): boolean {
  * deliberate user decision; re-queuing it would silently undo that decision.
  */
 export function canRetryTask(status: string | undefined): boolean {
-  return status === "failed";
+  return status === "failed" || status === "blocked";
 }
 
 /** Subtask statuses from `schema.ts` `subtaskStatus`. */

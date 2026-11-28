@@ -1,8 +1,8 @@
 
 import { usePathname, useRouter } from "@/lib/spaRouter";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useMutation, useQuery } from "@fhara/runtime/react";
-import { Activity, BookOpen, Brain, FlaskConical, Home, Inbox, Menu, Plug, Plus, ScrollText, Sparkles, X } from "lucide-react";
+import { Activity, BookOpen, Brain, Home, Inbox, Menu, Plus, ScrollText, Sparkles, X } from "lucide-react";
 import { api } from "@fhara/runtime/api";
 import ConfirmDialog, { type ConfirmRequest } from "./ConfirmDialog";
 import AgentDetailPanel from "./AgentDetailPanel";
@@ -15,7 +15,6 @@ import NeedsYou from "./sidebar/NeedsYou";
 import ProjectList from "./sidebar/ProjectList";
 import TeamList, { type TeamAgent } from "./sidebar/TeamList";
 import { CreateAgentModal } from "./sidebar/AgentForms";
-import ActivityPopover from "./sidebar/ActivityPopover";
 import { InboxNav, NavRow, RailItem } from "./sidebar/SidebarNav";
 import { sidebarNavLinks } from "./sidebar/navLinks";
 import { Logo, SearchBox, SidebarHeader, useShellChords } from "./sidebar/SidebarChrome";
@@ -70,12 +69,10 @@ export default function Sidebar({
 
   const [open, setOpen] = useState<Sections>({ needsYou: true, projects: true, team: true });
   const [commandOpen, setCommandOpen] = useState(false);
-  const [activityOpen, setActivityOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [detail, setDetail] = useState<any>(null);
   const [confirmReq, setConfirmReq] = useState<(ConfirmRequest & { onOk: () => void }) | null>(null);
   const [confirmPending, setConfirmPending] = useState(false);
-  const activityRef = useRef<HTMLButtonElement>(null);
   const toggleSection = (key: keyof Sections) => setOpen((s) => ({ ...s, [key]: !s[key] }));
 
   const openCommand = useCallback(() => setCommandOpen(true), []);
@@ -135,10 +132,6 @@ export default function Sidebar({
 
   const { development } = sidebarNavLinks({ pathname, projectId });
   const inboxActive = pathname === "/inbox";
-  const activity = (
-    <NavRow icon={Activity} label="Activity" buttonRef={activityRef} expanded={activityOpen} onClick={() => setActivityOpen((v) => !v)} />
-  );
-
   // The content pane folds on desktop; the rail's PanelLeft button expands it.
   const contentHidden = isDesktop && collapsedPref;
   const base = "flex h-full w-sidebar shrink-0 flex-col border-r border-line bg-panel text-ink";
@@ -168,17 +161,12 @@ export default function Sidebar({
         ))}
         <RailItem icon={BookOpen} label="Library" href={projectId ? `/library?project=${projectId}` : "/library"} active={pathname === "/library"} />
         <RailItem icon={Brain} label="Memory" href={projectId ? `/memory?scope=project&project=${projectId}` : "/memory"} active={pathname.startsWith("/memory")} />
-        <RailItem icon={FlaskConical} label="Sandbox" href={projectId ? `/sandbox?project=${projectId}` : "/sandbox"} active={pathname === "/sandbox"} />
         <RailItem icon={ScrollText} label="Audit log" href={projectId ? `/audit?project=${projectId}` : "/audit"} active={pathname === "/audit"} />
-        {projectId ? (
-          <RailItem icon={Activity} label="Activity" buttonRef={activityRef} expanded={activityOpen} onClick={() => setActivityOpen((v) => !v)} />
-        ) : null}
+        <RailItem icon={Activity} label="Activity" href={projectId ? `/activity?project=${projectId}` : "/activity"} active={pathname === "/activity"} />
         <RailItem icon={Sparkles} label="Improve" href={projectId ? `/improve?project=${projectId}` : "/improve"} active={pathname.startsWith("/improve")} />
-        <RailItem icon={Plug} label="Integrations" href="/integrations" active={pathname.startsWith("/integrations")} />
         <div className="mt-auto flex flex-col items-center gap-1">
           <RailItem icon={SettingsIcon} label="Settings" onClick={openShellSettings} />
         </div>
-        {activityOpen && projectId && <ActivityPopover anchor={activityRef.current} projectId={projectId} onClose={() => setActivityOpen(false)} />}
       </aside>
 
       {isDrawer && ownsDrawer && (

@@ -5,11 +5,12 @@
  */
 import { useMemo, useState } from "react";
 import { useAction, useMutation, useQuery } from "@fhara/runtime/react";
-import { RefreshCw } from "lucide-react";
+import { AlertTriangle, BookOpen, Check, GitBranch, Layers, RefreshCw } from "lucide-react";
 import { api } from "@fhara/runtime/api";
 import Modal from "@/components/Modal";
 import ConfirmDialog, { type ConfirmRequest } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toasts";
+import { PageHeader } from "@/components/ui/page-header";
 import { roleLabel } from "@/lib/agentRoles";
 import { SKILL_PERMISSION_LABELS, type SkillPermission } from "@/api/functions/lib/skillGraph";
 
@@ -295,6 +296,16 @@ export function SourcesTab({
     }
   }
 
+  const stats = useMemo(() => {
+    const all = skills ?? [];
+    return {
+      skills: all.length,
+      repos: groups.repos.length,
+      local: groups.local.length,
+      warnings: all.filter((s) => s.usedBy.some((a) => a.missingPermissions.length > 0)).length,
+    };
+  }, [skills, groups]);
+
   const list = (rows: LibrarySkill[]) => (
     <ul className="divide-y divide-line">
       {rows.map((s) => (
@@ -329,63 +340,113 @@ export function SourcesTab({
 
   return (
     <>
-      <header className="flex items-end justify-between gap-4">
-        <h1 className="mt-1 text-[26px] font-semibold tracking-tight">Library</h1>
-      </header>
+      <PageHeader
+        eyebrow="Reusable instructions"
+        title="Library"
+        leading={
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-field border border-line bg-panel text-ink-2">
+            <BookOpen size={17} />
+          </span>
+        }
+        meta={<p className="text-[13.5px] text-ink-2">Skills grouped by where they came from.</p>}
+      />
       <div className="mt-5">{tabs}</div>
-      <p className="mt-6 text-[15px] text-ink-2">
-        {skills === undefined
-          ? "Loading…"
-          : `${groups.repos.length} ${groups.repos.length === 1 ? "source" : "sources"} · ${skills.length} ${skills.length === 1 ? "skill" : "skills"}`}
-      </p>
-      {skills !== undefined && skills.length === 0 && (
-        <p className="mt-10 text-[13px] text-ink-3">No skills yet. Import a repository from the Skills tab.</p>
-      )}
-      <div className="mt-10 grid gap-8">
-        {groups.repos.map(([repo, rows]) => {
-          const first = rows[0].source!;
-          const shas = new Set(rows.map((r) => r.source!.sha));
-          return (
-            <section key={repo} aria-label={repo}>
-              <div className="mb-2 flex items-end justify-between gap-3">
-                <div className="min-w-0">
-                  <a
-                    href={`https://github.com/${repo}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block truncate text-[14px] font-medium text-ink underline-offset-2 hover:underline"
-                  >
-                    {repo}
-                  </a>
-                  <p className="truncate text-[12px] text-ink-3">
-                    {first.license ?? "no license"} · {rows.length} {rows.length === 1 ? "skill" : "skills"} ·{" "}
-                    {shas.size === 1 ? `at ${first.sha.slice(0, 7)}` : `${shas.size} commits`}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  disabled={busy !== null}
-                  onClick={() => handleUpdateAll(repo)}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-line bg-panel px-3 py-1.5 text-[13px] font-medium text-ink outline-none transition hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
-                >
-                  <RefreshCw size={13} className={busy === repo ? "animate-spin" : ""} />
-                  {busy === repo ? "Updating…" : "Update all from source"}
-                </button>
+
+      {skills === undefined ? (
+        <div className="mt-6 space-y-4" aria-label="Loading sources">
+          <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-line bg-panel shadow-card sm:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="p-5">
+                <div className="h-3 w-16 rounded bg-hover" />
+                <div className="mt-3 h-8 w-12 rounded bg-hover" />
               </div>
-              <div className="overflow-hidden rounded-xl border border-line bg-panel">{list(rows)}</div>
-            </section>
-          );
-        })}
-        {groups.local.length > 0 && (
-          <section aria-label="Written here">
-            <div className="mb-2">
-              <p className="text-[14px] font-medium text-ink">Written here</p>
-              <p className="text-[12px] text-ink-3">{groups.local.length} {groups.local.length === 1 ? "skill" : "skills"}</p>
-            </div>
-            <div className="overflow-hidden rounded-xl border border-line bg-panel">{list(groups.local)}</div>
+            ))}
+          </div>
+          <div className="h-64 rounded-2xl border border-line bg-panel shadow-card" />
+        </div>
+      ) : skills.length === 0 ? (
+        <p className="mt-12 rounded-2xl border border-dashed border-line bg-panel px-5 py-10 text-center text-[13px] text-ink-3">
+          No skills yet. Import a repository from the Skills tab.
+        </p>
+      ) : (
+        <>
+          <section
+            aria-label="Source metrics"
+            className="mt-6 grid grid-cols-2 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-panel shadow-card sm:divide-y-0 sm:divide-x lg:grid-cols-4"
+          >
+            {[
+              { label: "Skills", value: stats.skills, note: "total", icon: <Layers size={13} />, tone: "", title: "Skills in the library" },
+              { label: "Sources", value: stats.repos, note: "repositories", icon: <GitBranch size={13} />, title: "GitHub repositories with installed skills" },
+              { label: "Written here", value: stats.local, note: "local skills", icon: <BookOpen size={13} />, title: "Skills written in Fhara" },
+              { label: "Permission gaps", value: stats.warnings, note: "to review", icon: <AlertTriangle size={13} />, tone: stats.warnings > 0 ? "text-warn" : "", title: "Skills used by agents missing a required permission" },
+            ].map((metric) => (
+              <div key={metric.label} className="p-4 sm:p-5" title={metric.title}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-caption">{metric.label}</span>
+                  <span className="flex h-6 w-6 items-center justify-center rounded-md bg-inset text-ink-3">{metric.icon}</span>
+                </div>
+                <div className="mt-2 flex items-baseline gap-2">
+                  <span className={`text-[28px] font-semibold leading-none tracking-[-0.03em] tabular-nums ${metric.tone || "text-ink"}`}>{metric.value}</span>
+                  <span className="truncate text-[12px] text-ink-3">{metric.note}</span>
+                </div>
+              </div>
+            ))}
           </section>
-        )}
-      </div>
+
+          <div className="mt-6 grid gap-5">
+            {groups.repos.map(([repo, rows]) => {
+              const first = rows[0].source!;
+              const shas = new Set(rows.map((r) => r.source!.sha));
+              return (
+                <section key={repo} aria-label={repo} className="overflow-hidden rounded-2xl border border-line bg-panel shadow-card">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
+                    <div className="min-w-0">
+                      <a
+                        href={`https://github.com/${repo}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-1.5 truncate text-[13.5px] font-medium text-ink outline-none transition hover:underline focus-visible:ring-2 focus-visible:ring-ink/30"
+                      >
+                        <GitBranch size={14} className="shrink-0 text-ink-3" />
+                        {repo}
+                      </a>
+                      <p className="mt-0.5 truncate text-[12px] text-ink-3">
+                        {first.license ?? "no license"} · {rows.length} {rows.length === 1 ? "skill" : "skills"} ·{" "}
+                        {shas.size === 1 ? `at ${first.sha.slice(0, 7)}` : `${shas.size} commits`}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={busy !== null}
+                      onClick={() => handleUpdateAll(repo)}
+                      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-field border border-line bg-panel px-2.5 text-[12.5px] text-ink-2 outline-none transition hover:bg-hover hover:text-ink focus-visible:ring-2 focus-visible:ring-ink/30 disabled:opacity-40"
+                    >
+                      <RefreshCw size={13} className={busy === repo ? "animate-spin" : ""} />
+                      {busy === repo ? "Updating…" : "Update all"}
+                    </button>
+                  </div>
+                  {list(rows)}
+                </section>
+              );
+            })}
+            {groups.local.length > 0 && (
+              <section aria-label="Written here" className="overflow-hidden rounded-2xl border border-line bg-panel shadow-card">
+                <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
+                  <div>
+                    <p className="flex items-center gap-1.5 text-[13.5px] font-medium text-ink">
+                      <Check size={14} className="text-ink-3" /> Written here
+                    </p>
+                    <p className="mt-0.5 text-[12px] text-ink-3">
+                      {groups.local.length} {groups.local.length === 1 ? "skill" : "skills"}
+                    </p>
+                  </div>
+                </div>
+                {list(groups.local)}
+              </section>
+            )}
+          </div>
+        </>
+      )}
     </>
   );
 }

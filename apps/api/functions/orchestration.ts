@@ -90,6 +90,9 @@ const TERMINAL_TASK_STATUSES: ReadonlySet<string> = new Set([
   "done",
   "failed",
   "rejected",
+  // Plan 006: no capable agent/runtime can do the work. Absorbing like the
+  // other terminal states, so a late worker cannot overwrite it.
+  "blocked",
   "cancelled",
 ]);
 
@@ -1422,7 +1425,7 @@ export const requestApproval = internalMutation({
     planVersion: v.optional(v.number()),
     workerId: v.optional(v.string()),
   },
-  handler: async (ctx, args): Promise<Id<"approvals">> => {
+  handler: async (ctx, args): Promise<{ approvalId: Id<"approvals">; reused: boolean }> => {
     const now = Date.now();
     const existing = await ctx.db
       .query("approvals")
@@ -1437,7 +1440,7 @@ export const requestApproval = internalMutation({
     const task = await ctx.db.get(args.taskId);
     if (task && TERMINAL_TASK_STATUSES.has(task.status)) {
       const prior = existing.find((approval) => approval.kind === args.kind);
-      if (prior) return prior._id;
+      if (prior) return { approvalId: prior._id, reused: true };
       throw new Error(
         `Task is already ${task.status}; approvals can no longer be requested`
       );
@@ -1453,7 +1456,24 @@ export const requestApproval = internalMutation({
         approval.kind === args.kind &&
         (approval.subtaskKey ?? null) === (args.subtaskKey ?? null)
     );
-    if (pending) return pending._id;
+    if (pending) return { approvalId: pending._id, reused: false };
+
+    const pathsOf = (payload: unknown): string => {
+      const record = payload as { filePaths?: unknown } | null;
+      return Array.isArray(record?.filePaths) ? record.filePaths.join("|") : "";
+    };
+    const requestedPaths = pathsOf(args.payload);
+    const alreadyApproved = requestedPaths
+      ? existing.find(
+          (approval) =>
+            approval.status === "approved" &&
+            approval.kind === args.kind &&
+            (approval.subtaskKey ?? null) === (args.subtaskKey ?? null) &&
+            (approval.planVersion ?? null) === (args.planVersion ?? null) &&
+            pathsOf(approval.payload) === requestedPaths
+        )
+      : undefined;
+    if (alreadyApproved) return { approvalId: alreadyApproved._id, reused: true };
 
     const approvalId = await ctx.db.insert("approvals", {
       taskId: args.taskId,
@@ -1509,7 +1529,7 @@ export const requestApproval = internalMutation({
       subtaskKey: args.subtaskKey,
       level: "warn",
     });
-    return approvalId;
+    return { approvalId, reused: false };
   },
 });
 
@@ -1851,6 +1871,8 @@ export const completeTask = internalMutation({
     errorMessage: v.optional(v.string()),
     /** A Done that comes with a caveat, e.g. "QA blocked: …". Only stored on done. */
     completionWarning: v.optional(v.string()),
+    /** Why the task is blocked (plan 006). Only stored on blocked. */
+    blockedReason: v.optional(v.string()),
     workerId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -1892,6 +1914,8 @@ export const completeTask = internalMutation({
       errorMessage: args.errorMessage,
       completionWarning:
         args.status === "done" && args.completionWarning?.trim() ? args.completionWarning.trim().slice(0, 500) : undefined,
+      blockedReason:
+        args.status === "blocked" && args.blockedReason?.trim() ? args.blockedReason.trim().slice(0, 500) : undefined,
       completedAt: now,
       updatedAt: now,
       workerId: undefined,
@@ -1908,10 +1932,12 @@ export const completeTask = internalMutation({
         type: `task.${args.status}`,
         payload: args.errorMessage
           ? { error: args.errorMessage.slice(0, 500) }
-          : args.status === "done" && args.completionWarning?.trim()
-            ? { warning: args.completionWarning.trim().slice(0, 500) }
-            : {},
-        level: args.status === "failed" ? "error" : "info",
+          : args.status === "blocked" && args.blockedReason?.trim()
+            ? { reason: args.blockedReason.trim().slice(0, 500) }
+            : args.status === "done" && args.completionWarning?.trim()
+              ? { warning: args.completionWarning.trim().slice(0, 500) }
+              : {},
+        level: args.status === "failed" ? "error" : args.status === "blocked" ? "warn" : "info",
       });
       const executions = await ctx.db
         .query("executions")

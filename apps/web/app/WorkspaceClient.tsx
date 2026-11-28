@@ -1,5 +1,5 @@
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "@/lib/spaRouter";
 import { AnimatePresence, motion } from "framer-motion";
 import Sidebar from "@/components/Sidebar";
@@ -12,66 +12,8 @@ import { DESKTOP_QUERY, useMediaQuery } from "@/lib/useMediaQuery";
 import { takeRequestedThread } from "@/lib/pendingThread";
 import { threadLinkView, type ThreadLink } from "@/lib/threadTree";
 import ThreadNotFound from "@/components/shell/ThreadNotFound";
-import { SectionLoading, WorkspaceProvider, type Agent, type Task, type SimulatedTaskThread, type WorkspaceContextValue } from "./WorkspaceContext";
+import { SectionLoading, WorkspaceProvider, type Agent, type Task, type WorkspaceContextValue } from "./WorkspaceContext";
 import { PANEL_DEFAULT_WIDTH, panelMaxWidthForViewport } from "@/lib/useResizablePanel";
-import { InspectorHeader, InspectorSurface } from "@/components/ui/inspector";
-import { StatusTag } from "@/components/ui/status-tag";
-import InitialAvatar from "@/components/InitialAvatar";
-import MessageText from "@/components/chat/MessageText";
-import { ChevronLeft, CheckCircle2, Loader2 } from "lucide-react";
-
-function SimulatedTaskThreadPanel({
-  thread, projectName, collapsed, panelWidth, panelMaxWidth, fullScreen, onPanelWidthChange, onToggle, onClose,
-}: {
-  thread: SimulatedTaskThread;
-  projectName?: string;
-  collapsed: boolean;
-  panelWidth: number;
-  panelMaxWidth: number;
-  fullScreen: boolean;
-  onPanelWidthChange: (width: number) => void;
-  onToggle: () => void;
-  onClose: () => void;
-}) {
-  const surface = fullScreen ? "sheet" : "docked";
-  if (collapsed && !fullScreen) return (
-    <aside className="flex h-full w-11 shrink-0 items-start justify-center border-l border-line bg-panel pt-4">
-      <button type="button" onClick={onToggle} title="Expand task thread" aria-label="Expand task thread" className="rounded-lg p-1.5 text-ink-3 hover:bg-hover hover:text-ink"><ChevronLeft size={17} /></button>
-    </aside>
-  );
-  return (
-    <InspectorSurface variant={surface} width={panelWidth} maxWidth={panelMaxWidth} onWidthChange={onPanelWidthChange} resizeLabel="Resize task thread">
-      <InspectorHeader
-        title={thread.task.title}
-        subtitle={<>Task thread · {projectName ?? "Workspace"} · Simulation</>}
-        status={<StatusTag tone={thread.task.status === "done" ? "ok" : "active"}>{thread.task.status === "done" ? "Done" : "In progress"}</StatusTag>}
-        onClose={onClose}
-        closeLabel="Close task thread"
-        actions={!fullScreen ? <button type="button" onClick={onToggle} aria-label="Collapse task thread" className="rounded-field p-1.5 text-ink-3 hover:bg-hover hover:text-ink"><ChevronLeft size={16} /></button> : undefined}
-      />
-      <div className="border-b border-line bg-hover/50 px-5 py-2 text-[12px] text-ink-3">Scripted preview only. No LLM calls, backend task, or repository changes.</div>
-      <div className="shell-scroll min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
-        {thread.subtasks.map((subtask: any) => (
-          <div key={subtask._id} className="flex items-center gap-2 text-[13px] text-ink-2">
-            {subtask.status === "completed" ? <CheckCircle2 size={15} className="text-ok" /> : subtask.status === "running" ? <Loader2 size={15} className="animate-spin text-ink-2" /> : <span className="h-3.5 w-3.5 rounded-full border border-line-strong" />}
-            <span className="flex-1">{subtask.title}</span><span className="text-[12px] text-ink-3">{subtask.status}</span>
-          </div>
-        ))}
-        <div className="border-t border-line pt-5" />
-        {thread.messages.map((message: any) => (
-          <div key={message._id} className={`flex gap-3 ${message.authorType === "user" ? "justify-end" : ""}`}>
-            {message.authorType !== "user" && <InitialAvatar name={message.role ?? "Team"} size={30} agent />}
-            <div className={`min-w-0 max-w-[90%] ${message.authorType === "user" ? "rounded-xl bg-hover px-3.5 py-2.5" : "flex-1"}`}>
-              <p className="mb-1 text-[13px] font-semibold text-ink">{message.authorType === "user" ? "You" : message.role}</p>
-              <MessageText content={message.content} size="sm" />
-            </div>
-          </div>
-        ))}
-        {thread.task.status === "done" && <p className="text-center text-[12px] text-ink-3">Simulation finished</p>}
-      </div>
-    </InspectorSurface>
-  );
-}
 
 function WorkspaceShell({
   projectId,
@@ -92,21 +34,11 @@ function WorkspaceShell({
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const panelMaxWidth = panelMaxWidthForViewport(viewportWidth);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [simulatedThread, setSimulatedThread] = useState<SimulatedTaskThread | null>(null);
   const [threadCollapsed, setThreadCollapsed] = useState(false);
   const [panelWidth, setPanelWidth] = useState(() => Math.min(PANEL_DEFAULT_WIDTH, panelMaxWidth));
   const [highlightAgentId, setHighlightAgentId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const userClosedRef = useRef(false);
-  const openSimulatedThread = useCallback((thread: SimulatedTaskThread) => {
-    userClosedRef.current = false;
-    setSimulatedThread(thread);
-    setSelectedTaskId(thread.task._id);
-    setThreadCollapsed(false);
-  }, []);
-  const updateSimulatedThread = useCallback((thread: SimulatedTaskThread) => {
-    setSimulatedThread((current) => current?.task._id === thread.task._id ? thread : current);
-  }, []);
   /** The deep link (`project:thread`) whose selection was applied; see the deep-link effect. */
   const appliedLinkRef = useRef<string | null>(null);
   /** Thread handed over by the link that opened this project (see `lib/pendingThread.ts`). */
@@ -190,7 +122,6 @@ function WorkspaceShell({
         : takeRequestedThread(projectId);
     requestedThread.current = { projectId, taskId: requested };
     setSelectedTaskId(taskParam ?? requested);
-    setSimulatedThread(null);
     setThreadCollapsed(false);
     setSidebarOpen(false);
     userClosedRef.current = false;
@@ -214,7 +145,6 @@ function WorkspaceShell({
   const closeThread = () => {
     userClosedRef.current = true;
     setSelectedTaskId(null);
-    setSimulatedThread(null);
     // A deep-linked thread is the main view: closing it returns to the project chat.
     if (deepLinked) router.replace(`/project/${projectId}`);
   };
@@ -227,9 +157,6 @@ function WorkspaceShell({
     threadCollapsed,
     highlightAgentId,
     selectTask: (taskId: string) => { userClosedRef.current = false; setSelectedTaskId(taskId); setThreadCollapsed(false); },
-    simulatedThread,
-    openSimulatedThread,
-    updateSimulatedThread,
     toggleThread: () => setThreadCollapsed((collapsed) => !collapsed),
     closeThread,
     openAgent,
@@ -239,20 +166,7 @@ function WorkspaceShell({
     linkedConversationClosed: linkView === "conversation" && link?.status !== "active",
   };
 
-  const thread = selectedTaskId ? simulatedThread?.task._id === selectedTaskId ? (
-    <SimulatedTaskThreadPanel
-      key={selectedTaskId}
-      thread={simulatedThread}
-      projectName={(project as any)?.name}
-      collapsed={isDesktop && threadCollapsed}
-      panelWidth={panelWidth}
-      panelMaxWidth={panelMaxWidth}
-      fullScreen={!isDesktop || deepLinked}
-      onPanelWidthChange={setPanelWidth}
-      onToggle={() => setThreadCollapsed((collapsed) => !collapsed)}
-      onClose={closeThread}
-    />
-  ) : (
+  const thread = selectedTaskId ? (
     <TaskThreadPanel
       key={selectedTaskId}
       taskId={selectedTaskId}

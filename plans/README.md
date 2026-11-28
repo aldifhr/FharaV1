@@ -12,10 +12,14 @@ execution order and a definition of done.
 
 | Plan | Title | Priority | Size | Dependencies | State |
 | --- | --- | --- | --- | --- | --- |
-| 001 | [Chat role-assignment contract](001-chat-role-assignment-contract.md) | P1 | L | — | TODO (audit 2026-11-27: read-only role assigned to write work, keyword offer fallback, low-confidence double action) |
-| 002 | [Worker capability resolution contract](002-worker-capability-resolution-contract.md) | P2 | M | 001 | TODO (audit 2026-11-27: regex role table vs shared registry, three resolvers disagree) |
+| 001 | [Chat role-assignment contract](001-chat-role-assignment-contract.md) | P1 | L | — | TODO (step 4 DONE 2026-11-27: role-choice fallback removed entirely; steps 1–3 remain) |
+| 002 | [Worker capability resolution contract](002-worker-capability-resolution-contract.md) | P2 | M | 001 | DONE 2026-11-27 (one resolver, no regex, shell/write capability enforced at route) |
 | 003 | [Structured handoff and mention contract](003-structured-handoff-and-mention-contract.md) | P1 | L | 001 | TODO (audit 2026-11-27: CTO/Lead prompts contradict structured handoff; 17/19 handoff tests fail at HEAD) |
 | 004 | [Unowned-finding decision outcome](004-unowned-finding-decision-outcome.md) | P2 | M | — | TODO (audit 2026-11-27: non-budget BLOCKED reported as budget halt) |
+| 005 | [Clear project activity](005-clear-project-activity.md) | P3 | S | — | DONE 2026-11-27 |
+| 006 | [Runtime-aware capability discovery and Blocked outcome](006-runtime-capability-discovery.md) | P1 | L | 001, 002, 004 | IN PROGRESS 2026-11-27 (discovery module + terminal `blocked` + task badge done; per-agent live probe not wired) |
+| 007 | [CTO as the single planning authority](007-cto-as-orchestrator.md) | P0 | L | 001, 003, 006 | IN PROGRESS 2026-11-28 (C1–C5, C7–C12, C14–C18 done incl. CTO-first chat routing; remaining: C13 runtime probe, C16 plan 003, test-debt cleanup) |
+| 008 | [Reuse an approved apply snapshot](008-approval-snapshot-reuse.md) | P0 | M | — | DONE 2026-11-28 (no repeated approval card for the same file set) |
 
 Allowed states: `TODO`, `IN PROGRESS`, `DONE`, `BLOCKED: <reason>`,
 `REJECTED: <reason>`.

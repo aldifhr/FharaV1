@@ -160,3 +160,24 @@ describe("eventResume helpers", () => {
     expect(hasGap(0, [{ _id: "d", sequence: 9, _creationTime: 1 }])).toBe(false);
   });
 });
+
+describe("clearByProject", () => {
+  test("removes only the selected project's events", async () => {
+    const t = runtimeTest(schema, modules);
+    const { projectId, otherProjectId } = await t.run(async (ctx) => {
+      const projectId = await ctx.db.insert("projects", { name: "P", workspacePath: "/tmp/p" });
+      const otherProjectId = await ctx.db.insert("projects", { name: "Q", workspacePath: "/tmp/q" });
+      const taskId = await ctx.db.insert("tasks", { projectId, title: "T", command: "do", status: "running" });
+      const otherTaskId = await ctx.db.insert("tasks", { projectId: otherProjectId, title: "U", command: "do", status: "running" });
+      await ctx.db.insert("taskEvents", { taskId, projectId, type: "a" });
+      await ctx.db.insert("taskEvents", { taskId, projectId, type: "b" });
+      await ctx.db.insert("taskEvents", { taskId: otherTaskId, projectId: otherProjectId, type: "keep" });
+      return { projectId, otherProjectId };
+    });
+
+    expect(await t.mutation(api.taskEvents.clearByProject, { projectId })).toEqual({ deleted: 2, more: false });
+    const rows = await t.run((ctx) => ctx.db.query("taskEvents").collect());
+    expect(rows.map((r) => r.type)).toEqual(["keep"]);
+    expect(rows[0].projectId).toBe(otherProjectId);
+  });
+});

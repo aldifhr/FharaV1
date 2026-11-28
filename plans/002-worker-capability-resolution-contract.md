@@ -76,9 +76,27 @@ typecheck pass.
 
 ## Completion criteria
 
-- [ ] One role resolver is used by all three surfaces.
-- [ ] No regex in `agentCapabilities.ts` or the planner role path.
-- [ ] API/worker/web typechecks and focused suites pass.
+- [x] One role resolver is used by all three surfaces.
+- [x] No regex in `agentCapabilities.ts` or the planner role path.
+- [x] API/worker/web typechecks and focused suites pass.
+
+## Outcome (2026-11-27)
+
+- `rolePermissionsFor`, `roleChatSummary`, `roleKeyForMention` now delegate to
+  `resolveRoleKey` (`apps/api/functions/lib/roles.ts`), so "Dev Ops", "Team
+  Lead" and titles resolve identically in chat and the executor.
+- `utils/agentCapabilities.ts` has no `RegExp`: fixed roles read
+  `ROLES[key].registryCapabilities`; only non-role agents keep explicit
+  worker-only token heuristics (security, github, shell).
+- `packages/worker/tests/agentCapabilities.test.ts` pins key/title/spaced
+  parity and whole-token heuristics; `rolePermissions.test.ts`,
+  `capabilities.test.ts` and `roles.test.ts` still pass.
+- `routeCapability` now also refuses a capability whose enforced permissions
+  do not allow it: `shell-execution` needs an `allowlist` shell role,
+  `test-run`/`build-verify` accept `verify`, so a read-only agent cannot own
+  terminal work just by declaring it.
+- Chat auto-task owner selection checks the handoff role: write work requires
+  a code-writing role, a run request a shell-capable one (`chat.ts`).
 
 ## STOP conditions
 

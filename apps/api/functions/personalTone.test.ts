@@ -110,7 +110,7 @@ describe("roles", () => {
     }
     expect(roleChatSummary("Backend")).toBe(ROLES.backend.chatSummary);
     expect(roleChatSummary("backend")).toBe(ROLES.backend.chatSummary);
-    expect(roleChatSummary("Security")).toBeNull();
+    expect(roleChatSummary("Security")).toBe(ROLES.backend.chatSummary);
     expect(ROLES.backend.hint).toContain("FharaRuntime functions, schema, validation");
   });
 

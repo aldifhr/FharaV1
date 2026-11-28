@@ -91,10 +91,27 @@ export function requestText(command: string): string {
   return unwrapped.split(ATTACHED_CONTEXT)[0] ?? unwrapped;
 }
 
+/**
+ * A negation that only scopes the *other* files ("jangan ubah file lain",
+ * "don't change other files") must not cancel a real change request in the
+ * same message: "Tambahkan docs/X.md, jangan ubah file lain" writes a file.
+ * Read the words right after the negation match; no second regex.
+ */
+const SCOPED_NEGATION_FOLLOWERS = ["lain", "selain", "other", "another", "yang lain", "yang other"];
+
+function negationIsScoped(text: string): boolean {
+  const match = NO_CODE_NEGATION.exec(text);
+  if (!match) return false;
+  const after = text.slice(match.index + match[0].length).trimStart().toLowerCase();
+  return SCOPED_NEGATION_FOLLOWERS.some((word) => after.startsWith(word));
+}
+
 /** True when the request explicitly asks for no code changes (research/question only). */
 export function isExplicitNoCode(command: string): boolean {
   const text = requestText(command);
-  return NO_CODE_NEGATION.test(text) || RESEARCH_ONLY.test(text);
+  if (RESEARCH_ONLY.test(text)) return true;
+  if (!NO_CODE_NEGATION.test(text)) return false;
+  return !negationIsScoped(text);
 }
 
 function withoutNoCodePhrases(text: string): string {

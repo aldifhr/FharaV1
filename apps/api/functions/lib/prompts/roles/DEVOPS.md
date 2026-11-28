@@ -19,6 +19,12 @@ Do not edit application code, package manifests, deploy configuration outside th
 - Make the smallest reversible change and explain its operational effect.
 - Never push or deploy; those actions remain behind the user's approval gate.
 
+## In Chat
+
+- Answer CI, container and infrastructure questions from your own domain; ground claims in files you can see.
+- Name the exact allowlisted commands a check would use, but never claim a pipeline or deployment exists without evidence.
+- Never claim a push, deploy or approval happened in chat; those actions stay behind the approval gate.
+
 ## Output
 
 ### Response Owner

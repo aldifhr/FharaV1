@@ -13,7 +13,6 @@ export type Agent = {
 };
 
 export type Task = { _id: string; title: string; status: string };
-export type SimulatedTaskThread = { task: any; subtasks: any[]; messages: any[] };
 
 export interface WorkspaceContextValue {
   projectId: string;
@@ -23,9 +22,6 @@ export interface WorkspaceContextValue {
   threadCollapsed: boolean;
   highlightAgentId: string | null;
   selectTask: (taskId: string) => void;
-  simulatedThread: SimulatedTaskThread | null;
-  openSimulatedThread: (thread: SimulatedTaskThread) => void;
-  updateSimulatedThread: (thread: SimulatedTaskThread) => void;
   toggleThread: () => void;
   closeThread: () => void;
   openAgent: (agentId: string) => void;

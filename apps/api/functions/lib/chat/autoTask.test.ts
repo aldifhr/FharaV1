@@ -10,7 +10,7 @@ const base: AutoTaskInput = {
   autoCreateChatTasks: undefined,
 };
 
-describe("autoTask: only work-shaped, unaddressed messages create a task", () => {
+describe("autoTask: work-shaped messages create a task, addressed or not", () => {
   it("creates for a change request and a run request", () => {
     expect(shouldAutoCreateTask({ ...base, workShaped: true })).toBe(true);
     expect(shouldAutoCreateTask({ ...base, runRequest: true })).toBe(true);
@@ -20,8 +20,12 @@ describe("autoTask: only work-shaped, unaddressed messages create a task", () =>
     expect(shouldAutoCreateTask(base)).toBe(false);
   });
 
-  it("never overrides an @mention, an option pick or pasted text", () => {
-    expect(shouldAutoCreateTask({ ...base, workShaped: true, mentionCount: 1 })).toBe(false);
+  it("keeps a work-shaped task when the To picker addressed an agent", () => {
+    expect(shouldAutoCreateTask({ ...base, workShaped: true, mentionCount: 1 })).toBe(true);
+  });
+
+  it("never overrides an @mention on a chat-only message, an option pick or pasted text", () => {
+    expect(shouldAutoCreateTask({ ...base, mentionCount: 1 })).toBe(false);
     expect(shouldAutoCreateTask({ ...base, workShaped: true, optionPick: true })).toBe(false);
     expect(shouldAutoCreateTask({ ...base, workShaped: true, pasted: true })).toBe(false);
   });

@@ -109,8 +109,6 @@ export default function ChatComposer({
   slashCommands = DEFAULT_SLASH_ENTRIES,
   stop = null,
   dock = null,
-  simulateReplies = false,
-  onToggleSimulation,
 }: {
   draft: string;
   onDraftChange: (value: string) => void;
@@ -159,9 +157,6 @@ export default function ChatComposer({
   stop?: ReplyStop | null;
   /** Docked above the input inside the composer frame (the project's open tasks). */
   dock?: React.ReactNode;
-  /** Local-only project chat replies for testing without calling an LLM. */
-  simulateReplies?: boolean;
-  onToggleSimulation?: () => void;
 }) {
   const toast = useToast();
   const textareaRef = useAutoGrowRef([draft], 200);
@@ -548,22 +543,6 @@ export default function ChatComposer({
         <div className={dock ? "rounded-2xl border border-line bg-panel-2 p-1.5" : undefined}>
           {dock}
           <div className="rounded-2xl border border-line-strong bg-panel shadow-sm transition focus-within:border-ink/30">
-            {onToggleSimulation && (
-              <div className="flex items-center justify-between gap-3 border-b border-line px-3 py-1.5 text-[12px]">
-                <span className={simulateReplies ? "text-warn" : "text-ink-3"}>
-                  {simulateReplies ? "Scripted task flow · no LLM calls" : "Test chat without using LLM quota"}
-                </span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={simulateReplies}
-                  onClick={onToggleSimulation}
-                  className="shrink-0 rounded-md px-2 py-1 font-medium text-ink-2 outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ink/30"
-                >
-                  {simulateReplies ? "Turn off" : "Simulate replies"}
-                </button>
-              </div>
-            )}
             {quote && onCancelQuote && <QuoteBar quote={quote} onCancel={onCancelQuote} />}
             {formatOpen && (
               <div className="flex items-center gap-0.5 border-b border-line px-2 py-1" role="toolbar" aria-label="Formatting">

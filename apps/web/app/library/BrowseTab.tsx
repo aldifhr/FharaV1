@@ -8,10 +8,13 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useAction, useQuery } from "@fhara/runtime/react";
-import { RefreshCw } from "lucide-react";
+import { BookOpen, Check, Download, Layers, RefreshCw, Search } from "lucide-react";
 import { api } from "@fhara/runtime/api";
 import Modal from "@/components/Modal";
 import { useToast } from "@/components/Toasts";
+import { HEADER_ACTION, PageHeader } from "@/components/ui/page-header";
+import { StatusTag } from "@/components/ui/status-tag";
+import { Input } from "@/components/ui/input";
 import {
   catalogCategories,
   catalogInstallUrl,
@@ -185,71 +188,131 @@ export function BrowseTab({ tabs, skills }: { tabs: React.ReactNode; skills: Lib
 
   return (
     <>
-      <header className="flex items-end justify-between gap-4">
-        <h1 className="mt-1 text-[26px] font-semibold tracking-tight">Library</h1>
-        <button type="button" disabled={refreshing} onClick={handleRefresh} className={secondaryButton}>
-          <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} />
-          {refreshing ? "Refreshing…" : "Refresh catalog"}
-        </button>
-      </header>
+      <PageHeader
+        eyebrow="Reusable instructions"
+        title="Library"
+        leading={
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-field border border-line bg-panel text-ink-2">
+            <BookOpen size={17} />
+          </span>
+        }
+        meta={<p className="text-[13.5px] text-ink-2">{summary}</p>}
+        actions={
+          <button type="button" disabled={refreshing} onClick={handleRefresh} className={HEADER_ACTION}>
+            <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} />
+            {refreshing ? "Refreshing…" : "Refresh catalog"}
+          </button>
+        }
+      />
       <div className="mt-5">{tabs}</div>
-      <p className="mt-6 text-[15px] text-ink-2">{summary}</p>
-
-      <div className="mt-6 flex gap-2 max-[560px]:flex-col">
-        <label className="min-w-0 flex-1">
-          <span className="sr-only">Search skills</span>
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search skills"
-            autoComplete="off"
-            spellCheck={false}
-            className={`${field} w-full`}
-          />
-        </label>
-        <label className="shrink-0">
-          <span className="sr-only">Category</span>
-          <select value={category} onChange={(e) => setCategory(e.target.value)} className={`${field} w-full bg-panel pr-8`}>
-            <option value="">All categories</option>
-            {categories.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
 
       {catalog === undefined ? (
-        <p className="mt-8 text-[13px] text-ink-3" aria-label="Loading catalog">
-          Loading…
-        </p>
-      ) : visible.length === 0 ? (
-        <p className="mt-8 text-[13px] text-ink-3">No skills match.</p>
+        <div className="mt-6 space-y-4" aria-label="Loading catalog">
+          <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-line bg-panel shadow-card sm:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="p-5">
+                <div className="h-3 w-16 rounded bg-hover" />
+                <div className="mt-3 h-8 w-12 rounded bg-hover" />
+              </div>
+            ))}
+          </div>
+          <div className="h-64 rounded-2xl border border-line bg-panel shadow-card" />
+        </div>
       ) : (
-        <ul className="mt-6 divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
-          {visible.map((entry) => (
-            <li key={catalogKey(entry.repo, entry.path)} className="flex items-center gap-3 pr-3 transition hover:bg-hover">
-              <button
-                type="button"
-                onClick={() => setDetail(entry as any)}
-                className="min-w-0 flex-1 px-4 py-3 text-left outline-none focus-visible:bg-hover"
-              >
-                <p className="truncate text-[14px] font-medium text-ink">{entry.name}</p>
-                {entry.description && <p className="truncate text-[12.5px] text-ink-2">{entry.description}</p>}
-                <p className="truncate text-[12px] text-ink-3">
-                  {entry.repo} · {licenseText(entry as any)}
-                </p>
-              </button>
-              {action(entry as any)}
-            </li>
+        <section
+          aria-label="Catalog metrics"
+          className="mt-6 grid grid-cols-2 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-panel shadow-card sm:divide-y-0 sm:divide-x lg:grid-cols-4"
+        >
+          {[
+            { label: "Catalog", value: entries.length, note: "skills listed", icon: <Layers size={13} />, tone: "", title: "Skills in the catalog" },
+            { label: "Installed", value: installedCount, note: "in the library", icon: <Check size={13} />, tone: "", title: "Catalog skills already installed" },
+            { label: "Updates", value: updateCount, note: checking ? "checking…" : "available", icon: <Download size={13} />, tone: updateCount > 0 ? "text-warn" : "", title: "Installed skills with a newer upstream version" },
+            { label: "Categories", value: categories.length, note: "groups", icon: <BookOpen size={13} />, tone: "", title: "Categories in the catalog" },
+          ].map((metric) => (
+            <div key={metric.label} className="p-4 sm:p-5" title={metric.title}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-caption">{metric.label}</span>
+                <span className="flex h-6 w-6 items-center justify-center rounded-md bg-inset text-ink-3">{metric.icon}</span>
+              </div>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className={`text-[28px] font-semibold leading-none tracking-[-0.03em] tabular-nums ${metric.tone || "text-ink"}`}>{metric.value}</span>
+                <span className="truncate text-[12px] text-ink-3">{metric.note}</span>
+              </div>
+            </div>
           ))}
-        </ul>
+        </section>
+      )}
+
+      <div className="mt-5 flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[200px] flex-1 sm:max-w-xs">
+          <Search size={14} className="pointer-events-none absolute left-2.5 top-2 text-ink-3" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search catalog"
+            aria-label="Search skills"
+            className="h-[30px] bg-panel pl-8 text-[12.5px]"
+          />
+        </div>
+        <select value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category" className={`${field} h-[30px] w-full bg-panel py-1 text-[12.5px] sm:w-auto`}>
+          <option value="">All categories</option>
+          {categories.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {catalog === undefined ? null : visible.length === 0 ? (
+        <p className="mt-3 rounded-2xl border border-line bg-panel px-5 py-10 text-center text-[13px] text-ink-3">No skills match.</p>
+      ) : (
+        <section className="mt-3 overflow-hidden rounded-2xl border border-line bg-panel shadow-card">
+          <div className="hidden items-center gap-3 border-b border-line px-4 py-2.5 text-caption sm:flex">
+            <span className="min-w-0 flex-1">Skill</span>
+            <span className="hidden w-32 shrink-0 lg:block">Category</span>
+            <span className="w-28 shrink-0">Status</span>
+            <span className="w-24 shrink-0 text-right">Action</span>
+          </div>
+          <ul className="divide-y divide-line">
+            {visible.map((entry) => {
+              const status = statusFor(entry as any).kind;
+              return (
+                <li key={catalogKey(entry.repo, entry.path)} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 transition-colors hover:bg-inset/60">
+                  <button
+                    type="button"
+                    onClick={() => setDetail(entry as any)}
+                    className="flex min-w-0 flex-1 items-start gap-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ink/30 max-sm:basis-full"
+                  >
+                    <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-inset text-ink-3">
+                      <BookOpen size={13} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13.5px] font-medium text-ink">{entry.name}</span>
+                      {entry.description && <span className="mt-0.5 block truncate text-[12px] text-ink-2">{entry.description}</span>}
+                      <span className="mt-0.5 block truncate text-[11.5px] text-ink-3">
+                        {entry.repo} · {licenseText(entry as any)}
+                      </span>
+                    </span>
+                  </button>
+                  <div className="flex shrink-0 items-center gap-3 max-sm:ml-9">
+                    <span className="hidden w-32 shrink-0 truncate text-[12px] text-ink-3 lg:block">{entry.category ?? "—"}</span>
+                    <div className="w-28 shrink-0">
+                      <StatusTag tone={status === "update" ? "warn" : status === "installed" ? "ok" : "neutral"}>
+                        {status === "update" ? "Update" : status === "installed" ? "Installed" : "Available"}
+                      </StatusTag>
+                    </div>
+                    <div className="flex w-24 shrink-0 justify-end">{action(entry as any)}</div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       )}
 
       {catalog && (
-        <p className="mt-6 text-[12px] text-ink-3">
+        <p className="mt-3 text-[12px] text-ink-3">
           Catalog from{" "}
           {catalog.sources.map((s, i) => (
             <span key={s.repo}>

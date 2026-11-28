@@ -11,6 +11,7 @@ import type { Id } from "@fhara/runtime/data";
 import type { PermissionMode } from "../permissionModes";
 import type { RoutingHint } from "../routingHint";
 import { targetsOutsideRepo } from "./intent";
+import { isCtoRole } from "../roles";
 import { type ChatAgent } from "./team";
 import { hintForCommand, resolveTaskAssignees, routedOwners } from "./taskAssignees";
 import type { RoutingClassification } from "./routingClassification";
@@ -81,7 +82,8 @@ async function createChatTask(
       // Marks the offer used: its button shows "Task created".
       ...(opts.offerMessageId ? { offerMessageId: opts.offerMessageId } : {}),
     });
-    const cto = /^(?:cto|architect)$/i;
+    // The CTO is the pool's planner, not an assignee: read it through the one
+    // role resolver, so a CTO stored as "Orchestrator"/"Planner" is hidden too.
     await ctx.runMutation(internal.chatContext.insertSystemLine, {
       ...scope,
       taskId,
@@ -92,7 +94,7 @@ async function createChatTask(
           taskId: String(taskId),
           title: opts.title,
           assignees: assignees
-            .filter((a) => !cto.test(a.role.trim()))
+            .filter((a) => !isCtoRole(a.role))
             .map((a) => ({ agentId: String(a._id), name: a.name, role: a.role })),
           assignedBy: "System",
         },
